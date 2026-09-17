@@ -397,7 +397,7 @@ pays one refusal round.
 `.github/workflows/release.yml`, `scripts/release.mjs` `publish`
 
 The workflow, the skip-if-already-published loop, and the GitHub Release step
-have never run. `npm trust github` has never been run for the nineteen
+have never run. `npm trust github` has never been run for the sixteen
 packages. The by-hand first publish has never been done from this repository.
 
 ---

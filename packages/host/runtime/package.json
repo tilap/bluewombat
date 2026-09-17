@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "The mason process: listen, admit, run Conductor, report. Loads one FeatureManager plugin.",
   "keywords": [
@@ -25,7 +25,7 @@
   },
   "types": "./dist/index.d.ts",
   "bin": {
-    "mason": "./dist/cli.js"
+    "mason": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -46,21 +46,21 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/conductor": "^0.1.0",
-    "@bluewombat/feature-breakdown": "^0.1.0",
-    "@bluewombat/manager-kit": "^0.1.0",
-    "@bluewombat/implementer": "^0.1.0",
-    "@bluewombat/integrator": "^0.1.0",
-    "@bluewombat/isolation-copy": "^0.1.0",
-    "@bluewombat/isolation-git": "^0.1.0",
-    "@bluewombat/isolator": "^0.1.0",
-    "@bluewombat/slots": "^0.1.0",
-    "@bluewombat/work-ledger": "^0.1.0",
-    "@bluewombat/persist-fs": "^0.1.0"
+    "@bluewombat/conductor": "^0.1.1",
+    "@bluewombat/feature-breakdown": "^0.1.1",
+    "@bluewombat/manager-kit": "^0.1.1",
+    "@bluewombat/implementer": "^0.1.1",
+    "@bluewombat/integrator": "^0.1.1",
+    "@bluewombat/isolation-copy": "^0.1.1",
+    "@bluewombat/isolation-git": "^0.1.1",
+    "@bluewombat/isolator": "^0.1.1",
+    "@bluewombat/slots": "^0.1.1",
+    "@bluewombat/work-ledger": "^0.1.1",
+    "@bluewombat/persist-fs": "^0.1.1"
   },
   "devDependencies": {
-    "@bluewombat/manager-fake": "^0.1.0",
-    "@bluewombat/manager-github": "^0.1.0",
-    "@bluewombat/persist-sqlite": "^0.1.0"
+    "@bluewombat/manager-fake": "^0.1.1",
+    "@bluewombat/manager-github": "^0.1.1",
+    "@bluewombat/persist-sqlite": "^0.1.1"
   }
 }

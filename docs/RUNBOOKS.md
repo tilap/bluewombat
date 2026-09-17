@@ -41,12 +41,13 @@ npm run build
 npm publish --workspaces --access public
 ```
 
-Then register the workflow as the publisher of every package (`npm trust` is
-unaware of workspaces, hence one call per directory; npm ≥ 11.15; 2FA prompts
-on the first call only):
+Then register the workflow as the publisher of every package. `npm trust` is
+unaware of workspaces and resolves the repository root even from a package
+directory, so each call names its package (npm ≥ 11.15; 2FA prompts on the
+first call only):
 
 ```bash
-for d in packages/*/*/; do (cd "$d" && npm trust github --file release.yml --repo tilap/bluewombat --allow-publish -y); done
+for d in packages/*/*/; do npm trust github "$(node -p "require('./$d/package.json').name")" --file release.yml --repo tilap/bluewombat --allow-publish -y; done
 ```
 
 No token is stored anywhere. Every later release is the tag alone.

@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/implementer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Transformer: runs one Task — Builder, then Gates — until validated, escalated, or interrupted.",
   "keywords": [
@@ -23,7 +23,7 @@
   },
   "types": "./dist/index.d.ts",
   "bin": {
-    "implementer": "./dist/cli.js"
+    "implementer": "dist/cli.js"
   },
   "files": [
     "dist",

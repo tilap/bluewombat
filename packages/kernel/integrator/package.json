@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/integrator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Transformer: fold a Child directory into an existing Parent, never forced.",
   "keywords": [
@@ -23,7 +23,7 @@
   },
   "types": "./dist/index.d.ts",
   "bin": {
-    "integrator": "./dist/cli.js"
+    "integrator": "dist/cli.js"
   },
   "files": [
     "dist",
