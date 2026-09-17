@@ -44,10 +44,10 @@ first and the caller's flags appended, and it must not trip over the second set.
 | argv       | `ownArgv`, `splitRunner`, `take`, `stageOf`, `GATE_FLAGS`, `BUILDER_FLAGS`, `PLANNER_FLAGS`                                                                            |
 | options    | `parseOptions` — a spec of flags, with choices, fallbacks and repeatable ones                                                                                          |
 | stdout     | `emitVerdict`, `emitFailure`, `emitPlan`, `emitRefusal`                                                                                                                |
-| agent CLIs | `findExecutable`, `runAgent`, `readResult`, `finishRun`, `failureOf`                                                                                                   |
+| agent CLIs | `findExecutable`, `runAgent`, `readResult`, `serializeRun`, `extrasOf`, `finishRun`, `failureOf` — `serializeRun` always writes `skills` / `usage` (`null` = unknown)  |
 | prompts    | `renderPrompt`, `readTemplate`, `PROMPT_RULES` — fill is generic; each role owns its names                                                                             |
 | roles      | `parseRole`, `loadPrompt`, `loadRules`, `fillPrompt`, `spawnFilled`, `transcriptArgs`, `ROLE_OPTIONS` — a role fills its template and hands it to the agent after `--` |
-| transcript | `openTranscript`, `transcriptFor`, `TRANSCRIPT_PARTS`                                                                                                                  |
+| transcript | `openTranscript`, `transcriptFor`, `TRANSCRIPT_PARTS`, `skillsLabel`, `usageLabel` — optional extras on `write`                                                        |
 | plans      | `checkPlan`                                                                                                                                                            |
 | paths      | `pathMatchesGlob`                                                                                                                                                      |
 

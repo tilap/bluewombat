@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentRun } from "./agent.js";
+import type { AgentExtras, AgentRun, AgentUsage } from "./agent.js";
 
 /**
  * One file per turn of the loop, written only when a Project asks for one.
@@ -16,7 +16,9 @@ import type { AgentRun } from "./agent.js";
  * failures — written to disk in the clear. Whoever turns it on should mean it.
  *
  * `parts` is what to keep. Timing is cheap and says nothing about the project,
- * so it is worth keeping when the rest is not.
+ * so it is worth keeping when the rest is not. Skills and usage are header
+ * facts like duration: always written when the wrapper passed them (including
+ * `null` = unknown).
  */
 export const TRANSCRIPT_PARTS = ["prompt", "stdout", "stderr", "timing"] as const;
 
@@ -36,7 +38,7 @@ export type TranscriptSpec = {
   prompt?: string | undefined;
 };
 
-export type Transcript = { write: (run: AgentRun) => void };
+export type Transcript = { write: (run: AgentRun, extras?: AgentExtras) => void };
 
 export function openTranscript(spec: TranscriptSpec): Transcript {
   if (spec.dir === undefined) {
@@ -45,13 +47,13 @@ export function openTranscript(spec: TranscriptSpec): Transcript {
   const dirName = spec.dir;
   const parts = new Set<string>(spec.parts ?? TRANSCRIPT_PARTS);
   return {
-    write(run) {
+    write(run, extras) {
       try {
         const dir = join(dirName, slug(spec.context ?? "no-context"));
         mkdirSync(dir, { recursive: true });
         const stamp = (run.startedAt ?? new Date()).toISOString().replace(/[-:]|\.\d+/g, "");
         const name = `${slug(spec.id ?? "task")}-attempt-${spec.attempt ?? 1}-${stamp}.md`;
-        writeFileSync(join(dir, name), page(spec, run, parts));
+        writeFileSync(join(dir, name), page(spec, run, parts, extras));
       } catch (error) {
         // A transcript is a record of the run, not part of it. Losing one is
         // worth a word on stderr and nothing more.
@@ -61,7 +63,12 @@ export function openTranscript(spec: TranscriptSpec): Transcript {
   };
 }
 
-function page(spec: TranscriptSpec, run: AgentRun, parts: ReadonlySet<string>): string {
+function page(
+  spec: TranscriptSpec,
+  run: AgentRun,
+  parts: ReadonlySet<string>,
+  extras: AgentExtras | undefined,
+): string {
   const lines = [`# ${spec.id ?? "task"} · attempt ${spec.attempt ?? 1}`, ""];
   const facts: [string, string | undefined][] = [
     ["context", spec.context],
@@ -82,6 +89,9 @@ function page(spec: TranscriptSpec, run: AgentRun, parts: ReadonlySet<string>): 
     ["exit", run.error !== undefined ? `did not start: ${run.error.message}` : String(run.code)],
     ["signal", run.signal ?? undefined],
   );
+  if (extras !== undefined) {
+    facts.push(["skills", skillsLabel(extras.skills)], ["usage", usageLabel(extras.usage)]);
+  }
   for (const [name, value] of facts) {
     if (value !== undefined && value !== null && value !== "") {
       lines.push(`- ${name}: ${value}`);
@@ -128,4 +138,25 @@ function slug(value: string): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** `null` is unknown; `[]` is none; otherwise the names in order. */
+export function skillsLabel(skills: string[] | null): string {
+  if (skills === null) {
+    return "unknown";
+  }
+  if (skills.length === 0) {
+    return "(none)";
+  }
+  return skills.join(", ");
+}
+
+/** `null` is unknown; otherwise token counts and optional USD cost. */
+export function usageLabel(usage: AgentUsage | null): string {
+  if (usage === null) {
+    return "unknown";
+  }
+  const cost =
+    usage.costUsd === null ? "" : `, costUsd=${usage.costUsd}`;
+  return `input=${usage.input} output=${usage.output} cacheRead=${usage.cacheRead} cacheWrite=${usage.cacheWrite}${cost}`;
 }

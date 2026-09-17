@@ -8,8 +8,22 @@
  * written in Node would otherwise write again.
  */
 
-export type { AgentInvocation, AgentRun, SerializedRun } from "./agent.js";
-export { deserializeRun, findExecutable, readResult, runAgent, serializeRun } from "./agent.js";
+export type {
+  AgentExtras,
+  AgentInvocation,
+  AgentRun,
+  AgentUsage,
+  SerializeAbout,
+  SerializedRun,
+} from "./agent.js";
+export {
+  deserializeRun,
+  extrasOf,
+  findExecutable,
+  readResult,
+  runAgent,
+  serializeRun,
+} from "./agent.js";
 export {
   BUILDER_FLAGS,
   GATE_FLAGS,
@@ -61,4 +75,4 @@ export {
   transcriptArgs,
 } from "./role.js";
 export type { Transcript, TranscriptPart, TranscriptSpec } from "./transcript.js";
-export { openTranscript, TRANSCRIPT_PARTS } from "./transcript.js";
+export { openTranscript, skillsLabel, TRANSCRIPT_PARTS, usageLabel } from "./transcript.js";

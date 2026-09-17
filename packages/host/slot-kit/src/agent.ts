@@ -120,8 +120,32 @@ export function runAgent({ file, args, cwd }: AgentInvocation): Promise<AgentRun
 }
 
 /**
+ * Token counts a vendor reported for one run. `costUsd` is only present when
+ * the vendor said so (Claude documents `total_cost_usd`; Cursor's json result
+ * does not).
+ */
+export type AgentUsage = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  costUsd: number | null;
+};
+
+/**
+ * Optional facts a vendor wrapper extracted from the run. Always present on
+ * the serialized line: `null` means the wrapper did not learn them (unknown),
+ * an empty `skills` array means it looked and found none.
+ */
+export type AgentExtras = {
+  skills: string[] | null;
+  usage: AgentUsage | null;
+};
+
+/**
  * What an agent CLI writes on stdout so the role that spawned it can classify
  * the run. Dates and `Error` do not survive JSON, so they are strings here.
+ * `skills` and `usage` are always set: `null` is unknown, not "empty".
  */
 export type SerializedRun = {
   name: string;
@@ -135,10 +159,19 @@ export type SerializedRun = {
   startedAt: string;
   endedAt: string;
   durationMs: number;
+  skills: string[] | null;
+  usage: AgentUsage | null;
+};
+
+export type SerializeAbout = {
+  name: string;
+  bin: string;
+  skills?: string[] | null;
+  usage?: AgentUsage | null;
 };
 
 /** The JSON an agent CLI writes after a vendor run. */
-export function serializeRun(run: AgentRun, about: { name: string; bin: string }): SerializedRun {
+export function serializeRun(run: AgentRun, about: SerializeAbout): SerializedRun {
   return {
     name: about.name,
     bin: about.bin,
@@ -151,6 +184,8 @@ export function serializeRun(run: AgentRun, about: { name: string; bin: string }
     startedAt: run.startedAt.toISOString(),
     endedAt: run.endedAt.toISOString(),
     durationMs: run.durationMs,
+    skills: about.skills === undefined ? null : about.skills,
+    usage: about.usage === undefined ? null : about.usage,
   };
 }
 
@@ -173,6 +208,52 @@ export function deserializeRun(raw: Record<string, unknown>): AgentRun | undefin
     startedAt: new Date(raw.startedAt),
     endedAt: new Date(raw.endedAt),
     durationMs: typeof raw.durationMs === "number" ? raw.durationMs : 0,
+  };
+}
+
+/** `skills` / `usage` from a serialized line; both `null` when absent or malformed. */
+export function extrasOf(raw: Record<string, unknown>): AgentExtras {
+  return {
+    skills: skillsOf(raw.skills),
+    usage: usageOf(raw.usage),
+  };
+}
+
+function skillsOf(value: unknown): string[] | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    return null;
+  }
+  return value;
+}
+
+function usageOf(value: unknown): AgentUsage | null {
+  if (value === null || value === undefined || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.input !== "number" ||
+    typeof record.output !== "number" ||
+    typeof record.cacheRead !== "number" ||
+    typeof record.cacheWrite !== "number"
+  ) {
+    return null;
+  }
+  const costUsd =
+    record.costUsd === null
+      ? null
+      : typeof record.costUsd === "number"
+        ? record.costUsd
+        : null;
+  return {
+    input: record.input,
+    output: record.output,
+    cacheRead: record.cacheRead,
+    cacheWrite: record.cacheWrite,
+    costUsd,
   };
 }
 

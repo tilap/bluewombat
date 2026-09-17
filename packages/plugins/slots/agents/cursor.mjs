@@ -12,6 +12,7 @@ import {
   textOption,
   transcriptFor,
 } from "@bluewombat/slot-kit";
+import { extrasFromCursor } from "./cursor-extras.mjs";
 
 // Cursor CLI as a vendor agent. The prompt is already filled: this command
 // does not interpolate. Own options only — a role slot strips Implementer's
@@ -19,7 +20,7 @@ import {
 //   --prompt TEXT / --prompt-file PATH   the filled prompt. One of the two
 //   --bin PATH            the Cursor CLI. Default: cursor-agent, found
 //   --model NAME
-//   --output-format FMT   json (default), text, or stream-json
+//   --output-format FMT   stream-json (default), json, or text
 //   --transcript-dir PATH write one file per turn. Off by default
 //   --transcript-part NAME prompt, stdout, stderr, timing. Repeatable
 //   --agent-arg VALUE     appended before the prompt. Repeatable
@@ -51,6 +52,8 @@ if (bin === undefined) {
 }
 
 const model = textOption(options, "model");
+/** @type {string} */
+const outputFormat = /** @type {string} */ (options.outputFormat);
 const args = [
   "-p",
   "--force",
@@ -60,7 +63,7 @@ const args = [
   "--sandbox",
   "disabled",
   "--output-format",
-  /** @type {string} */ (options.outputFormat),
+  outputFormat,
   ...(model === undefined ? [] : ["--model", model]),
   ...listOption(options, "agentArg"),
   prompt,
@@ -73,8 +76,9 @@ const transcript = transcriptFor(process.argv, options, {
   prompt,
 });
 const run = await runAgent({ file: bin, args, cwd });
-transcript.write(run);
-answer(run, bin);
+const extras = extrasFromCursor(run.stdout, outputFormat);
+transcript.write(run, extras);
+answer(run, bin, extras);
 
 /** @param {string} reason @returns {never} */
 function refuse(reason) {
@@ -85,9 +89,14 @@ function refuse(reason) {
 /**
  * @param {import("@bluewombat/slot-kit").AgentRun} run
  * @param {string} binPath
+ * @param {import("@bluewombat/slot-kit").AgentExtras} extras
  * @returns {never}
  */
-function answer(run, binPath) {
-  process.stdout.write(`${JSON.stringify(serializeRun(run, { name: NAME, bin: binPath }))}\n`);
+function answer(run, binPath, extras) {
+  process.stdout.write(
+    `${JSON.stringify(
+      serializeRun(run, { name: NAME, bin: binPath, skills: extras.skills, usage: extras.usage }),
+    )}\n`,
+  );
   process.exit(0);
 }
