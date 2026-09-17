@@ -1,0 +1,21 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@bluewombat/conductor": ["../../kernel/conductor/src/index.ts"],
+      "@bluewombat/feature-breakdown": ["../../kernel/feature-breakdown/src/index.ts"],
+      "@bluewombat/manager-kit": ["../manager-kit/src/index.ts"],
+      "@bluewombat/implementer": ["../../kernel/implementer/src/index.ts"],
+      "@bluewombat/integrator": ["../../kernel/integrator/src/index.ts"],
+      "@bluewombat/isolator": ["../../kernel/isolator/src/index.ts"],
+      "@bluewombat/manager-fake": ["../../plugins/manager-fake/src/index.ts"],
+      "@bluewombat/manager-github": ["../../plugins/manager-github/src/index.ts"],
+      "@bluewombat/work-ledger": ["../../kernel/work-ledger/src/index.ts"],
+      "@bluewombat/persist-fs": ["../../plugins/persist-fs/src/index.ts"],
+      "@bluewombat/persist-sqlite": ["../../plugins/persist-sqlite/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

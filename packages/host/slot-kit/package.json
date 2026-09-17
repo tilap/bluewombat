@@ -1,0 +1,44 @@
+{
+  "name": "@bluewombat/slot-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "What a Planner, Builder, or Gate written in Node needs to answer the Transformer that spawned it.",
+  "keywords": [
+    "mason",
+    "bluewombat",
+    "plugin",
+    "slot"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/tilap/bluewombat/tree/main/packages/host/slot-kit#readme",
+  "bugs": "https://github.com/tilap/bluewombat/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tilap/bluewombat.git",
+    "directory": "packages/host/slot-kit"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "tsc": "tsc --noEmit",
+    "test": "tsx --test $(find src -name '*.test.ts')",
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

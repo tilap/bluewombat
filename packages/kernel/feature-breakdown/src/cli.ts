@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+import { parseArgs } from "./args/parse-args.js";
+import { readStdinLimited } from "./feature/read-stdin.js";
+import { createStdoutProgressWriter } from "./progress/emit.js";
+import { invalidInvocationResult, runBreakdown } from "./run/run-breakdown.js";
+
+/**
+ * Process signals belong to the binary, not to the Transformer: a Transformer imported into
+ * a host must not hijack the host's SIGINT. The CLI owns the flag it passes in.
+ */
+function installSignalHandlers(state: { interrupted: boolean }): () => void {
+  const onSignal = (): void => {
+    state.interrupted = true;
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  return () => {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  };
+}
+
+async function main(argv: string[]): Promise<number> {
+  const write = createStdoutProgressWriter();
+  const parsed = parseArgs(argv);
+  if (!parsed.ok) {
+    const result = await invalidInvocationResult({
+      cwd: process.cwd(),
+      write,
+      reason: parsed.reason,
+    });
+    return result.exitCode;
+  }
+
+  let featureJson = parsed.invocation.featureJson;
+  if (featureJson === undefined) {
+    featureJson = await readStdinLimited(parsed.invocation.maxFeatureBytes);
+  }
+
+  const interruptFlag = { interrupted: false };
+  const detachSignals = installSignalHandlers(interruptFlag);
+  try {
+    const result = await runBreakdown({
+      invocation: parsed.invocation,
+      featureJson,
+      write,
+      interruptFlag,
+      cwd: process.cwd(),
+    });
+    return result.exitCode;
+  } finally {
+    detachSignals();
+  }
+}
+
+const exitCode = await main(process.argv.slice(2));
+process.exitCode = exitCode;

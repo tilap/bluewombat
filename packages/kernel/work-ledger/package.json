@@ -1,0 +1,43 @@
+{
+  "name": "@bluewombat/work-ledger",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Durable store of FeatureStandards, Subtasks, states, Attempts, and Traces.",
+  "keywords": [
+    "mason",
+    "bluewombat"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/tilap/bluewombat/tree/main/packages/kernel/work-ledger#readme",
+  "bugs": "https://github.com/tilap/bluewombat/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tilap/bluewombat.git",
+    "directory": "packages/kernel/work-ledger"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "SPECS.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "tsc": "tsc --noEmit",
+    "test": "tsx --test $(find src -name '*.test.ts')",
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

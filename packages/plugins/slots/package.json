@@ -1,0 +1,58 @@
+{
+  "name": "@bluewombat/slots",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shipped mason slots: Planners, Builders, Gates, publishers, and refreshers a Project names in its config.",
+  "keywords": [
+    "mason",
+    "bluewombat",
+    "gate",
+    "builder",
+    "planner"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/tilap/bluewombat/tree/main/packages/plugins/slots#readme",
+  "bugs": "https://github.com/tilap/bluewombat/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tilap/bluewombat.git",
+    "directory": "packages/plugins/slots"
+  },
+  "exports": {
+    "./planners/*": "./planners/*",
+    "./builders/*": "./builders/*",
+    "./assembly/*": "./assembly/*",
+    "./agents/*": "./agents/*",
+    "./gates/*": "./gates/*",
+    "./publishers/*": "./publishers/*",
+    "./refreshers/*": "./refreshers/*",
+    "./messages/*": "./messages/*"
+  },
+  "files": [
+    "planners",
+    "builders",
+    "assembly",
+    "agents",
+    "lib",
+    "gates",
+    "README.md",
+    "publishers",
+    "refreshers",
+    "messages"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "tsc": "tsc --noEmit",
+    "test": "tsx --test $(find test -name '*.test.ts')"
+  },
+  "dependencies": {
+    "@bluewombat/slot-kit": "^0.1.0"
+  }
+}

@@ -1,0 +1,12 @@
+.DS_Store
+.cursor/
+.claude/
+node_modules/
+.turbo/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.mason/
+coverage/

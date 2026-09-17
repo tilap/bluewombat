@@ -1,0 +1,473 @@
+---
+title: Reservations
+summary: What is not settled — calls made without agreement, defects found and left, code never run for real, and what would be better.
+covers: []
+---
+
+# Reservations
+
+The complement of [DECISIONS.md](./DECISIONS.md). That file holds what was
+settled; this one holds what was not.
+
+An entry here is a thing someone should look at again. It is not a bug tracker
+and not a backlog: it is the list of places where the code says one thing and
+nobody agreed to it, or where it was never proved.
+
+## How to use it
+
+**Add an entry when any of these is true.** Do it in the same change that
+creates the situation, not later.
+
+| You did this                                                     | Section |
+| ---------------------------------------------------------------- | ------- |
+| Made a call the person you work with never validated             | `C`     |
+| Found a defect, a gap, or something illogical you are not fixing | `F`     |
+| Shipped code you never saw run against the real thing            | `U`     |
+| Left something working but worse than it could be                | `I`     |
+
+**Remove an entry when it is settled** — and if it was a choice, record the
+settlement in [DECISIONS.md](./DECISIONS.md) as you go. An entry that leaves
+this file without landing there was never really decided.
+
+Each entry carries an id (`C1`, `F2`, …) so it can be named in a conversation, a
+commit, or an issue. Ids are never reused.
+
+Every entry has the same three parts: **where**, **what**, and — for a choice —
+**instead**, naming the alternative that was on the table. An entry with no
+location is not actionable; an entry with no alternative is not a choice, it is
+a fault.
+
+---
+
+## C — Calls made without agreement
+
+### C5 · `worktree add -B` resets the branch on every Isolation
+
+`packages/plugins/isolation-git/src/git-worktree.ts` — `addGitWorktree`
+
+`-B` keeps Isolator's contract exactly: the Child is a snapshot of the Parent,
+never the leftovers of an earlier run. But the Submission flow wants the feature
+branch to *keep* receiving commits across refusals. Today the two do not collide
+because a refusal returns the feature to `integrating` without re-isolating —
+the branch survives. **If a resume ever re-isolates a feature that already has a
+Submission, that Submission's history is reset under it.** Nothing prevents that
+today.
+
+**Instead:** name the branch only when it does not exist, and let a resume decide
+explicitly whether it is continuing or starting over.
+
+### C6 · A refusal costs one poll interval
+
+`packages/kernel/conductor/src/run/open-conductor.ts` — `doSubmitted`
+
+After recording a refusal the pass returns `paused` rather than carrying straight
+on into the next assembly, so the work restarts on the next tick. Simple, and it
+keeps `drive` linear; it also means every refusal adds a `pollIntervalMs` of
+doing nothing.
+
+**Instead:** let `drive` loop until the state stops moving.
+
+### C7 · The work line copy is refreshed on every driving pass
+
+`packages/host/runtime/src/loop/tick.ts` — `runOnce`
+
+A pass with nothing to drive fetches nothing. A pass that drives does a
+`git fetch` per run, whether or not anything was folded since the last one.
+Cheap and always correct, and noisy on a short poll interval.
+
+"Something to drive" counts a `received` Feature (`pendingWork`, `SWEEP_STATES`)
+— so a Feature queued behind an `escalated` one, which the sweep will not
+drive, still costs a fetch on every tick for as long as the human takes to
+answer. **Observed** 2026-09-14 (#27 behind #26) and 2026-09-16 (#38 behind
+#37): one `refresh` line per tick, nothing driven.
+
+**Instead:** refresh only after an accepted Submission, which needs the tick to
+know that one happened; or leave `received` out of the refresh guard and let
+the sweep refresh on the tick it actually starts one.
+
+### C8 · A refresh that cannot fast-forward stops the whole pass
+
+`packages/host/runtime/src/loop/tick.ts` — `runOnce`
+
+Every Project stops, not only the one whose work line diverged. Starting work on
+a copy that could not be brought up to date builds on a version that no longer
+exists, so stopping is right; stopping *everything* is broader than the problem.
+
+**Instead:** scope it to the Project that owns that work line, once a Project
+owns its own.
+
+### C11 · The Submission reference is a URL, parsed back with a regular expression
+
+`packages/plugins/manager-github/src/submission/submission.ts` — `numberFromReference`
+
+One field carries both the identity and what a human reads. A reference the
+manager did not mint — hand-edited, or from another host — silently becomes
+`unavailable`.
+
+**Instead:** keep the identity and the display apart in the record.
+
+### C13 · The Gate order in the shipped example
+
+`packages/plugins/slots/README.md` (the example config), and the trial
+project's `mason.config.json`
+
+`workspace-changed` → `parent-clean` → `sensitive-path` → `npm-test`: cheapest
+and most structural first, the Project's own check last. Defensible, never
+agreed.
+
+### C16 · Where a failing job's log is cut
+
+`packages/plugins/slots/gates/ci-green.mjs` — `logOf`
+
+A job's log is the whole run: the runner provisioning itself, every step that
+passed, then the cleanup. On four real failures it was 20-33 KB, of which two
+lines said what was wrong. The report is read by the producer of the next
+Attempt, and by a human on the issue; neither is served by the rest.
+
+The cut follows the runner's own structure: from the last `##[group]Run ` before
+the failure to the `##[error]` that marks it — the failing step, and nothing
+else. Measured over those four failures: 96.5% to 99.2% smaller, 6 to 17 lines.
+
+The alternative, and what was there first, is a fixed window of the last N lines.
+It needs a number nobody can justify, and it cuts by position rather than by
+meaning: a step that prints more than N lines before failing loses its own
+opening, and a step that prints fewer picks up the tail of the step before it.
+
+What this choice costs: a failure whose cause is in an *earlier* step that did
+not stop the job is not in the report, and a step that fails without the runner
+marking `##[error]` — cancelled, or killed from outside — falls back to the last
+step that ran, which is a guess.
+
+### C17 · The slot's bounds became the Project's to write
+
+`packages/host/slot-kit/src/prompt.ts` — `PROMPT_RULES`, `--rules-file`
+
+`{{rules}}` used to be fixed in code, on the reasoning that it is not a matter
+of taste: the Gates read the working tree of one directory, so an agent that
+commits, stashes or writes elsewhere leaves them nothing to see. A Project can
+now replace the whole list.
+
+Asked for, and consistent with the prompts being the Project's. What it costs:
+nothing stops a Project's `--rules-file` dropping "do not commit", and the
+failure that follows is silent in the wrong place — the agent works, the Gate
+says nothing changed, the Attempt is refused for having done nothing. The rule
+still holds; only the sentence saying so is gone. (Leaving `{{rules}}` out of
+the template altogether is no longer possible: the role refuses before the
+agent runs.)
+
+An alternative was a fixed preamble the Project could only add to. It was not
+taken because the same argument would then apply to the prompt templates, which
+are already the Project's entirely.
+
+### C18 · What a transcript keeps, and what it never keeps
+
+`packages/host/slot-kit/src/transcript.ts` — `openTranscript`
+
+One Markdown file per turn — invocation, prompt, stdout, stderr, timing — filed
+under the Feature. Off unless `--transcript-dir` is given.
+
+Off by default because the content is the Project's own material in the clear.
+One file per turn rather than a stream, because the pair that has to be read
+together is a prompt and what came back; a shared log interleaves turns and the
+pairing is lost.
+
+What it does not keep, deliberately: a Gate's raw output — the Gate's report is
+already in the journal, and the raw log is a one-off investigation. What it also
+does not keep, not deliberately: the durations of the Gates. They are derivable
+from the journal's `at` stamps, which is not the same as being written down.
+
+Rotation is nobody's job. A long-running Project accumulates one file per turn
+forever, and nothing prunes them.
+
+### C20 · A queued Feature behind a `submitted` one waits until the next tick
+
+`packages/host/runtime/src/loop/tick.ts` — `driven`
+
+A pass that admits B while A is `submitted` drives A (the active one) and
+marks the Project driven, so the sweep skips B. B starts on the next pass,
+one `pollIntervalMs` later. Driving twice in the same tick would start B the
+moment A became `done`, at the cost of two `runProject` calls and a second
+work-line refresh question.
+
+**Instead:** when `runProject` returns a terminal outcome, drive the same
+Project again in that pass until it is idle or frozen.
+
+---
+
+## F — Faults found and left
+
+### F6 · RUNBOOKS.md says there are no secrets
+
+`docs/RUNBOOKS.md` — "Rotate a leaked secret"
+
+False since `GITHUB_TOKEN`, and more so now that an agent CLI's credentials sit
+in the same environment. The rotation procedure is a placeholder.
+
+### F9 · Two Gates depend on an unstated rule
+
+`packages/plugins/slots/gates/sensitive-path.mjs` compares the workspace against
+`HEAD`, so a Builder that commits its work makes the Gate blind.
+`workspace-changed` catches that today, by refusing a workspace with nothing
+uncommitted. The coupling is real and written only in prose.
+
+### F18 · A producer that ignores its report is not caught
+
+`packages/plugins/slots/builders/repair.mjs` — a producing pass with `--report`
+
+Nothing in the system notices a producing pass that answers a report without
+addressing it: `workspace-changed` only asks whether *something* changed, and
+a pass that changed something for no reason passes it just the same.
+
+The sighting that opened this entry was misread: the agent had made the
+repair, and a fold that ran before the producing pass published it a round
+late, so the same report came back unchanged (fixed; see DECISIONS, "A repair
+produces before the Integration"). From outside, "the agent did nothing" and
+"the agent's work was published a round late" produce the same repeated
+report; only the transcript told them apart. Keep this as a gap, not as a
+sighting — it is not assertable by a test, an agent being what it is.
+
+### F13 · A lost WorkLedger makes mason redo finished work
+
+`packages/host/runtime/src/loop/deliveries.ts` — `handleUpsert`, `IN_FLIGHT_OR_TERMINAL`
+
+The WorkLedger is the only memory. With it gone, every open issue that still
+carries the admission labels is admitted again and rebuilt from scratch, even
+though the tracker already says `mason:done` on it and the work is merged.
+**Observed**: a wiped ledger started rebuilding four features that
+were already merged, and would have opened a pull request for each.
+
+*Mitigated:* the GitHub listener no longer delivers an issue that
+already carries the `done` state label, unless the resume signal is on it too.
+The WorkLedger stays the source of truth; the tracker's own memory is now read
+as a guard against rebuilding what is already merged. It only works when
+`stateLabelPrefix` is set, and a tracker with no state of its own has no such
+guard.
+
+### F12 · `parent-clean` compares a copy Parent by modification time
+
+`packages/plugins/slots/gates/parent-clean.mjs` — `leaksIn`, `referenceTime`
+
+With no `.git` on the Parent there is no baseline, so the Gate takes the
+workspace's oldest file as a reference time. A heuristic, and it is the only
+thing standing between a copy-mode Parent and an undetected leak.
+
+### F23 · A Child costs a full copy of the Parent, `node_modules` included
+
+`packages/plugins/isolation-git/src/copy-working-files.ts` — `copyWorkingFiles`;
+`packages/kernel/integrator/src/fold/working-files.ts` — `snapshotWorkingFiles`
+
+The Child is the Parent's working files, whatever `.gitignore` says. That is
+deliberate: `.cursor/mcp.json`, `CLAUDE.md` and the dependencies reach the
+Builder because of it, and a copy of tracked files alone would read as an agent
+that quietly got worse. What rode along uninvited — secrets — is settled:
+`.env` and `.env.*` never reach a Child, and a Project names its own list
+(`workLine.isolationOptions.exclude`, DECISIONS). What remains is the cost.
+
+**Measured** on a real `node_modules` (11 654 files, 214 MB): the hand copy took
+6 s; the `cp -c` clone the plugin now uses takes 3.7 s and **0 MB** on APFS —
+the bytes are shared. So the disk cost is gone where the file system clones,
+and the time is per-file syscalls, 2n + 2 times per Feature: one Isolation
+into the Feature workspace, one Isolation and one fold snapshot per Subtask,
+one fold snapshot of the work line. The Integrator's snapshot is the kernel's
+own hand copy and knows nothing of `cp`.
+
+Excluding `node_modules` through the list is not the answer as it stands: the
+Gates run in the Child, and a Child with no dependencies fail-blocks on
+`npm-test` (I5). It becomes one the day a Project can say how a Child gets
+its dependencies (an install step, a link to the Parent's).
+
+**Instead:** let the fold backend restore the Parent itself (git can), and drop
+the kernel snapshot for the git strategy; then a way for a Project to exclude
+`node_modules` and still run its Gates.
+
+### F25 · A cancel during `submitted` leaves the pull request open
+
+`packages/host/runtime/src/loop/deliveries.ts` — `handleCancel`;
+`packages/kernel/conductor/src/run/open-conductor.ts` — `cancel`
+
+Abandoning a Feature that has a Submission destroys its workspaces and marks
+the record `cancelled`; nothing tells the Authority. The pull request stays
+open, on a branch nobody will push to again, until a person closes it.
+**Observed** twice, #32 on 2026-09-14 and #47 on 2026-09-16, both closed by
+hand after the run. The Manager Port has `submit` and `fold` and no way to
+withdraw; the record keeps `submission.reference`, so the information is
+there.
+
+**Instead:** a third optional Authority method, `withdraw(reference)`, called
+from `handleCancel` when the record carries a Submission — the GitHub one
+closes the pull request and deletes the branch unless `keepBranch`; or leave
+it, and say so on the `cancelled` comment ("the pull request is yours to
+close").
+
+### F15 · A Gate's report reaches the producer, an Authority's did not
+
+`packages/host/runtime/src/loop/bricks.ts` — `implement`
+
+Conductor passed the refusal report in `ImplementInput`, and `create-bricks`
+built the Implementer invocation without it. The report was recorded in the
+WorkLedger, shown on the tracker, and never reached the prompt: every Attempt
+after a refusal repeated blind.
+
+It survived because `ImplementInput` did not declare the field, so nothing
+complained, and the Conductor test used a fake port that read it directly. Kept
+here as a warning about the shape: a port whose type is looser than its callers
+hides exactly this.
+
+---
+
+## U — Never run against the real thing
+
+Everything here is covered by tests. None of it has been seen working outside
+them.
+
+### U2 · `fold` refusing
+
+`packages/plugins/manager-github/src/submission/submission.ts` — the 405 / 409 branch.
+A pull request that cannot be merged has never been seen.
+
+### U3 · `submit` refusing permanently
+
+Same file. The branch that turns a permanent API failure into an escalation has
+never fired.
+
+### U4 · Copy mode, with everything added since
+
+A WorkLineStable with no `.git`: `workspace-changed` and `sensitive-path` both
+fail-block there, Isolator names no branch, and a Submission is refused outright.
+That whole combination is untested and probably unusable as it stands.
+
+### U7 · `reject_late`
+
+Cancel has run for real on a `received`, an `escalated` and a `submitted`
+Feature (#31 and #46: closed seconds after `## Submitted`, `cancelled` on the
+next tick, the Project free). The point of no return — a cancel arriving in
+`merging` or on a `done` Feature, and the `reject_late` it must answer — has
+only run in unit tests.
+
+### U8 · An interrupt during `submitted`
+
+SIGINT while a feature waits for a verdict.
+
+### U9 · Two Projects at once
+
+One Project has ever run.
+
+### U10 · The `--work-line-branch` flag
+
+Only the config key was exercised. The flag shares its code path, and was never
+typed.
+
+### U11 · No test runs the shipped Gates against a real Authority any more
+
+`integration/03-host-authority-slots` was the one assembly with a real Host on a
+real git work line, a FeatureManager that was also the Authority, and the
+**shipped** Gates — no stub anywhere. It was deleted with `integration/`. It
+guarded two defects by putting them back: the fold before the producing pass,
+and `workspace-changed` blind to the stage (both fixed since, both now rows in
+DECISIONS). What remains:
+`packages/host/runtime/src/loop/open-host-authority.test.ts` (real Host, fake
+manager, publisher and refresher stubbed by a one-line script) and
+`authority.test.ts` (the real `publish` / `refreshWorkLine` against a bare git
+remote, single-branch — the shape that made `--force-with-lease` reject every
+republish). The half those two leave out is a Submission judged from outside by
+the shipped Gates. Nothing gates a commit on it.
+
+The GitHub round trip — issue in, comments, labels, pull request, merge, then
+the red variant — is written down as a five-scenario checklist in the trial
+project (`ttt/test-online/E2E_TESTS.md`, outside this repository), and was run
+in full on 2026-09-14 and 2026-09-16 with the shipped Gates and GitHub as the
+Authority (`test-results/2026-09-1{4,6}-e2e-run.md` there). It is a checklist
+a person follows, not a script under version control here, and nothing gates
+a commit on it. The first run found the refusal path broken (an echo of
+`## Submitted` admitted as an edit), which is exactly what this entry says
+goes unseen.
+
+The thing learnt the hard way, so it is not reinvented: a CI rule the agent
+can read in the repository proves nothing — it satisfies it before the first
+push (a Node-version pin was polyfilled around, #40), and a rule keyed on the
+run number never goes green (push and pull_request both fire). What works is a
+rule the agent cannot anticipate but can satisfy once told — require
+`refs #<pull request number>` in the changelog; the number does not exist
+until the pull request does, the failing log states it, the second round
+passes. That rule is now the trial repository's own CI, so every run there
+pays one refusal round.
+
+### U12 · Trusted publishing, never fired
+
+`.github/workflows/release.yml`, `scripts/release.mjs` `publish`
+
+The workflow, the skip-if-already-published loop, and the GitHub Release step
+have never run. `npm trust github` has never been run for the nineteen
+packages. The by-hand first publish has never been done from this repository.
+
+---
+
+## I — Working, and worse than it could be
+
+### I4 · `ci-green` polling has no backoff
+
+`packages/plugins/slots/gates/ci-green.mjs` — `--poll-ms`
+
+One set of API calls per poll per waiting feature, at the same rate whether the
+checks started a second ago or ten minutes ago.
+
+### I5 · The `npm-test` Gate cannot install dependencies
+
+The trial project's `gates/npm-test.mjs` (not shipped)
+
+It fail-blocks with a clear message when a workspace has dependencies and no
+`node_modules`, which is honest but leaves the operator to solve it. Isolator
+does not carry an ignored directory across, so somebody has to.
+
+### I6 · A prompt template is a single file
+
+`packages/host/slot-kit/src/prompt.ts` — `readTemplate`
+
+No way to compose one from several, so a Project sharing conventions across
+repositories duplicates them.
+
+### I9 · Kernel spawn copies still poll; Persistence Port still N+1
+
+`packages/kernel/*/src/child/run-child.ts`, `packages/kernel/work-ledger/src/ledger/open-work-ledger.ts` (`listDeclaredWorkspaces`)
+
+The four Transformer `run-child` copies now share Implementer's 8 MiB flood
+kill. They still poll `shouldInterrupt` every 20 ms and `kill("SIGKILL")` the
+direct child only — not a process group. Changing `IsolationBackend` /
+`FoldBackend` to take `AbortSignal`, or spawning `detached` to kill a tree,
+would change packages that implement those backends (`packages/plugins/isolation-*`).
+Not done from `packages/kernel/` alone.
+
+`listDeclaredWorkspaces` still `load`s every Feature after `listSummaries`.
+Putting workspace paths on `FeatureSummary` would require both persistence
+adapters under `packages/` to write them. Not done from `packages/kernel/` alone.
+
+`openConductor` still passes one `brickDurationMs` (default 30 s) to isolate
+and integrate. Splitting the ceilings without a measured overrun would be a
+guess. Bail still has no holder id: nothing in kernel names a holder.
+
+### I10 · The operator surface stops at text follow
+
+`packages/host/runtime/src/operator/live.ts`
+
+`mason watch` follows the journal as text and `status` prints a snapshot; that
+is enough to prove the seam and no more. Deferred on purpose, each for its own
+reason: the Builder's stderr forwarded through Implementer's `ProgressWriter`
+(touches `run-child` stdio in four copies); pause and emergency stop as Host
+commands (RUNBOOKS describes them; they mutate the ledger from outside the
+worker, which nothing does yet); journal rotation (once a file is large enough
+to hurt); a full-screen TUI (taste).
+
+### I11 · Host's operator layer still speaks git
+
+`packages/host/runtime/src/operator/init.ts`, `doctor.ts`, `git-remote.ts`
+
+The loop and the config name no tool: a Submission carries a `description`,
+a fold answers a `reference`, the Describer is `authority.describe`. The
+operator layer does not hold that line — `init` clones, `doctor` checks a
+branch and a remote, `git-remote.ts` reads `.git/config` — because the only
+isolation and Authority that exist today are git's, and the operator commands
+were written against them. A Project without git would get an `init` and a
+`doctor` that ask the wrong questions. The right shape is the one the loop has:
+the operator asks the loaded isolation plugin for what it needs (its Shape
+already has `check`), and Host's own files name no tool. Not done here: it
+moves three commands, and nothing without git exists yet to test it against.

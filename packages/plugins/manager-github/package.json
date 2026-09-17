@@ -1,0 +1,51 @@
+{
+  "name": "@bluewombat/manager-github",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "GitHub Issues FeatureManager: issues in, comments and labels out; pull requests as Authority.",
+  "keywords": [
+    "mason",
+    "bluewombat",
+    "mason-manager",
+    "github"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/tilap/bluewombat/tree/main/packages/plugins/manager-github#readme",
+  "bugs": "https://github.com/tilap/bluewombat/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tilap/bluewombat.git",
+    "directory": "packages/plugins/manager-github"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "SPECS.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "tsc": "tsc --noEmit",
+    "test": "tsx --test $(find src -name '*.test.ts')",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@bluewombat/manager-kit": "^0.1.0",
+    "@octokit/core": "^7.0.8",
+    "@octokit/plugin-retry": "^8.1.1",
+    "@octokit/plugin-throttling": "^11.0.5"
+  }
+}

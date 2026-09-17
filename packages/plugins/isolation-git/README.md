@@ -1,0 +1,62 @@
+# Isolation: git
+
+Git worktree attach and three-way merge fold. Host (or a Transformer CLI) loads
+this package when `workLine.isolation` is `@bluewombat/isolation-git`.
+
+```ts
+import { branchNameOf, strategy } from "@bluewombat/isolation-git";
+// strategy.isolation → Isolator
+// strategy.fold → Integrator
+// strategy.refOf(id) → issue/<item>, what the Authority hands the Publisher:
+//   issue/9 for github:owner/repo#9, issue/9-s1 for its Subtask s1,
+//   issue/<slug of the id> for an id in any other shape, cut at 80 with a
+//   7-hex digest of the whole id when it was cut
+// branchNameOf(id) → the same, for anyone holding an id
+```
+
+The Child is a worktree of the Parent, then wiped and filled with the Parent's
+working files so dirty and untracked content matches — `.cursor/`, `CLAUDE.md`,
+`node_modules/`, tracked or not, all of it.
+
+## What a Child does not get
+
+`.env` and `.env.*`, at any depth, unless the Project says otherwise: a secret
+in the clear has no business in a directory an agent reads and a pull request
+may carry. A Project names its own list in the config, and that list
+**replaces** the default:
+
+```json
+"workLine": {
+  "isolation": "@bluewombat/isolation-git",
+  "isolationOptions": { "exclude": [".env", ".env.*", "**/*.pem", "secrets/**"] }
+}
+```
+
+A pattern with no `/` is matched against the last path segment, at any depth
+(`.env` also leaves out `packages/api/.env`); one with a `/` against the whole
+path from the root (`build/out`). `*` is any run of characters within one
+segment, `**` anything, and a leading `**/` means "at any depth". An unknown
+key, or an `exclude` that is not a list of non-empty strings, stops `mason
+run` before it isolates anything. Nothing here reads `.gitignore`: what git
+ignores is very often exactly what a Builder needs (its dependencies, the
+Project's own agent configuration).
+
+Each root entry is copied by `cp` — `-c` on macOS, `--reflink=auto` elsewhere
+— so on a file system that clones (APFS, btrfs, XFS) the Child shares its
+bytes with the Parent instead of doubling them; where `cp` cannot, the entry
+is copied by hand. Excluded paths are removed from the Child afterwards.
+
+## The reference, and who the system is
+
+`strategy.reference.parse` reads what a manager names as the reference work
+line: `remote` and `branch`, required; `credentialEnv` and `author`, optional.
+Anything else is refused. From the optional two it builds the git environment
+of the run — `GIT_AUTHOR_*` / `GIT_COMMITTER_*`, and a credential helper that
+reads the token from the named variable at the moment git asks, after
+clearing the machine's own helpers so a keychain never answers first. Nothing
+is written to disk. Every git this package spawns carries that environment,
+and the parsed reference exposes it as `env` so Host can hand it to the slots
+that touch the work line (Publisher, Refresher) — and to nothing else: a
+Builder never inherits a token.
+
+Without `author`, commits carry the identity of whoever runs the process.

@@ -1,0 +1,46 @@
+{
+  "name": "@bluewombat/integrator",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Transformer: fold a Child directory into an existing Parent, never forced.",
+  "keywords": [
+    "mason",
+    "bluewombat"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/tilap/bluewombat/tree/main/packages/kernel/integrator#readme",
+  "bugs": "https://github.com/tilap/bluewombat/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tilap/bluewombat.git",
+    "directory": "packages/kernel/integrator"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "integrator": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "SPECS.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "tsc": "tsc --noEmit",
+    "test": "tsx --test $(find src -name '*.test.ts')",
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

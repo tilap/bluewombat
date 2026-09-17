@@ -1,0 +1,39 @@
+{
+  "name": "bluewombat",
+  "private": true,
+  "type": "module",
+  "description": "mason — autonomous project-execution system: kernel Transformers, Host, and plugins on one TypeScript toolchain.",
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "packageManager": "npm@11.19.0",
+  "workspaces": [
+    "packages/kernel/*",
+    "packages/host/*",
+    "packages/plugins/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev:link": "npm run build && npm link --workspace @bluewombat/runtime --workspace @bluewombat/manager-fake --workspace @bluewombat/manager-github --workspace @bluewombat/slots",
+    "dev:unlink": "npm unlink --global @bluewombat/runtime @bluewombat/manager-fake @bluewombat/manager-github @bluewombat/slots",
+    "test": "turbo run test",
+    "lint": "biome check scripts && node scripts/check-kernel.mjs && node scripts/check-host.mjs && node scripts/check-plugins.mjs && node scripts/check-name.mjs && turbo run lint",
+    "format": "biome check --write scripts && turbo run format",
+    "tsc": "turbo run tsc",
+    "version:set": "node scripts/release.mjs set",
+    "release:check": "node scripts/release.mjs check",
+    "release:publish": "node scripts/release.mjs publish"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.4",
+    "@types/node": "^24.13.3",
+    "tsx": "^4.20.5",
+    "turbo": "^2.10.12",
+    "typescript": "^5.9.2"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tilap/bluewombat.git"
+  }
+}
