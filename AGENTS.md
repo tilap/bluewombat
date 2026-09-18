@@ -1,4 +1,4 @@
-# Agent guide — mason
+# Agent guide — bluewombat
 
 Read this first when starting a session on this project.
 
@@ -6,6 +6,7 @@ Read this first when starting a session on this project.
 
 - **Goal**: Autonomously turn a user intention into a delivered final solution
 - **Type**: Autonomous project-execution system, as a repo of independent Transformers
+- **Names**: *bluewombat* is the system — the repository, the npm scope `@bluewombat/`, the rules in `docs/PRODUCT.md`. *mason* is its command-line tool: the binary, `mason.config.json`, `.mason/`, the tracker labels. Say "bluewombat does X" for a rule, "`mason run` does X" for the process
 - **Stack**: TypeScript / Node 24.20 / Biome / `node:test` / Turborepo — [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)
 
 ## 2. Where to look

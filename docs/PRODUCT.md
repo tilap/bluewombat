@@ -1,6 +1,6 @@
 ---
 title: Product and domain
-summary: What mason does, who uses it, the domain rules, and the vocabulary the code must follow.
+summary: What bluewombat does, who uses it, the domain rules, and the vocabulary the code must follow.
 covers: []
 ---
 
@@ -11,7 +11,7 @@ covers: []
 
 ## What it does
 
-mason is an autonomous project-execution system. A human states an intention in an
+bluewombat is an autonomous project-execution system. A human states an intention in an
 external FeatureManager. The system normalizes that intention, breaks it into Subtasks,
 executes them one at a time in isolated workspaces, validates each unit through a
 Project-defined sequence of Gates, then integrates the finished feature into
@@ -22,6 +22,13 @@ work line.
 On the happy path there is no human in the loop. The human is an escape hatch: they
 read, correct, abandon, and signal `ready` only in the FeatureManager, with a Trace
 when work has already been attempted.
+
+The operator meets the system as one command-line tool, **mason**: `mason init`
+sets a Project up, `mason run` is the process that listens, plans, builds,
+validates and folds, `mason watch`, `status`, `doctor`, `setup`, `cancel` are
+its levers. bluewombat is the whole — the packages, the rules, the words; mason
+is the name on the binary, the config file, the home directory, and the labels
+it writes on a tracker.
 
 The repository is three groups of packages — kernel, host, plugins — on one
 TypeScript toolchain. This document is the product: the workflow, its rules,
@@ -34,7 +41,7 @@ next to that package. The stack is [DEVELOPMENT.md](./DEVELOPMENT.md).
 | -------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Human (project team) | A delivered result, or a clear block with a Trace                    | Create, edit, and abandon intentions; answer escalations; signal `ready`      | Drive the happy path; open the WorkLedger to know where a feature stands |
 | FeatureManager       | To remain the only human surface                                     | Host raw intentions and receive emitter events                                | Execute work or hold system truth                                        |
-| mason (this system)  | A FeatureStandard it can plan and run                                | Listen, normalize, break down, execute, validate, integrate, escalate, report | Invent business content; revert a feature already in WorkLineStable      |
+| bluewombat (this system) | A FeatureStandard it can plan and run                                | Listen, normalize, break down, execute, validate, integrate, escalate, report | Invent business content; revert a feature already in WorkLineStable      |
 | Builder              | A Subtask intention, a definition of done, and an isolated workspace | Produce the unit of work                                                      | Integrate; talk to the FeatureManager; decide Gate verdicts              |
 
 ## Domain rules
@@ -223,6 +230,8 @@ If two words mean the same thing, pick one and mark the other as an alias to ret
 | Port             | A contract injected into a kernel piece by whoever wires it — Transformer Port, Authority Port, Manager Port, Persist Port. The build vocabulary is in ARCHITECTURE.md, "Vocabulary"| A Plugin (its implementation); a Slot                                                   | `conductor/src/transformers/port.ts`; the kits                                    |
 | Plugin           | A package a config names and Host loads at run time: a manager, an isolation strategy, a persistence backend                                                                 | A Slot (spawned, never imported); a Transformer                                         | `packages/plugins/{manager,isolation,persist}-*`                                  |
 | Slot             | An opaque command a config names and the system spawns — Planner, Builder, Gate, Publisher, Refresher, Describer. One JSON line out                                          | A Plugin; a Transformer                                                                 | `packages/plugins/slots/**`, any script                                           |
+| bluewombat       | The system as a whole: the packages `@bluewombat/*`, the rules, the words in this document                                                                                    | A command; a package name on its own                                                    | The repository `tilap/bluewombat`; the npm scope                                  |
+| mason            | The command-line tool the operator runs — `init`, `doctor`, `setup`, `run`, `watch`, `status`, `cancel` — and the name on what it owns: `mason.config.json`, `.mason/`, the tracker labels | The system, a package, or a branch: a branch is `issue/<n>`                             | `PRODUCT` in `packages/host/manager-kit/src/product.ts`; `bin` of `@bluewombat/runtime` |
 
 Rules:
 

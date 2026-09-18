@@ -226,7 +226,7 @@ produces before the Integration"). From outside, "the agent did nothing" and
 report; only the transcript told them apart. Keep this as a gap, not as a
 sighting — it is not assertable by a test, an agent being what it is.
 
-### F13 · A lost WorkLedger makes mason redo finished work
+### F13 · A lost WorkLedger makes bluewombat redo finished work
 
 `packages/host/runtime/src/loop/deliveries.ts` — `handleUpsert`, `IN_FLIGHT_OR_TERMINAL`
 

@@ -11,7 +11,7 @@ covers:
 Written for someone tired, alone, and under pressure. Exact commands, no "simply", no
 assumed context. Every runbook states how to know it worked and how to undo it.
 
-mason has no production environment or on-call rotation. The procedures below
+bluewombat has no production environment or on-call rotation. The procedures below
 are the operational levers from [PRODUCT.md](./PRODUCT.md) § *Bounds, leases, and stopping*,
 plus how this repository's packages reach npm.
 
@@ -23,7 +23,7 @@ plus how this repository's packages reach npm.
 
 ## Deploy
 
-This is how `@bluewombat/*` reaches the npm registry. It is not mason folding a
+This is how `@bluewombat/*` reaches the npm registry. It is not bluewombat folding a
 Feature into WorkLineStable — that has no production target.
 
 The tag is the trigger. `v0.1.0` publishes every workspace package at `0.1.0`.

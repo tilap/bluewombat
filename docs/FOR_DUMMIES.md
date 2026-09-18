@@ -29,7 +29,7 @@ Specific to this path:
 
 - There is a GitHub remote. `origin` is the product repo named in the manager
   options. Push and fetch talk to that remote only.
-- Authority is on. GitHub holds `main`. mason does **not** merge the feature
+- Authority is on. GitHub holds `main`. bluewombat does **not** merge the feature
   into local `main`. The merge into `main` is the pull request on GitHub.
 - WorkLineStable is a local clone of that repo, left on `main`. Work does not
   happen in that checkout. Host declares `workLine.isolation: "@bluewombat/isolation-git"`
