@@ -39,10 +39,7 @@ describe("skillsFromCursor", () => {
 
 describe("skillNameFromPath", () => {
   it("takes the directory under skills/", () => {
-    assert.equal(
-      skillNameFromPath("/x/skills/thin-slice/SKILL.md"),
-      "thin-slice",
-    );
+    assert.equal(skillNameFromPath("/x/skills/thin-slice/SKILL.md"), "thin-slice");
   });
 
   it("rejects paths that are not a SKILL.md under skills/", () => {

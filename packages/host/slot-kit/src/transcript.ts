@@ -156,7 +156,6 @@ export function usageLabel(usage: AgentUsage | null): string {
   if (usage === null) {
     return "unknown";
   }
-  const cost =
-    usage.costUsd === null ? "" : `, costUsd=${usage.costUsd}`;
+  const cost = usage.costUsd === null ? "" : `, costUsd=${usage.costUsd}`;
   return `input=${usage.input} output=${usage.output} cacheRead=${usage.cacheRead} cacheWrite=${usage.cacheWrite}${cost}`;
 }

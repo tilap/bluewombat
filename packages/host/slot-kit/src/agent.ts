@@ -243,11 +243,7 @@ function usageOf(value: unknown): AgentUsage | null {
     return null;
   }
   const costUsd =
-    record.costUsd === null
-      ? null
-      : typeof record.costUsd === "number"
-        ? record.costUsd
-        : null;
+    record.costUsd === null ? null : typeof record.costUsd === "number" ? record.costUsd : null;
   return {
     input: record.input,
     output: record.output,

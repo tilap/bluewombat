@@ -3,7 +3,14 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { deserializeRun, extrasOf, findExecutable, readResult, runAgent, serializeRun } from "./agent.js";
+import {
+  deserializeRun,
+  extrasOf,
+  findExecutable,
+  readResult,
+  runAgent,
+  serializeRun,
+} from "./agent.js";
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "slot-kit-"));
