@@ -24,6 +24,10 @@ Task:
 
 {{done_when}}
 
+This checkout already includes any earlier subtasks that were folded into the
+feature. Do not rewrite that work. Add or change only what this task names, and
+leave the project's own checks green on the whole tree.
+
 Rules of this run:
 {{rules}}
 `;

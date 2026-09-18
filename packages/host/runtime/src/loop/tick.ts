@@ -5,7 +5,7 @@ import { refreshWorkLine } from "./authority.js";
 import type { HostRunInput } from "./context.js";
 import { loadCursor, saveCursor } from "./cursor.js";
 import { type CancelResult, handleDelivery } from "./deliveries.js";
-import { driveProject } from "./drive.js";
+import { driveUntilBlocked } from "./drive.js";
 import { abandonGone } from "./probe.js";
 import { reportMoment } from "./report.js";
 
@@ -140,7 +140,7 @@ export async function runOnce(input: HostRunInput): Promise<HostTickResult> {
       continue;
     }
     driven.add(summary.project);
-    const run = await driveProject(deliveryInput, summary.project, summary.key);
+    const run = await driveUntilBlocked(deliveryInput, summary.project, summary.key);
     if (run !== undefined) {
       lastRun = run;
     }

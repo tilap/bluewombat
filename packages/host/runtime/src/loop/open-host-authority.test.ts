@@ -367,25 +367,23 @@ describe("host with an Authority", () => {
     const offered = await host.runOnce();
     assert.deepEqual(offered.reported, ["accepted", "planned", "progress", "submitted"]);
 
-    // The judge refuses: the tracker hears it, once, with the reason.
+    // The judge refuses: the tracker hears it, then Host re-drives the repair
+    // and re-offer in the same tick (no poll wait for a local refusal).
     const refused = await host.runOnce();
     assert.equal(refused.lastRun?.outcome, "paused");
-    assert.deepEqual(refused.reported, ["progress"]);
-    const report = stub.reports.at(-1);
-    assert.equal(report?.event, "progress");
-    assert.equal(report?.fields.stage, "submitting");
-    assert.equal(report?.fields.trace, "lint failed");
-    assert.match(
-      report?.fields.summary ?? "",
-      /refused the Submission; a repair is on its way \(refusal 1 of 3\)/,
+    assert.ok(refused.reported.includes("progress"));
+    const progress = stub.reports.find(
+      (r) =>
+        r.event === "progress" &&
+        typeof r.fields.summary === "string" &&
+        /refused the Submission; a repair is on its way \(refusal 1 of 3\)/.test(r.fields.summary),
     );
-    const back = await host.ledger.get(KEY);
-    assert.equal(back.ok && back.aggregate.state, "integrating");
-
-    // Repaired and offered again, to the same Submission: nothing new to say.
-    const repaired = await host.runOnce();
-    assert.deepEqual(repaired.reported, []);
+    assert.ok(progress !== undefined);
+    assert.equal(progress?.fields.stage, "submitting");
+    assert.equal(progress?.fields.trace, "lint failed");
     assert.equal(stub.submissions.length, 2);
+    const back = await host.ledger.get(KEY);
+    assert.equal(back.ok && back.aggregate.state, "submitted");
 
     // Taken.
     const done = await host.runOnce();
@@ -419,21 +417,16 @@ describe("host with an Authority", () => {
     const submitted = await host.ledger.get(KEY);
     assert.equal(submitted.ok && submitted.aggregate.state, "submitted");
 
-    // The tracker echoing ## Submitted: same body, delivered again.
+    // The tracker echoing ## Submitted: same body, delivered again. The judge
+    // refuses, then Host repairs and re-offers in the same tick.
     stub.deliveries.push({ cursor: "2", payload: convertible() });
     const refused = await host.runOnce();
     assert.equal(refused.lastRun?.outcome, "paused");
-    assert.deepEqual(refused.reported, ["progress"]);
-    const back = await host.ledger.get(KEY);
-    assert.equal(back.ok && back.aggregate.state, "integrating");
-    assert.equal(back.ok && back.aggregate.pending_fingerprint, undefined);
+    assert.ok(refused.reported.includes("progress"));
     assert.ok(journal.lines.some((line) => line.event === "skipped" && line.state === "submitted"));
-
-    const repaired = await host.runOnce();
-    assert.equal(repaired.lastRun?.outcome, "paused");
-    assert.deepEqual(repaired.reported, []);
     const offeredAgain = await host.ledger.get(KEY);
     assert.equal(offeredAgain.ok && offeredAgain.aggregate.state, "submitted");
+    assert.equal(offeredAgain.ok && offeredAgain.aggregate.pending_fingerprint, undefined);
     assert.equal(offeredAgain.ok && offeredAgain.aggregate.escalation, undefined);
     assert.equal(stub.submissions.length, 2);
   });
