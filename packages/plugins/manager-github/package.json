@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/manager-github",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "GitHub Issues FeatureManager: issues in, comments and labels out; pull requests as Authority.",
   "keywords": [
@@ -43,7 +43,7 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/manager-kit": "^0.1.1",
+    "@bluewombat/manager-kit": "^0.1.2",
     "@octokit/core": "^7.0.8",
     "@octokit/plugin-retry": "^8.1.1",
     "@octokit/plugin-throttling": "^11.0.5"

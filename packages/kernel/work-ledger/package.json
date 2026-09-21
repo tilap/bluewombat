@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/work-ledger",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Durable store of FeatureStandards, Subtasks, states, Attempts, and Traces.",
   "keywords": [

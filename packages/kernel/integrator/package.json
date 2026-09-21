@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/integrator",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Transformer: fold a Child directory into an existing Parent, never forced.",
   "keywords": [
