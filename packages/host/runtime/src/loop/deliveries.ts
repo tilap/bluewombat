@@ -2,7 +2,7 @@ import type { ProjectRunResult } from "@bluewombat/conductor";
 import type { FeatureStandard } from "@bluewombat/manager-kit";
 import type { FeatureAdmission, FeatureState } from "@bluewombat/work-ledger";
 import type { HostDeliveryInput, HostRunInput } from "./context.js";
-import { driveProject } from "./drive.js";
+import { driveUntilBlocked } from "./drive.js";
 import { pushReport, resumePointOf } from "./report.js";
 
 /**
@@ -131,7 +131,7 @@ async function handleUpsert(
       fields: { priority: admission.priority },
     });
   }
-  const run = await driveProject(input, admission.project, admission.key);
+  const run = await driveUntilBlocked(input, admission.project, admission.key);
   if (run === undefined) {
     // Frozen Project: do not mark it driven, so a later delivery in this pass
     // (a cancel, a ready) can free it and the sweep can start the queue.
@@ -166,7 +166,7 @@ async function handleReady(
     eventId: `${feature.key}:resumed:${round}`,
     fields: { resume_point: resumePoint },
   });
-  const run = await driveProject(input, feature.project, feature.key);
+  const run = await driveUntilBlocked(input, feature.project, feature.key);
   if (run === undefined) {
     return { advance: true };
   }

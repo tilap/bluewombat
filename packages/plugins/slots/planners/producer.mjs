@@ -36,7 +36,11 @@ How the subtasks will be run, which is what makes a good split:
 
 - One at a time, never in parallel. Each runs in its own copy of this project,
   and its result is folded back before the next one starts. So a later subtask
-  sees the earlier ones' work.
+  sees the earlier ones' work. If two slices would both change the same path
+  (a README, an index or barrel file, a changelog, package.json, or any other
+  shared file), make them **one** subtask, or give the second a \`depends_on\` on
+  the first and let **only** that second one write the shared path. Do not invent
+  a docs-only subtask unless the work asked for documentation.
 - Every subtask is checked by the project's own checks — its tests, its lint —
   on its own. **A subtask must leave the project working.** This is the rule that
   decides your split: never cut by layer. "Add the types", then "add the code",
@@ -58,9 +62,11 @@ How the subtasks will be run, which is what makes a good split:
   mind, and preferably by a test. It describes this subtask's observable result,
   not the whole feature and not an intention.
 - \`depends_on\` means "cannot start before this one is done", and nothing else.
-  List only what a subtask genuinely cannot begin without. Chaining every
-  subtask to the one before it, out of habit, describes an order you were never
-  asked for and hides which ones were actually independent.
+  Sharing a file is a reason not to start side by side: pack those slices into
+  one subtask, or make the later one depend on the earlier. The graph describes
+  what must land before a merge is safe, not the order you happened to think in.
+  Chaining every subtask to the one before it when their files do not overlap
+  hides which ones were actually independent.
 
 You are choosing between two costs, and both are real.
 

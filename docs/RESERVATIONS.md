@@ -56,17 +56,6 @@ today.
 **Instead:** name the branch only when it does not exist, and let a resume decide
 explicitly whether it is continuing or starting over.
 
-### C6 · A refusal costs one poll interval
-
-`packages/kernel/conductor/src/run/open-conductor.ts` — `doSubmitted`
-
-After recording a refusal the pass returns `paused` rather than carrying straight
-on into the next assembly, so the work restarts on the next tick. Simple, and it
-keeps `drive` linear; it also means every refusal adds a `pollIntervalMs` of
-doing nothing.
-
-**Instead:** let `drive` loop until the state stops moving.
-
 ### C7 · The work line copy is refreshed on every driving pass
 
 `packages/host/runtime/src/loop/tick.ts` — `runOnce`
