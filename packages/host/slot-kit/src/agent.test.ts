@@ -3,7 +3,14 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { deserializeRun, findExecutable, readResult, runAgent, serializeRun } from "./agent.js";
+import {
+  deserializeRun,
+  extrasOf,
+  findExecutable,
+  readResult,
+  runAgent,
+  serializeRun,
+} from "./agent.js";
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "slot-kit-"));
@@ -159,13 +166,100 @@ describe("serializeRun", () => {
     const serialized = serializeRun(run, { name: "Cursor CLI", bin: "/bin/cursor-agent" });
     assert.equal(serialized.name, "Cursor CLI");
     assert.equal(serialized.error, "Could not start");
+    assert.equal(serialized.skills, null);
+    assert.equal(serialized.usage, null);
     const restored = deserializeRun(serialized);
     assert.ok(restored !== undefined);
     assert.equal(restored.error?.message, "Could not start");
     assert.equal(restored.startedAt.toISOString(), startedAt.toISOString());
   });
 
+  it("defaults skills and usage to null when the wrapper passes nothing", () => {
+    const run = {
+      code: 0,
+      signal: null,
+      stdout: "",
+      stderr: "",
+      output: "",
+      startedAt: new Date("2026-09-09T10:00:00.000Z"),
+      endedAt: new Date("2026-09-09T10:00:01.000Z"),
+      durationMs: 1000,
+    };
+    const serialized = serializeRun(run, { name: "agent", bin: "/bin/x" });
+    assert.equal(serialized.skills, null);
+    assert.equal(serialized.usage, null);
+  });
+
+  it("keeps an empty skills list distinct from unknown", () => {
+    const run = {
+      code: 0,
+      signal: null,
+      stdout: "",
+      stderr: "",
+      output: "",
+      startedAt: new Date("2026-09-09T10:00:00.000Z"),
+      endedAt: new Date("2026-09-09T10:00:01.000Z"),
+      durationMs: 1000,
+    };
+    const none = serializeRun(run, { name: "agent", bin: "/bin/x", skills: [] });
+    const unknown = serializeRun(run, { name: "agent", bin: "/bin/x", skills: null });
+    assert.deepEqual(none.skills, []);
+    assert.equal(unknown.skills, null);
+    assert.notDeepEqual(none.skills, unknown.skills);
+  });
+
+  it("writes usage when the wrapper supplies it", () => {
+    const run = {
+      code: 0,
+      signal: null,
+      stdout: "",
+      stderr: "",
+      output: "",
+      startedAt: new Date("2026-09-09T10:00:00.000Z"),
+      endedAt: new Date("2026-09-09T10:00:01.000Z"),
+      durationMs: 1000,
+    };
+    const usage = {
+      input: 1,
+      output: 2,
+      cacheRead: 3,
+      cacheWrite: 4,
+      costUsd: 0.5,
+    };
+    const serialized = serializeRun(run, {
+      name: "agent",
+      bin: "/bin/x",
+      skills: ["thin-slice"],
+      usage,
+    });
+    assert.deepEqual(serialized.skills, ["thin-slice"]);
+    assert.deepEqual(serialized.usage, usage);
+  });
+
   it("does not treat a pre-run { error } as a run", () => {
     assert.equal(deserializeRun({ error: "no prompt" }), undefined);
+  });
+});
+
+describe("extrasOf", () => {
+  it("reads skills and usage from a serialized line", () => {
+    assert.deepEqual(
+      extrasOf({
+        skills: ["a"],
+        usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costUsd: null },
+      }),
+      {
+        skills: ["a"],
+        usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costUsd: null },
+      },
+    );
+  });
+
+  it("treats a missing or malformed extras field as unknown", () => {
+    assert.deepEqual(extrasOf({}), { skills: null, usage: null });
+    assert.deepEqual(extrasOf({ skills: [1], usage: { input: "x" } }), {
+      skills: null,
+      usage: null,
+    });
   });
 });

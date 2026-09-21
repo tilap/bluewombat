@@ -127,6 +127,33 @@ describe("openTranscript", () => {
     assert.ok(existsSync(dir));
   });
 
+  it("writes skills and usage in the header, distinguishing unknown from none", () => {
+    const dir = sandbox();
+    const transcript = openTranscript({ dir, parts: ["timing"] });
+    transcript.write(ran(), { skills: null, usage: null });
+    assert.match(wrote(dir).text, /- skills: unknown/);
+    assert.match(wrote(dir).text, /- usage: unknown/);
+
+    const dirNone = sandbox();
+    openTranscript({ dir: dirNone, parts: ["timing"] }).write(ran(), {
+      skills: [],
+      usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costUsd: null },
+    });
+    const none = wrote(dirNone).text;
+    assert.match(none, /- skills: \(none\)/);
+    assert.match(none, /- usage: input=1 output=2 cacheRead=0 cacheWrite=0/);
+    assert.doesNotMatch(none, /costUsd/);
+
+    const dirNamed = sandbox();
+    openTranscript({ dir: dirNamed, parts: ["timing"] }).write(ran(), {
+      skills: ["thin-slice", "done-when"],
+      usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 3, costUsd: 0.1 },
+    });
+    const named = wrote(dirNamed).text;
+    assert.match(named, /- skills: thin-slice, done-when/);
+    assert.match(named, /costUsd=0\.1/);
+  });
+
   it("names the parts a slot may ask for", () => {
     assert.deepEqual([...TRANSCRIPT_PARTS], ["prompt", "stdout", "stderr", "timing"]);
   });

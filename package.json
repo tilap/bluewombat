@@ -2,7 +2,7 @@
   "name": "bluewombat",
   "private": true,
   "type": "module",
-  "description": "mason — autonomous project-execution system: kernel Transformers, Host, and plugins on one TypeScript toolchain.",
+  "description": "bluewombat — autonomous project-execution system: kernel Transformers, Host, and plugins on one TypeScript toolchain. Ships the mason CLI.",
   "engines": {
     "node": ">=24.20.0"
   },

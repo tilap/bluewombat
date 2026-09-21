@@ -8,7 +8,7 @@ a change to those files is a change to that document.
 
 | Document                   | Answers                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------ |
-| [PRODUCT.md](./PRODUCT.md) | What mason does, its rules, the human surface, and the words the code must use |
+| [PRODUCT.md](./PRODUCT.md) | What bluewombat does, its rules, the human surface, and the words the code must use |
 
 ## How it is built
 

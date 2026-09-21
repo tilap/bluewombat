@@ -108,7 +108,7 @@ export function readTemplate(
 export const AGENT_OPTIONS: OptionSpec = {
   "--bin": {},
   "--model": {},
-  "--output-format": { choices: ["json", "text", "stream-json"], fallback: "json" },
+  "--output-format": { choices: ["json", "text", "stream-json"], fallback: "stream-json" },
   "--prompt": {},
   "--prompt-file": {},
   "--transcript-dir": {},

@@ -1,9 +1,14 @@
-# mason
+# bluewombat
 
 Autonomously turn a user intention into a delivered final solution: receive the
 intention from an external tracker, break it into units, execute and validate each
 one, then integrate the result into a stable work line — without a human on the
 happy path.
+
+bluewombat is the system: the npm packages `@bluewombat/*` and the rules they
+follow. **mason** is its command-line tool — the binary `@bluewombat/runtime`
+ships, and the name on the config file, the home directory, and the labels it
+writes on a tracker.
 
 This is a 0.x cut. Node.js 24.20 is required. What has been run for real, and
 what has not, is in [docs/RESERVATIONS.md](./docs/RESERVATIONS.md).
@@ -70,7 +75,7 @@ contract: [`packages/host/manager-kit`](./packages/host/manager-kit/README.md).
 Without an Authority, a finished feature is folded into WorkLineStable on this
 machine and that is the end of it. With an Authority, the assembled feature is
 offered as a Submission — on GitHub, a pull request — and only an accepted
-verdict enters the work line. mason does not merge that line onto a further
+verdict enters the work line. bluewombat does not merge that line onto a further
 reference such as `main`; the Authority holds it.
 
 A real Project points `builder.producer` and `builder.repair` at a Builder that

@@ -406,15 +406,16 @@ describe("claude agent", () => {
     ]);
     assert.equal(result.status, 0, result.stderr);
     const argv = JSON.parse(readFileSync(join(cwd, "argv.json"), "utf8"));
-    assert.deepEqual(argv.slice(0, 5), [
+    assert.deepEqual(argv.slice(0, 6), [
       "-p",
       "--permission-mode",
       "bypassPermissions",
       "--output-format",
-      "json",
+      "stream-json",
+      "--verbose",
     ]);
-    assert.deepEqual(argv.slice(5, 9), ["--model", "opus", "--add-dir", "docs"]);
-    assert.equal(argv.length, 10);
+    assert.deepEqual(argv.slice(6, 10), ["--model", "opus", "--add-dir", "docs"]);
+    assert.equal(argv.length, 11);
     assert.match(String(argv.at(-1)), /Write delivered\.txt/);
     assert.ok(!argv.includes("--workspace"), "no Cursor-only flag leaks into Claude's argv");
     assert.ok(!argv.includes("--sandbox"));

@@ -58,23 +58,23 @@ these all use it. How Host wires a slot into a run:
 
 ## Catalogue
 
-| Slot                              | Kind    | Answers                                                              |
-| --------------------------------- | ------- | -------------------------------------------------------------------- |
-| `agents/cursor.mjs`               | Agent   | Runs Cursor CLI with a filled prompt                                 |
-| `agents/claude.mjs`               | Agent   | Runs Claude Code with a filled prompt                                |
-| `builders/producer.mjs`           | Builder | First pass of a Subtask: fill `{{task}}`, then spawn the agent       |
-| `builders/repair.mjs`             | Builder | A Gate refused the Subtask: fill `{{task}}` and `{{report}}`         |
-| `assembly/fix.mjs`                | Builder | A judgement refused the assembled feature: fill `{{task}}` and `{{report}}` |
-| `gates/workspace-changed.mjs`     | Gate    | The Attempt left an uncommitted change                               |
-| `gates/parent-clean.mjs`          | Gate    | Isolator's Parent working files did not move                         |
-| `gates/sensitive-path.mjs`        | Gate    | No path matching a glob was touched                                  |
-| `gates/ci-green.mjs`              | Gate    | The work line's own checks came back green                           |
-| `planners/one-subtask.mjs`        | Planner | Bootstrap: one Subtask that is the FeatureStandard itself            |
-| `publishers/git.mjs`              | Publisher | Pushes the feature's branch to the work line's own remote          |
-| `refreshers/git.mjs`              | Refresher | Fast-forwards the work line copy onto what the Authority holds     |
-| `planners/producer.mjs`           | Planner | An agent CLI splits the FeatureStandard                              |
-| `messages/conventional.mjs`       | Message | `<type>: <title>` for the feature's fold, no agent; `--scope`, `--type`   |
-| `messages/git-producer.mjs`       | Describer | An agent reads the git diff and writes the feature's subject and body under `--rules-file` |
+| Slot                          | Kind      | Answers                                                                                    |
+| ----------------------------- | --------- | ------------------------------------------------------------------------------------------ |
+| `agents/cursor.mjs`           | Agent     | Runs Cursor CLI with a filled prompt                                                       |
+| `agents/claude.mjs`           | Agent     | Runs Claude Code with a filled prompt                                                      |
+| `builders/producer.mjs`       | Builder   | First pass of a Subtask: fill `{{task}}`, then spawn the agent                             |
+| `builders/repair.mjs`         | Builder   | A Gate refused the Subtask: fill `{{task}}` and `{{report}}`                               |
+| `assembly/fix.mjs`            | Builder   | A judgement refused the assembled feature: fill `{{task}}` and `{{report}}`                |
+| `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
+| `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
+| `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
+| `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
+| `planners/one-subtask.mjs`    | Planner   | Bootstrap: one Subtask that is the FeatureStandard itself                                  |
+| `publishers/git.mjs`          | Publisher | Pushes the feature's branch to the work line's own remote                                  |
+| `refreshers/git.mjs`          | Refresher | Fast-forwards the work line copy onto what the Authority holds                             |
+| `planners/producer.mjs`       | Planner   | An agent CLI splits the FeatureStandard                                                    |
+| `messages/conventional.mjs`   | Message   | `<type>: <title>` for the feature's fold, no agent; `--scope`, `--type`                    |
+| `messages/git-producer.mjs`   | Describer | An agent reads the git diff and writes the feature's subject and body under `--rules-file` |
 
 ## Agents
 
@@ -92,18 +92,36 @@ and print the serialized run on stdout. They do not know `--intention` or
 `cursor.mjs` needs `cursor-agent` on PATH (`cursor-agent login`); `claude.mjs`
 needs `claude`, signed in once.
 
-| Option                      | Meaning                                                            |
-| --------------------------- | ------------------------------------------------------------------ |
-| `--prompt TEXT`             | The filled prompt. Mutually exclusive with `--prompt-file`         |
-| `--prompt-file PATH`        | The same text, from a file. No interpolation                       |
-| `--bin PATH`                | The CLI to run. Default: the vendor's own name, on PATH            |
-| `--model NAME`              | Model for that run                                                 |
-| `--output-format FMT`       | `json` (default), `text`, or `stream-json`                         |
-| `--permission-mode MODE`    | `claude.mjs` only. Default `bypassPermissions`                     |
-| `--transcript-dir PATH`     | Write one file per turn under here. Off unless given               |
-| `--transcript-part NAME`    | `prompt`, `stdout`, `stderr`, `timing`. Repeatable. Default: all   |
-| `--agent-arg VALUE`         | Appended to the CLI argv, before the prompt. Repeatable            |
-| `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role             |
+| Option                             | Meaning                                                                          |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `--prompt TEXT`                    | The filled prompt. Mutually exclusive with `--prompt-file`                       |
+| `--prompt-file PATH`               | The same text, from a file. No interpolation                                     |
+| `--bin PATH`                       | The CLI to run. Default: the vendor's own name, on PATH                          |
+| `--model NAME`                     | Model for that run                                                               |
+| `--output-format FMT`              | `stream-json` (default), `json`, or `text`. Skill extraction needs `stream-json` |
+| `--permission-mode MODE`           | `claude.mjs` only. Default `bypassPermissions`                                   |
+| `--transcript-dir PATH`            | Write one file per turn under here. Off unless given                             |
+| `--transcript-part NAME`           | `prompt`, `stdout`, `stderr`, `timing`. Repeatable. Default: all                 |
+| `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                          |
+| `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                 |
+
+The agent CLI prints **one JSON line** — a `SerializedRun` from
+`@bluewombat/slot-kit` — with the vendor's raw streams plus two extras the
+wrapper fills when it can:
+
+| Field    | Meaning                                                                                                                                              |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skills` | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                         |
+| `usage`  | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost) |
+
+Cursor extracts skills from `stream-json` `readToolCall` paths ending in
+`/skills/<name>/SKILL.md`. Claude extracts them from `tool_use` blocks named
+`Skill` (`input.skill`), and adds `--verbose` whenever the format is
+`stream-json`. A future vendor agent (`codex.mjs`, …) uses the same fields:
+leave them `null` when it cannot tell.
+
+When `--transcript-dir` is set, the transcript header repeats `skills` and
+`usage` (`unknown`, `(none)`, or the values).
 
 A global npm install belongs to one Node version: after `nvm use`, a `claude`
 installed under another version is off PATH. Give `--bin` the absolute path, or
@@ -159,11 +177,11 @@ never places, is `fail-blocking`. `{{done_when}}` is `Done when:` plus the
 definition of done, and vanishes whole when there is none — which is every
 assembly, so `assembly/fix` does not fill it at all.
 
-| Role                    | Required                 | Also fills                                                         |
-| ----------------------- | ------------------------ | ------------------------------------------------------------------ |
-| `builders/producer`     | `{{task}}`, `{{rules}}`               | `{{done_when}}`, `{{id}}`, `{{attempt}}`                 |
-| `builders/repair`       | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}` |
-| `assembly/fix`          | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{id}}`, `{{attempt}}`                |
+| Role                | Required                              | Also fills                                                 |
+| ------------------- | ------------------------------------- | ---------------------------------------------------------- |
+| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{done_when}}`, `{{id}}`, `{{attempt}}`                   |
+| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}` |
+| `assembly/fix`      | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{id}}`, `{{attempt}}`                  |
 
 A first-pass command that receives `--report` is `fail-blocking`: that report
 belongs to the repair command. A repair or fix command without `--report` is the same.
@@ -206,9 +224,10 @@ but inside the slot, and by the time a result reaches Host it is one word. So a
 loop that misbehaves cannot be read back, only guessed at.
 
 `--transcript-dir` writes one Markdown file per turn: the invocation, the prompt
-as sent, stdout, stderr, and how long it took. Files are filed under the Feature
-the Task belongs to, named for the Subtask and the Attempt. It belongs on the
-**agent** command, after `--`.
+as sent, stdout, stderr, how long it took, and — when the agent wrapper passed
+them — `skills` and `usage` (`unknown`, `(none)`, or the values). Files are
+filed under the Feature the Task belongs to, named for the Subtask and the
+Attempt. It belongs on the **agent** command, after `--`.
 
 ```json
 "builder": {
@@ -345,10 +364,10 @@ on the role; the vendor is named after `--`, the same way a Builder names it.
 }
 ```
 
-| Option                   | Meaning                                                          |
-| ------------------------ | ---------------------------------------------------------------- |
-| `--read PATH`            | The project the agent may read before splitting. Default: cwd    |
-| `--prompt-file PATH`     | Prompt template. Must place `{{intention}}` and `{{out}}`        |
+| Option               | Meaning                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `--read PATH`        | The project the agent may read before splitting. Default: cwd |
+| `--prompt-file PATH` | Prompt template. Must place `{{intention}}` and `{{out}}`     |
 
 `--bin`, `--model`, `--transcript-dir` and `--agent-arg` are the agent's, after
 `--`. Optional placeholder: `{{max_units}}`.
