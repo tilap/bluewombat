@@ -47,6 +47,8 @@ export {
   emitRefreshRefusal,
   emitRefusal,
   emitVerdict,
+  writeContract,
+  writeDiagnostic,
 } from "./emit.js";
 export type { FinishedRun } from "./finish.js";
 export { failureOf, finishRun } from "./finish.js";

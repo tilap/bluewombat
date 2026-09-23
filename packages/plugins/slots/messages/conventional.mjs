@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { emitMessage, MESSAGE_FLAGS, ownArgv, take } from "@bluewombat/slot-kit";
+import { emitMessage, MESSAGE_FLAGS, ownArgv, take, writeDiagnostic } from "@bluewombat/slot-kit";
 
 // The feature's commit in the Conventional Commits shape, from the issue's
 // title and body and with no agent: `<type>: <title>`, the body as written.
@@ -27,7 +27,7 @@ const forcedType = take(own, "--type");
 const title = (take(process.argv, "--title") ?? "").trim();
 const intention = (take(process.argv, "--intention") ?? "").trim();
 if (title.length === 0) {
-  process.stderr.write("conventional: no --title.\n");
+  writeDiagnostic("conventional: no --title.\n");
   process.exit(1);
 }
 

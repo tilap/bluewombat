@@ -9,6 +9,12 @@ meet it: a shell script that prints the right line is a Gate. This package is
 the plumbing every slot written in Node would otherwise write again — and it is
 what keeps the shipped slots from each growing their own version of it.
 
+The contract line must be written with `writeContract` (or an `emit*` that uses
+it). `process.stdout.write` followed by `process.exit` drops the tail of any
+payload larger than the pipe buffer — a finished Cursor/Claude stream-json run
+used to reach the role as "The agent command wrote no result." Diagnostics on
+stderr use `writeDiagnostic` for the same reason.
+
 The behaviour a slot must have is specified where its caller is:
 [Implementer](../../kernel/implementer/SPECS.md) for Builders and Gates,
 [FeatureBreakdown](../../kernel/feature-breakdown/SPECS.md) for Planners.
@@ -43,7 +49,7 @@ first and the caller's flags appended, and it must not trip over the second set.
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | argv       | `ownArgv`, `splitRunner`, `take`, `stageOf`, `GATE_FLAGS`, `BUILDER_FLAGS`, `PLANNER_FLAGS`                                                                            |
 | options    | `parseOptions` — a spec of flags, with choices, fallbacks and repeatable ones                                                                                          |
-| stdout     | `emitVerdict`, `emitFailure`, `emitPlan`, `emitRefusal`                                                                                                                |
+| stdout     | `emitVerdict`, `emitFailure`, `emitPlan`, `emitRefusal`, `writeContract`, `writeDiagnostic` — emits use `writeContract` so `process.exit` cannot truncate |
 | agent CLIs | `findExecutable`, `runAgent`, `readResult`, `serializeRun`, `extrasOf`, `finishRun`, `failureOf` — `serializeRun` always writes `skills` / `usage` (`null` = unknown)  |
 | prompts    | `renderPrompt`, `readTemplate`, `PROMPT_RULES` — fill is generic; each role owns its names                                                                             |
 | roles      | `parseRole`, `loadPrompt`, `loadRules`, `fillPrompt`, `spawnFilled`, `transcriptArgs`, `ROLE_OPTIONS` — a role fills its template and hands it to the agent after `--` |

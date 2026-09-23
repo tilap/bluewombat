@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
-import { emitFailure, emitPlan, emitRefusal, emitVerdict } from "./emit.js";
+import {
+  emitFailure,
+  emitPlan,
+  emitRefusal,
+  emitVerdict,
+  writeContract,
+  writeDiagnostic,
+} from "./emit.js";
 
 /** Collects what a slot would have put on stdout. */
 function collector(): { lines: string[]; write: (line: string) => void } {
@@ -63,5 +71,35 @@ describe("emitRefusal", () => {
       code: "not-specifiable",
       reason: "It asks for two contradictory results.",
     });
+  });
+});
+
+describe("writeContract", () => {
+  it("survives process.exit after a large line (process.stdout.write does not)", () => {
+    const body = "x".repeat(32_000);
+    const line = JSON.stringify({ body });
+    const lost = spawnSync(
+      process.execPath,
+      ["-e", `process.stdout.write(${JSON.stringify(`${line}\n`)}); process.exit(0);`],
+      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+    );
+    assert.notEqual(lost.stdout.length, line.length + 1);
+
+    const kept = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `import { writeSync } from "node:fs"; writeSync(1, ${JSON.stringify(`${line}\n`)}); process.exit(0);`,
+      ],
+      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+    );
+    assert.equal(kept.status, 0);
+    assert.equal(kept.stdout.length, line.length + 1);
+    assert.deepEqual(JSON.parse(kept.stdout.trim()), { body });
+  });
+
+  it("is the function slots call", () => {
+    assert.equal(typeof writeContract, "function");
+    assert.equal(typeof writeDiagnostic, "function");
   });
 });

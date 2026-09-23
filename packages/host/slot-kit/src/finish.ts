@@ -48,6 +48,9 @@ export function failureOf(
  * Every agent Builder ends here so they classify the same way: exit 0 is a
  * completed pass, and everything else is `fail-blocking` when the CLI itself is
  * unusable, `fail-retryable` when the agent failed at the work.
+ *
+ * Failures go through `emitFailure` → `writeContract`, so a long report is not
+ * lost when this process exits.
  */
 export function finishRun({ run, bin, name }: FinishedRun): never {
   if (run.error === undefined && run.code === 0 && readResult(run.stdout)?.is_error !== true) {

@@ -11,6 +11,7 @@ import {
   serializeRun,
   textOption,
   transcriptFor,
+  writeContract,
 } from "@bluewombat/slot-kit";
 import { extrasFromCursor } from "./cursor-extras.mjs";
 
@@ -82,7 +83,7 @@ answer(run, bin, extras);
 
 /** @param {string} reason @returns {never} */
 function refuse(reason) {
-  process.stdout.write(`${JSON.stringify({ error: reason })}\n`);
+  writeContract(`${JSON.stringify({ error: reason })}\n`);
   process.exit(1);
 }
 
@@ -93,7 +94,7 @@ function refuse(reason) {
  * @returns {never}
  */
 function answer(run, binPath, extras) {
-  process.stdout.write(
+  writeContract(
     `${JSON.stringify(
       serializeRun(run, { name: NAME, bin: binPath, skills: extras.skills, usage: extras.usage }),
     )}\n`,
