@@ -135,6 +135,26 @@ describe("spawnFilled", () => {
     assert.deepEqual(spawned, { ok: false, reason: "The agent command wrote no result." });
   });
 
+  it("reads a large serialized run after an immediate exit", async () => {
+    // Agents must writeSync the contract line: process.stdout.write + process.exit
+    // drops the tail above ~8KiB, which is exactly "wrote no result" for a real
+    // stream-json transcript. writeContract in the shipped agents is that write.
+    const large = agentScript(`
+import { writeSync } from "node:fs";
+const body = "x".repeat(32_000);
+writeSync(1, JSON.stringify({
+  name: "big", bin: "/bin/x", code: 0, signal: null,
+  stdout: body, stderr: "", output: body,
+  startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-01T00:00:01.000Z", durationMs: 1000,
+}) + "\\n");
+process.exit(0);
+`);
+    const spawned = await spawnFilled(["node", large], "p");
+    assert.ok(spawned.ok);
+    assert.equal(spawned.run.stdout.length, 32_000);
+    assert.equal(spawned.run.code, 0);
+  });
+
   it("relays a pre-run refusal", async () => {
     const refusing = agentScript(
       "process.stdout.write(JSON.stringify({ error: 'No cursor-agent on PATH.' }) + '\\n');",

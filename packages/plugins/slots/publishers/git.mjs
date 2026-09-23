@@ -8,6 +8,7 @@ import {
   ownArgv,
   PUBLISHER_FLAGS,
   take,
+  writeDiagnostic,
 } from "@bluewombat/slot-kit";
 
 // Put the feature's work where the Authority can read it, by pushing the name
@@ -49,7 +50,7 @@ const pushed = spawnSync("git", ["-C", cwd, "push", remote, `${ref}:${ref}`], {
   encoding: "utf8",
 });
 if (pushed.error !== undefined) {
-  process.stderr.write(`git publisher cannot run git: ${pushed.error.message}\n`);
+  writeDiagnostic(`git publisher cannot run git: ${pushed.error.message}\n`);
   process.exit(1);
 }
 if (pushed.status !== 0) {

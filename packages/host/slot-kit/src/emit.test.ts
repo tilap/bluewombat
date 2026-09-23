@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
-import { emitFailure, emitPlan, emitRefusal, emitVerdict } from "./emit.js";
+import {
+  emitFailure,
+  emitPlan,
+  emitRefusal,
+  emitVerdict,
+  writeContract,
+  writeDiagnostic,
+} from "./emit.js";
 
 /** Collects what a slot would have put on stdout. */
 function collector(): { lines: string[]; write: (line: string) => void } {
@@ -63,5 +71,34 @@ describe("emitRefusal", () => {
       code: "not-specifiable",
       reason: "It asks for two contradictory results.",
     });
+  });
+});
+
+describe("writeContract", () => {
+  it("delivers a large line through an immediate process.exit", () => {
+    // process.stdout.write + process.exit can drop the userspace buffer on some
+    // hosts. writeSync(1) is the contract path that survives exit. Build the
+    // payload inside the child so argv stays under ARG_MAX.
+    const size = 200_000;
+    const kept = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `import { writeSync } from "node:fs";
+const body = "x".repeat(${size});
+writeSync(1, JSON.stringify({ body }) + "\\n");
+process.exit(0);`,
+      ],
+      { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 },
+    );
+    assert.equal(kept.status, 0, kept.error?.message ?? kept.stderr);
+    const expected = JSON.stringify({ body: "x".repeat(size) });
+    assert.equal(kept.stdout.length, expected.length + 1);
+    assert.deepEqual(JSON.parse(kept.stdout.trim()), { body: "x".repeat(size) });
+  });
+
+  it("is the function slots call", () => {
+    assert.equal(typeof writeContract, "function");
+    assert.equal(typeof writeDiagnostic, "function");
   });
 });

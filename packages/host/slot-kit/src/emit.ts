@@ -6,6 +6,8 @@
  * shape, so each has its own function rather than one that takes a kind.
  */
 
+import { writeSync } from "node:fs";
+
 /** A Gate's answer on the work in front of it. */
 export type Verdict = "pass" | "fail-retryable" | "fail-blocking";
 
@@ -14,9 +16,27 @@ export type Failure = Exclude<Verdict, "pass">;
 
 export type Write = (line: string) => void;
 
-const toStdout: Write = (line) => {
-  process.stdout.write(line);
-};
+/**
+ * Put bytes on the contract channel (stdout, fd 1).
+ *
+ * Uses `writeSync` so an immediate `process.exit` cannot drop the tail of a
+ * large JSON line. `process.stdout.write` only fills a userspace buffer that
+ * `process.exit` abandons before the kernel drain finishes — that is how a
+ * finished agent run used to reach the role as "wrote no result".
+ */
+export function writeContract(line: string): void {
+  writeSync(1, line);
+}
+
+/**
+ * Put a diagnostic on stderr (fd 2) the same way: a long reason must survive
+ * `process.exit` right after.
+ */
+export function writeDiagnostic(text: string): void {
+  writeSync(2, text);
+}
+
+const toStdout: Write = writeContract;
 
 /** A Gate's verdict, with the report the next Attempt is given. */
 export function emitVerdict(verdict: Verdict, report = "", write: Write = toStdout): void {

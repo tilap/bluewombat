@@ -80,8 +80,9 @@ these all use it. How Host wires a slot into a run:
 
 A vendor CLI is not a Builder. `agents/cursor.mjs` and `agents/claude.mjs` take
 a prompt that is **already filled**, run the vendor, write a transcript if asked,
-and print the serialized run on stdout. They do not know `--intention` or
-`--report`. A role slot after `--` is what names one:
+and print the serialized run on stdout with `writeContract` (so a large
+stream-json transcript survives `process.exit`). They do not know `--intention`
+or `--report`. A role slot after `--` is what names one:
 
 ```json
 "--",

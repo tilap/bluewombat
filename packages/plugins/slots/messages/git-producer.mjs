@@ -13,6 +13,7 @@ import {
   take,
   textOption,
   transcriptArgs,
+  writeDiagnostic,
 } from "@bluewombat/slot-kit";
 
 // The feature's commit message — and the pull request's description with it
@@ -146,6 +147,6 @@ function readAnswer(path) {
 
 /** @param {string} reason @returns {never} */
 function fail(reason) {
-  process.stderr.write(`${reason}\n`);
+  writeDiagnostic(`${reason}\n`);
   process.exit(1);
 }

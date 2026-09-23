@@ -85,6 +85,32 @@ process.stdout.write(${JSON.stringify(body)});
     });
   });
 
+  it("delivers a large serialized run after process.exit", () => {
+    // stream-json transcripts are tens to hundreds of KiB; serializeRun embeds
+    // stdout twice. writeContract must land the whole line before exit.
+    const cwd = sandbox();
+    const fakeVendor = join(cwd, "vendor.mjs");
+    const blob = `${'{"type":"thinking","text":"x"}\n'.repeat(2_000)}{"type":"result","subtype":"success","is_error":false,"result":"ok","usage":{"inputTokens":1,"outputTokens":1,"cacheReadTokens":0,"cacheWriteTokens":0}}\n`;
+    writeFileSync(
+      fakeVendor,
+      `#!/usr/bin/env node
+process.stdout.write(${JSON.stringify(blob)});
+`,
+      { mode: 0o755 },
+    );
+    const result = spawnSync(node, [cursor, "--bin", fakeVendor, "--prompt", "hi"], {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const payload = lastPayload(result.stdout);
+    assert.equal(payload.name, "Cursor CLI");
+    assert.equal(typeof payload.stdout, "string");
+    assert.ok((payload.stdout as string).length > 16_000);
+    assert.equal(payload.code, 0);
+  });
+
   it("leaves skills unknown when --output-format is json", () => {
     const cwd = sandbox();
     const fakeVendor = join(cwd, "vendor.mjs");
