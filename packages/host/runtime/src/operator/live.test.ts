@@ -154,6 +154,36 @@ describe("runLive", () => {
     assert.equal(existsSyncSafe(journalPath(ledgerRoot)), true);
   });
 
+  it("follows a failure with the reason the child left", async () => {
+    const { cwd, ledgerRoot } = sandbox();
+    const lines: string[] = [];
+    const interruptFlag = { interrupted: false };
+    const running = runLive({
+      cwd,
+      argv: [],
+      write: (line) => lines.push(line),
+      interruptFlag,
+      follow: true,
+      pollMs: 30,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const journal = openJournalFile(ledgerRoot, () => new Date("2026-09-23T14:09:53.000Z"));
+    journal.append({
+      event: "result",
+      key: "github:acme/app#3",
+      outcome: "unavailable",
+      detail: "The Planner exited without answering. The agent wrote no usable plan.",
+    });
+    const deadline = Date.now() + 2_000;
+    while (!lines.join("").includes("no usable plan") && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    interruptFlag.interrupted = true;
+    const code = await running;
+    assert.equal(code, 0);
+    assert.match(lines.join(""), /no usable plan/);
+  });
+
   it("exits 2 when the config cannot be opened", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "host-live-missing-"));
     const lines: string[] = [];

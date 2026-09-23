@@ -2,6 +2,7 @@ import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { openWorkLedger } from "@bluewombat/work-ledger";
 import { parseArgs } from "../config/parse-args.js";
 import { journalPath, parseJournalChunk } from "../loop/journal.js";
+import { failureNote } from "../loop/trace.js";
 import { openPersist } from "../plugins/persist.js";
 import { boardOf, jsonOf } from "./board.js";
 
@@ -87,7 +88,8 @@ function formatFilm(line: Record<string, unknown>): string {
             : typeof line.behind === "string"
               ? line.behind
               : "";
-  return [at, event, key, extra].filter((part) => part.length > 0).join("  ");
+  const note = failureNote(line);
+  return [at, event, key, extra, note].filter((part) => part.length > 0).join("  ");
 }
 
 async function followJournal(input: {

@@ -87,7 +87,11 @@ function interpretBuilderOutcome(outcome: SpawnOutcome, timeoutMs: number): Buil
   }
 
   if (outcome.kind === "timed_out") {
-    const detail = `killed after ${timeoutMs}ms, its own ceiling`;
+    const detail = withChildWords(
+      `killed after ${timeoutMs}ms, its own ceiling`,
+      outcome.stdout,
+      outcome.stderr,
+    );
     return {
       result: {
         kind: "timed_out",
@@ -129,4 +133,12 @@ function interpretBuilderOutcome(outcome: SpawnOutcome, timeoutMs: number): Buil
     reportForRetry: detail,
     attemptEnded: "fail-retryable",
   };
+}
+
+function withChildWords(sentence: string, stdout: string, stderr: string): string {
+  const said = combinedOutput(stdout, stderr).trim();
+  if (said.length === 0) {
+    return sentence;
+  }
+  return `${sentence} ${said}`;
 }

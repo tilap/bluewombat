@@ -39,24 +39,24 @@ wait for the listener to acknowledge. It does not write files.
 Implementer is invoked with arguments. It does not read an input file. It does
 not read configuration from the workspace.
 
-| Argument                 | Content                                                                                                                     |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `--id`                   | Task id. Copied onto every Trace.                                                                                           |
-| `--intention`            | Passed through to Builder and Gates. Implementer does not interpret it.                                                     |
-| `--definition-of-done`   | Passed through to Builder and Gates. Implementer does not evaluate it.                                                      |
-| `--workspace`            | Absolute path. Must already exist. Working directory of Builder and Gates. The only directory this process treats as files. |
-| `--builder -- <argv…>`   | Builder command. Non-empty. **May be omitted**: an Attempt is then its Gate sequence alone, and nothing is produced.        |
-| `--builder-timeout-ms`   | Positive integer. **Required.** Wall clock of one producer run. Nothing else bounds it.                                     |
-| `--repair-builder -- <argv…>` | Optional producer for a pass that has something to resolve. Needs a `--builder` to fall back to.                       |
-| `--repair-builder-timeout-ms` | Optional. Wall clock of that producer. Absent: `--builder-timeout-ms`.                                                 |
-| `--gate <id> -- <argv…>` | One Gate. Repeatable; order is the sequence. **May be omitted** (empty sequence). Each `id` unique. Command non-empty.      |
-| `--gate-timeout-ms`      | Positive integer. **Required before each `--gate`.** Wall clock of that Gate.                                              |
-| `--max-attempts`         | Positive integer. Attempts this invocation may start.                                                                       |
-| `--report`               | Optional. Failure report passed to the producer on Attempt 1 (and kept for retries).                                        |
-| `--report-from`          | Optional. Which Gate produced `--report`, when a Gate did.                                                                  |
-| `--context`              | Optional. Larger piece of work this Task belongs to, passed through to the producer.                                        |
-| `--stage`                | Optional. `unit` or `assembly`. Passed to Gates. Absent: Gates receive `unit`.                                              |
-| `--on-status -- <argv…>` | Optional. Command to run each time Status changes. Omitted: Status still goes to stdout.                                    |
+| Argument                      | Content                                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `--id`                        | Task id. Copied onto every Trace.                                                                                           |
+| `--intention`                 | Passed through to Builder and Gates. Implementer does not interpret it.                                                     |
+| `--definition-of-done`        | Passed through to Builder and Gates. Implementer does not evaluate it.                                                      |
+| `--workspace`                 | Absolute path. Must already exist. Working directory of Builder and Gates. The only directory this process treats as files. |
+| `--builder -- <argv…>`        | Builder command. Non-empty. **May be omitted**: an Attempt is then its Gate sequence alone, and nothing is produced.        |
+| `--builder-timeout-ms`        | Positive integer. **Required.** Wall clock of one producer run. Nothing else bounds it.                                     |
+| `--repair-builder -- <argv…>` | Optional producer for a pass that has something to resolve. Needs a `--builder` to fall back to.                            |
+| `--repair-builder-timeout-ms` | Optional. Wall clock of that producer. Absent: `--builder-timeout-ms`.                                                      |
+| `--gate <id> -- <argv…>`      | One Gate. Repeatable; order is the sequence. **May be omitted** (empty sequence). Each `id` unique. Command non-empty.      |
+| `--gate-timeout-ms`           | Positive integer. **Required before each `--gate`.** Wall clock of that Gate.                                               |
+| `--max-attempts`              | Positive integer. Attempts this invocation may start.                                                                       |
+| `--report`                    | Optional. Failure report passed to the producer on Attempt 1 (and kept for retries).                                        |
+| `--report-from`               | Optional. Which Gate produced `--report`, when a Gate did.                                                                  |
+| `--context`                   | Optional. Larger piece of work this Task belongs to, passed through to the producer.                                        |
+| `--stage`                     | Optional. `unit` or `assembly`. Passed to Gates. Absent: Gates receive `unit`.                                              |
+| `--on-status -- <argv…>`      | Optional. Command to run each time Status changes. Omitted: Status still goes to stdout.                                    |
 
 No other argument is read.
 
@@ -149,15 +149,15 @@ Working directory: `--workspace`. Implementer appends arguments to the Builder
 command. It sets no extra environment variables of its own (the process still
 inherits the environment).
 
-| Argument               | Content                                                                                               |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| `--id`                 | Task id                                                                                               |
-| `--attempt`            | Attempt number, decimal                                                                               |
-| `--intention`          | The `--intention` given to Implementer                                                                |
-| `--definition-of-done` | The `--definition-of-done` given to Implementer                                                       |
+| Argument               | Content                                                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--id`                 | Task id                                                                                                                                          |
+| `--attempt`            | Attempt number, decimal                                                                                                                          |
+| `--intention`          | The `--intention` given to Implementer                                                                                                           |
+| `--definition-of-done` | The `--definition-of-done` given to Implementer                                                                                                  |
 | `--report`             | Previous Attempt's failure report (JSON `report` from that child's stdout), or `--report` given to Implementer. **Omitted** when neither exists. |
-| `--report-from`        | Present when a Gate produced that report.                                                             |
-| `--context`            | Present when `--context` was given to Implementer.                                                    |
+| `--report-from`        | Present when a Gate produced that report.                                                                                                        |
+| `--context`            | Present when `--context` was given to Implementer.                                                                                               |
 
 Exit 0: the Builder finished its pass. Implementer does not inspect the
 workspace.
@@ -167,10 +167,10 @@ workspace.
 | Exit 0                                                            | completed; run Gates | —                                      |
 | Stdout is JSON `{ "outcome": "fail-blocking", "report": "..." }`  | `fail-blocking`      | that `report`                          |
 | Stdout is JSON `{ "outcome": "fail-retryable", "report": "..." }` | `fail-retryable`     | that `report`                          |
-| Non-zero exit, no such JSON                                       | `fail-retryable`     | the end of stdout and stderr (8 KiB)   |
-| Killed by a clock                                                 | `fail-retryable`     | which clock                            |
-| Stop signal                                                       | `interrupted`        | none                                   |
-| Cannot spawn (not found, not executable)                          | `fail-blocking`      | why                                    |
+| Non-zero exit, no such JSON                                       | `fail-retryable`     | the end of stdout and stderr (8 KiB)                     |
+| Killed by a clock                                                 | `fail-retryable`     | which clock, then what the child wrote                   |
+| Stop signal                                                       | `interrupted`        | none                                                     |
+| Cannot spawn (not found, not executable)                          | `fail-blocking`      | why                                                      |
 
 `outcome` on that optional JSON is only `fail-retryable` or `fail-blocking`.
 Exit 0 is completion; there is no `pass` object. Other fields are ignored.
@@ -187,13 +187,13 @@ passed it.
 Working directory: `--workspace`. Implementer appends arguments to the Gate
 command. No `--report`: the Gate judges the workspace.
 
-| Argument               | Content                 |
-| ---------------------- | ----------------------- |
-| `--id`                 | Task id                 |
-| `--attempt`            | Attempt number, decimal |
-| `--gate-id`            | This Gate's `id`        |
-| `--intention`          | Same as the Builder     |
-| `--definition-of-done` | Same as the Builder     |
+| Argument               | Content                               |
+| ---------------------- | ------------------------------------- |
+| `--id`                 | Task id                               |
+| `--attempt`            | Attempt number, decimal               |
+| `--gate-id`            | This Gate's `id`                      |
+| `--intention`          | Same as the Builder                   |
+| `--definition-of-done` | Same as the Builder                   |
 | `--stage`              | `unit` or `assembly` (default `unit`) |
 
 Stdout: one JSON object.
@@ -211,13 +211,13 @@ Stdout: one JSON object.
 | `fail-retryable` | Stop the sequence. New Attempt if budget remains; next Builder gets `--report` with this `report`. |
 | `fail-blocking`  | Stop the sequence. Escalate. No further Attempt.                                                   |
 
-| What happened                     | Verdict used                                                 |
-| --------------------------------- | ------------------------------------------------------------ |
-| Valid JSON with a known `verdict` | that verdict; `report` as given (empty on `pass` if omitted) |
-| Stdout is not that JSON           | `fail-blocking`                                              |
-| Cannot spawn                      | `fail-blocking`                                              |
-| Killed by a clock                 | `fail-retryable`, report names the clock                     |
-| Stop signal                       | Attempt `interrupted`                                        |
+| What happened                     | Verdict used                                                   |
+| --------------------------------- | -------------------------------------------------------------- |
+| Valid JSON with a known `verdict` | that verdict; `report` as given (empty on `pass` if omitted)   |
+| Stdout is not that JSON           | `fail-blocking`, and the report ends with what the child wrote |
+| Cannot spawn                      | `fail-blocking`                                                |
+| Killed by a clock                 | `fail-retryable`, report names the clock, then what it wrote   |
+| Stop signal                       | Attempt `interrupted`                                          |
 
 A Gate that cannot return a verdict on the work returns `fail-blocking`. If it
 must wait on something, it waits inside its own process until it can return
@@ -324,12 +324,12 @@ there.
 
 Exactly one per invocation. The meaning is entirely inside this process.
 
-| Outcome              | Meaning                                                                           |
-| -------------------- | --------------------------------------------------------------------------------- |
-| `invalid-invocation` | Arguments or workspace unusable. No Attempt.                                      |
-| `validated`          | An Attempt ended `validated`.                                                     |
-| `escalated`          | `fail-blocking`, or a retryable failure with no Attempts left.                   |
-| `interrupted`        | Stop signal.                                                                      |
+| Outcome              | Meaning                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `invalid-invocation` | Arguments or workspace unusable. No Attempt.                   |
+| `validated`          | An Attempt ended `validated`.                                  |
+| `escalated`          | `fail-blocking`, or a retryable failure with no Attempts left. |
+| `interrupted`        | Stop signal.                                                   |
 
 No partial validation. Implementer never deletes `--workspace`.
 

@@ -55,6 +55,7 @@ package's README — Host does not grow a `--repo` flag for it.
 | `mason run`    | Drain the FeatureManager, run Conductor, report                                        |
 | `mason watch`  | Snapshot the ledger and follow the journal. Ctrl-C leaves the worker running           |
 | `mason status` | Snapshot the ledger, then exit. `--json` for scripts                                   |
+| `mason log`    | Replay the journal, with the reason a phase stopped. `--problems` for just those       |
 | `mason init`   | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
 | `mason setup`  | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
 | `mason doctor` | Check the config, the slots, and the manager. Exit 1 on any failure                    |
@@ -82,6 +83,21 @@ That is the operator surface: the durable state of every Feature, then the film
 of the current step (`submitted` included). It does not talk to the tracker, and
 it cannot `ready` or claim. `status` is the same snapshot without the
 follow. `--json` prints that snapshot as JSON.
+
+When a run only printed `unavailable:<key>`, the reason is already in the
+journal and `log` is how you read it:
+
+```bash
+mason log --problems
+```
+
+`--all` keeps the idle polls. `--tail N` limits the text film (`0` shows every
+kept line). `--json` prints every kept line; with `--tail`, a truncated reply
+names how many were kept and how many are shown. The closing tally counts each
+distinct failure. A pause with no planner exit code is counted apart from a
+non-zero exit. If a slot was started with `--transcript-dir`, the newest
+transcript files are named underneath, with the agent exit and duration read
+from the start of each file.
 
 To abandon a Feature the tracker can no longer mention (a deleted issue, a
 manager with no `probe`), stop `run` if it holds the ledger lock, then:
@@ -413,7 +429,7 @@ change that breaks it does not merge.
 | `config/`            | What a Project wrote: argv, `mason.config.json`, discovery, `HostOptions`. Pure: JSON in, options out                                                     | A runtime value (a Journal, a Port, a process handle)            | Node, `manager-kit` types                     |
 | `plugins/`           | Load a package by name and check its shape: a manager, an isolation strategy                                                                              | What to do with the loaded thing                                 | `config`                                      |
 | `loop/`              | The process: listen → probe → adapt → admit → run → report; composition (`open-host`, `transformers`, Authority, work line, lock, Cursor, journal, trace) | A command a human types; a string a human reads about the config | `plugins`, `config`, the kernel, Transformers |
-| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `cancel`, `board`, the terminal prompt                                                  | Anything the loop needs — the loop cannot see this layer         | everything below                              |
+| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `cancel`, `board`, the terminal prompt                                           | Anything the loop needs — the loop cannot see this layer         | everything below                              |
 | `index.ts`, `cli.ts` | The package surface and the dispatch. Nothing else sits at the top of `src/`                                                                              | Logic                                                            | everything                                    |
 
 Host's code names no plugin. A manager, an isolation strategy, a persistence
@@ -464,10 +480,10 @@ SPECS.md                 behavioural contract
 README.md                how to install, configure and run; the layers above
 src/
   index.ts               the package surface
-  cli.ts                 mason run | watch | status | cancel | init | setup | doctor
+  cli.ts                 mason run | watch | status | log | cancel | init | setup | doctor
   config/                argv, JSON config, config discovery → HostOptions; defaults: the plugin names Host ships with
   plugins/               load: the one loader; manager, isolation, persist: one shape each; discover
   loop/                  open-host (composition), tick (the loop), deliveries, drive, probe, report, authority, work-line, cursor, lock, journal, trace, transformers
-  operator/              init, setup, doctor, live (watch / status), cancel, board, prompt, git-remote
+  operator/              init, setup, doctor, live (watch / status), log, film, cancel, board, prompt, git-remote
 fixtures/                stand-in slots for the loop's tests
 ```

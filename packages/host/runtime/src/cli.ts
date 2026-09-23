@@ -9,6 +9,7 @@ import { runCancel } from "./operator/cancel.js";
 import { runDoctor } from "./operator/doctor.js";
 import { runInit } from "./operator/init.js";
 import { runLive } from "./operator/live.js";
+import { runLog } from "./operator/log.js";
 import { isInteractive, terminalAsk } from "./operator/prompt.js";
 import { runSetup } from "./operator/setup.js";
 
@@ -17,6 +18,7 @@ const USAGE = `Usage: ${PRODUCT} <command>
   run      drain the FeatureManager, run Conductor, report
   watch    snapshot the ledger and follow the journal
   status   snapshot the ledger, then exit
+  log      replay the journal, including why a phase stopped
   cancel   abandon a Feature by key (when the tracker cannot say it is gone)
   init     set this directory up — asks, writes, then runs setup
   doctor   check the config, the slots, and the manager
@@ -38,6 +40,9 @@ Shared flags: --config FILE --manager NAME --manager-option KEY=VALUE --home DIR
 A gate's --*-gate-timeout-ms comes before the --*-gate it bounds.
 
 watch / status also take --json (snapshot as JSON).
+
+log also takes --problems, --all, and --json (every kept line).
+--tail N limits the text film (0 = no limit). With --json it names kept and shown when it drops lines.
 
 Without --config, the nearest ${CONFIG_FILENAME} is used. --home is where Host
 keeps its own files (default ${DEFAULT_HOME}): the ledger, the workspaces, its copy of
@@ -88,6 +93,13 @@ async function main(argv: string[]): Promise<number> {
   const rest = argv.slice(1);
   if (command === "run") {
     return await run(rest);
+  }
+  if (command === "log") {
+    return await runLog({
+      cwd: process.cwd(),
+      argv: rest,
+      write: (line) => process.stdout.write(line),
+    });
   }
   if (command === "watch" || command === "status") {
     const interruptFlag = { interrupted: false };
