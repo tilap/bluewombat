@@ -75,23 +75,19 @@ describe("emitRefusal", () => {
 });
 
 describe("writeContract", () => {
-  it("survives process.exit after a large line (process.stdout.write does not)", () => {
-    const body = "x".repeat(32_000);
+  it("delivers a large line through an immediate process.exit", () => {
+    // process.stdout.write + process.exit can drop the userspace buffer on some
+    // hosts (seen locally with 16KiB+). writeSync(1) is the contract path that
+    // survives exit everywhere; assert that, not the race.
+    const body = "x".repeat(200_000);
     const line = JSON.stringify({ body });
-    const lost = spawnSync(
-      process.execPath,
-      ["-e", `process.stdout.write(${JSON.stringify(`${line}\n`)}); process.exit(0);`],
-      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
-    );
-    assert.notEqual(lost.stdout.length, line.length + 1);
-
     const kept = spawnSync(
       process.execPath,
       [
         "-e",
         `import { writeSync } from "node:fs"; writeSync(1, ${JSON.stringify(`${line}\n`)}); process.exit(0);`,
       ],
-      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+      { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 },
     );
     assert.equal(kept.status, 0);
     assert.equal(kept.stdout.length, line.length + 1);
