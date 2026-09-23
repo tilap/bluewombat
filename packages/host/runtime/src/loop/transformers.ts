@@ -9,7 +9,7 @@ import { type FoldBackend, runIntegrator } from "@bluewombat/integrator";
 import { type IsolationBackend, runIsolator } from "@bluewombat/isolator";
 import type { AssemblySpec, PassSpec, StageSpec } from "../config/types.js";
 import type { Journal } from "./journal.js";
-import type { Trace } from "./trace.js";
+import { failureNote, type Trace } from "./trace.js";
 
 export type TransformerSlots = {
   /** Where the Transformers say what they are doing. Absent: nowhere. */
@@ -40,22 +40,24 @@ const silent = (): void => {};
  *
  * Each of them already says what it is doing on its own writer; Host used to
  * drop all of it, which is why a run of several minutes said nothing at all.
- * Only the lines that name a phase or an outcome are kept — the rest is
- * bookkeeping nobody watches.
+ * Only the lines that name a phase or an outcome are kept. A line that
+ * records why a stop happened — the child's last words — is printed too.
+ * The rest is bookkeeping nobody watches.
  */
 function progressTrace(trace: Trace | undefined): (line: Record<string, unknown>) => void {
   if (trace === undefined) {
     return silent;
   }
   return (line) => {
-    // Only the phase labels. Each Transformer also writes a closing line with
-    // the outcome, and that outcome is already the last phase it announced.
-    if (typeof line.label !== "string") {
-      return;
+    if (typeof line.label === "string") {
+      const id = typeof line.id === "string" ? line.id : String(line.task_id ?? "");
+      const label = id.length > 0 ? line.label.replace(`:${id}`, "") : line.label;
+      trace(id.length > 0 ? `  ${id}  ${label}` : `  ${label}`);
     }
-    const id = typeof line.id === "string" ? line.id : String(line.task_id ?? "");
-    const label = id.length > 0 ? line.label.replace(`:${id}`, "") : line.label;
-    trace(id.length > 0 ? `  ${id}  ${label}` : `  ${label}`);
+    const note = failureNote(line);
+    if (note.length > 0) {
+      trace(`  ${note}`);
+    }
   };
 }
 

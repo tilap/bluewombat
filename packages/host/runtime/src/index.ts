@@ -17,6 +17,8 @@ export type { InitInput, InitResult } from "./operator/init.js";
 export { runInit } from "./operator/init.js";
 export type { LiveInput } from "./operator/live.js";
 export { runLive } from "./operator/live.js";
+export type { LogInput } from "./operator/log.js";
+export { runLog } from "./operator/log.js";
 export type { Ask } from "./operator/prompt.js";
 export { isInteractive, terminalAsk } from "./operator/prompt.js";
 export type { SetupInput } from "./operator/setup.js";

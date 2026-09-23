@@ -257,6 +257,7 @@ describe("runBreakdown acceptance", { concurrency: false }, () => {
     });
     assert.equal(result.outcome, "unavailable");
     assert.equal(result.exitCode, 3);
+    assert.match(result.detail ?? "", /planner failed/);
     assert.notEqual(result.outcome, "refused");
   });
 

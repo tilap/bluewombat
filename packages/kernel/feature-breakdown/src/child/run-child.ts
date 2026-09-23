@@ -48,7 +48,8 @@ function truncate(text: string): string {
   if (text.length <= OUTPUT_TRUNCATE) {
     return text;
   }
-  return `${text.slice(0, OUTPUT_TRUNCATE)}…[truncated]`;
+  // A crash says why at the end. Keeping the start drops that line.
+  return `[…${text.length - OUTPUT_TRUNCATE} characters cut]${text.slice(-OUTPUT_TRUNCATE)}`;
 }
 
 function killProcessTree(child: ChildProcess): void {

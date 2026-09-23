@@ -67,3 +67,45 @@ function countIntegrated(aggregate: FeatureAggregate): number {
 function stamp(): string {
   return new Date().toISOString().slice(11, 19);
 }
+
+const FAILURE_KEEP = 240;
+
+/**
+ * What a failure line adds under its phase label.
+ *
+ * A clean pass says nothing extra. A stop carries the child's last words:
+ * `detail`, `reason`, a non-zero exit, or a Gate report that did not pass.
+ */
+export function failureNote(line: Record<string, unknown>): string {
+  const bits: string[] = [];
+  if (typeof line.exitCode === "number" && line.exitCode !== 0) {
+    bits.push(`exit ${line.exitCode}`);
+  }
+  const why = textOf(line.detail) ?? textOf(line.reason) ?? gateReport(line);
+  if (why !== undefined) {
+    bits.push(endOf(why));
+  }
+  return bits.join("  ");
+}
+
+function gateReport(line: Record<string, unknown>): string | undefined {
+  if (line.event !== "gate-finished" || line.verdict === "pass" || line.verdict === undefined) {
+    return undefined;
+  }
+  return textOf(line.report);
+}
+
+function textOf(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length > 0 ? flat : undefined;
+}
+
+function endOf(text: string): string {
+  if (text.length <= FAILURE_KEEP) {
+    return text;
+  }
+  return `…${text.slice(-(FAILURE_KEEP - 1))}`;
+}

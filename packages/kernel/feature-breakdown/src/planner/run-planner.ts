@@ -63,7 +63,10 @@ export async function runPlanner(input: {
   }
   if (spawn.kind === "timed_out") {
     return {
-      answer: { kind: "unavailable", detail: "The Planner clock fired." },
+      answer: {
+        kind: "unavailable",
+        detail: withChildWords("The Planner clock fired.", spawn.stdout, spawn.stderr),
+      },
       finished: { kind: plannerFinishedKind("timed_out") },
     };
   }
@@ -71,8 +74,11 @@ export async function runPlanner(input: {
     return {
       answer: {
         kind: "unavailable",
-        detail:
+        detail: withChildWords(
           "The Planner could not be started. Check that the command exists and is executable.",
+          "",
+          spawn.detail,
+        ),
       },
       finished: { kind: plannerFinishedKind("spawn_error") },
     };
@@ -87,7 +93,7 @@ export async function runPlanner(input: {
     return {
       answer: {
         kind: "unavailable",
-        detail: "The Planner exited without answering.",
+        detail: withChildWords("The Planner exited without answering.", spawn.stdout, spawn.stderr),
       },
       finished,
     };
@@ -98,7 +104,11 @@ export async function runPlanner(input: {
     return {
       answer: {
         kind: "unavailable",
-        detail: "The Planner stdout was not a JSON object.",
+        detail: withChildWords(
+          "The Planner stdout was not a JSON object.",
+          spawn.stdout,
+          spawn.stderr,
+        ),
       },
       finished,
     };
@@ -107,4 +117,16 @@ export async function runPlanner(input: {
     return { answer: { kind: "refused", reason: parsed.reason }, finished };
   }
   return { answer: { kind: "plan", subtasks: parsed.subtasks }, finished };
+}
+
+/** The sentence, then the end of what the child wrote. The reason is the last thing it said. */
+function withChildWords(sentence: string, stdout: string, stderr: string): string {
+  const said = stderr.trim() || stdout.trim();
+  if (said.length === 0) {
+    return sentence;
+  }
+  const flat = said.replace(/\s+/g, " ").trim();
+  const keep = 800;
+  const tail = flat.length <= keep ? flat : flat.slice(-keep);
+  return `${sentence} ${tail}`;
 }

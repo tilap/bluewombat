@@ -68,11 +68,11 @@ One JSON object. The input shape FeatureBreakdown **reads** is closed: these
 fields, no more. A field it does not read is ignored, never copied onto the
 Plan.
 
-| Field                 | Accepted                                          | Role                               |
-| --------------------- | ------------------------------------------------- | ---------------------------------- |
-| `key`                 | Non-empty string                                  | Identity of this FeatureStandard   |
-| `intention`           | Non-empty string after trim                       | What to split                      |
-| `title`               | String. Optional.                                 | Passed to the Planner when present |
+| Field       | Accepted                    | Role                               |
+| ----------- | --------------------------- | ---------------------------------- |
+| `key`       | Non-empty string            | Identity of this FeatureStandard   |
+| `intention` | Non-empty string after trim | What to split                      |
+| `title`     | String. Optional.           | Passed to the Planner when present |
 
 Strings are trimmed. A recognised field present but of the wrong type is a
 refusal, not a silent fallback.
@@ -133,12 +133,12 @@ does, once, and this process judges the result.
 It runs with this Transformer's own working directory (this Transformer owns no directory)
 and these arguments appended:
 
-| Argument                | Content                                                             |
-| ----------------------- | ------------------------------------------------------------------- |
-| `--key`                 | From the FeatureStandard                                            |
-| `--intention`           | From the FeatureStandard                                            |
-| `--max-units`           | From `--max-units`                                                  |
-| `--title`               | From the FeatureStandard. Omitted when the FeatureStandard has none |
+| Argument      | Content                                                             |
+| ------------- | ------------------------------------------------------------------- |
+| `--key`       | From the FeatureStandard                                            |
+| `--intention` | From the FeatureStandard                                            |
+| `--max-units` | From `--max-units`                                                  |
+| `--title`     | From the FeatureStandard. Omitted when the FeatureStandard has none |
 
 FeatureBreakdown sets no extra environment variables of its own (the process
 still inherits the environment).
@@ -179,16 +179,16 @@ refused without saying why.
 If both `outcome: "refused"` and `subtasks` are present, the refusal wins and
 `subtasks` is ignored.
 
-| What happened                                          | Result                    |
-| ------------------------------------------------------ | ------------------------- |
-| Exit 0, stdout is a Plan object                        | Check the Plan (§6)       |
-| Exit 0, stdout is a refusal object                     | Run outcome `refused`     |
-| Exit 0, stdout is empty, unparseable, or not an object | Run outcome `unavailable` |
-| Non-zero exit, no refusal object                       | Run outcome `unavailable` |
-| Killed by `--planner-duration-ms`                      | Run outcome `unavailable` |
-| Cannot spawn (not found, not executable)               | Run outcome `unavailable` |
-| Stdout + stderr over 8 MiB                             | Run outcome `unavailable` |
-| Stop signal                                            | Run outcome `interrupted` |
+| What happened                                          | Result                                                                         |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Exit 0, stdout is a Plan object                        | Check the Plan (§6)                                                            |
+| Exit 0, stdout is a refusal object                     | Run outcome `refused`                                                          |
+| Exit 0, stdout is empty, unparseable, or not an object | Run outcome `unavailable`                                                      |
+| Non-zero exit, no refusal object                       | Run outcome `unavailable`. `detail` ends with what the child wrote             |
+| Killed by `--planner-duration-ms`                      | Run outcome `unavailable`. `detail` names the clock, then what the child wrote |
+| Cannot spawn (not found, not executable)               | Run outcome `unavailable`. `detail` includes why it could not start            |
+| Stdout + stderr over 8 MiB                             | Run outcome `unavailable`                                                      |
+| Stop signal                                            | Run outcome `interrupted`                                                      |
 
 A Planner failure never produces `refused`. `refused` means *this FeatureStandard
 cannot be planned*, which is a verdict on the FeatureStandard or on a Plan that

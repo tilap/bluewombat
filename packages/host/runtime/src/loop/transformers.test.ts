@@ -168,4 +168,41 @@ describe("createTransformers", () => {
     assert.equal(events.includes("status"), true);
     assert.equal(events.includes("gate-finished"), true);
   });
+
+  it("prints why a Planner that wrote no plan is unavailable", async () => {
+    const said: string[] = [];
+    const slots = join(dirname(fileURLToPath(import.meta.url)), "../../../../plugins/slots");
+    const transformers = createTransformers({
+      planner: {
+        cmd: [
+          node,
+          join(slots, "planners/producer.mjs"),
+          "--",
+          node,
+          join(slots, "agents/cursor.mjs"),
+          "--bin",
+          join(slots, "fixtures/planner-agent-silent.mjs"),
+        ],
+        timeoutMs: 20_000,
+      },
+      builder: { ...builderStage([]), maxAttempts: 1 },
+      assembly: { ...assemblyStage([]), maxAttempts: 1 },
+      isolation: copyStrategy.isolation,
+      fold: copyStrategy.fold,
+      timeoutMs: 20_000,
+      maxUnits: 10,
+      maxFeatureBytes: 100_000,
+      trace: (line) => said.push(line),
+    });
+    const result = await transformers.breakDown({
+      featureJson: JSON.stringify({
+        key: "github:tilap/web-emojis#3",
+        intention: "Add a light/dark theme",
+      }),
+    });
+    assert.equal(result.outcome, "unavailable");
+    const text = said.join("\n");
+    assert.match(text, /unavailable:github:tilap\/web-emojis#3/);
+    assert.match(text, /no usable plan/);
+  });
 });

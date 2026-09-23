@@ -1,6 +1,6 @@
 import type { GateSpec, GateTraceEntry, Invocation } from "../types.js";
 import { parseGateVerdictJson } from "./parse-child-output.js";
-import { runChild, type SpawnOutcome } from "./run-child.js";
+import { combinedOutput, runChild, type SpawnOutcome } from "./run-child.js";
 
 export type GateRunResult = {
   entry: GateTraceEntry;
@@ -63,7 +63,11 @@ function interpretGateOutcome(
   }
 
   if (outcome.kind === "timed_out") {
-    const report = `killed after ${timeoutMs}ms, its own ceiling`;
+    const report = withChildWords(
+      `killed after ${timeoutMs}ms, its own ceiling`,
+      outcome.stdout,
+      outcome.stderr,
+    );
     return {
       entry: { id: gateId, verdict: "fail-retryable", report },
       stop: "fail-retryable",
@@ -76,7 +80,11 @@ function interpretGateOutcome(
       entry: {
         id: gateId,
         verdict: "fail-blocking",
-        report: "Gate stdout is not a JSON object with a known verdict.",
+        report: withChildWords(
+          "Gate stdout is not a JSON object with a known verdict.",
+          outcome.stdout,
+          outcome.stderr,
+        ),
       },
       stop: "fail-blocking",
     };
@@ -96,4 +104,12 @@ function interpretGateOutcome(
     entry,
     stop: parsed.verdict,
   };
+}
+
+function withChildWords(sentence: string, stdout: string, stderr: string): string {
+  const said = combinedOutput(stdout, stderr).trim();
+  if (said.length === 0) {
+    return sentence;
+  }
+  return `${sentence} ${said}`;
 }

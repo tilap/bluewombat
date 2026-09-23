@@ -34,10 +34,10 @@ Planner / Builder / Gate argv.
 
 ## 2. Faces
 
-| Face   | Entry                                                               | Must not                                      |
-| ------ | ------------------------------------------------------------------- | --------------------------------------------- |
-| Import | `openHost(options)` then `runOnce` / `run`                          | Live inside Conductor `src/run/`              |
-| CLI    | `mason run \| watch \| status \| cancel \| init \| setup \| doctor` | Interpret a FeatureStandard; pick Child paths |
+| Face   | Entry                                                                      | Must not                                      |
+| ------ | -------------------------------------------------------------------------- | --------------------------------------------- |
+| Import | `openHost(options)` then `runOnce` / `run`                                 | Live inside Conductor `src/run/`              |
+| CLI    | `mason run \| watch \| status \| log \| cancel \| init \| setup \| doctor` | Interpret a FeatureStandard; pick Child paths |
 
 `src/loop/` is the process: `open-host.ts` opens packages (composition),
 `tick.ts` runs the listen / probe / Cursor / sweep loop, `deliveries.ts` handles one
@@ -95,7 +95,7 @@ not losing an Event.
 | `invalid` (new, or the intention changed)   | `recordInvalid`, emit `invalid`                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `invalid` (same fingerprint as recorded)    | leave it; the tracker was told, and telling it is what delivered it again                                                                                                                                                                                                                                                                                                                                                                            |
 | `upsert` (new/invalid)                      | `admit`, emit `accepted`, then `runProject` when the Project is free; a Project frozen by an escalation queues the Feature (journal `queued`, one `progress` Event) and the sweep starts it once the Project is free. Post-run Events (`planned` / `done` / `escalated`) are reported on the Feature that was driven, not on the delivered key. `progress` (once per refusal) when the Authority sent the Submission back and a repair is on its way |
-| `upsert` (in-flight / terminal)             | leave it; do not restart. In-flight is `planning`, `running`, `escalated`, `integrating`, `submitted`; terminal is `merging`, `done`, `cancelled`. An echo of a Host report (Submitted, a progress comment) is this row: do not admit it                                                                                                                                                                                                              |
+| `upsert` (in-flight / terminal)             | leave it; do not restart. In-flight is `planning`, `running`, `escalated`, `integrating`, `submitted`; terminal is `merging`, `done`, `cancelled`. An echo of a Host report (Submitted, a progress comment) is this row: do not admit it                                                                                                                                                                                                             |
 | `upsert` (`received`)                       | same drive as a new upsert (no second `accepted`)                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `upsert` + `signalsReady` while `escalated` | same as `ready` — a poll snapshot has no `labeled` edge                                                                                                                                                                                                                                                                                                                                                                                              |
 | `ready`                                     | `resumeReady`, emit `resumed`, `runProject`, then the same post-run Events                                                                                                                                                                                                                                                                                                                                                                           |
@@ -157,7 +157,7 @@ and left; the next sweep that finds the Project free claims it. The same set
 copy: starting a queued Feature on a copy that was not fast-forwarded this
 tick would build on a version that no longer exists.
 
-## 8. init, setup, doctor, watch, status and cancel
+## 8. init, setup, doctor, watch, status, log and cancel
 
 `init` writes a config that already runs: the Planner is the bootstrap one from
 `@bluewombat/slots/planners/`, the Builder is a stub that says what to replace
@@ -245,7 +245,23 @@ open a manager, Conductor, or Host. `status` prints a snapshot of every known
 Feature and exits. `watch` prints that snapshot, then follows new journal lines
 until SIGINT (exit 0). A missing journal is not an error: the snapshot still
 stands. `--json` prints the snapshot as JSON. Ctrl-C on watch leaves the worker
-running. The file can grow without rotation.
+running. The file can grow without rotation. A followed line that records a
+stop includes the child's last words (`detail`, `reason`, a non-zero exit, a
+Gate report that did not pass). `run` prints that same note under the phase
+label.
+
+`log` reads that same journal and exits. It does not follow, and it does not
+open a manager or Host. Quiet lines (`idle`, a listen that delivered nothing)
+are hidden. `--all` keeps them. `--problems` keeps only lines that explain a
+stop. `--tail N` keeps the last N of the text film (0 means no limit). `--json`
+prints every kept line, and when `--tail` is also passed and drops lines the
+object names `kept` and `shown`. After the text film it tallies the distinct
+problems. A `result` is counted with the exit code of the `planner-finished`
+just before it. A run that then pauses, with no exit code, is tallied as
+`interrupted`, apart from a non-zero exit that left the same detail. When a
+slot was given `--transcript-dir` it names the newest transcript files with
+the agent exit and duration read from the start of each file. A missing
+journal is not an error. Exit 2 when the config or `--tail` cannot be read.
 
 `cancel <key>` abandons one Feature the same way a `cancel` delivery does. The
 team still abandons in the FeatureManager; this is the hatch when the tracker
@@ -299,5 +315,10 @@ positional: `cancel github:owner/name#19`.
 18. A Feature `submitted`, then the same upsert delivered again, then the
     Authority refuses: Host skips the echo, records no `pending_fingerprint`,
     and the next pass repairs. It does not escalate as a plan refusal.
+19. `log` on a journal that recorded `unavailable` with a `detail` prints that
+    detail, hides `idle`, and `--problems` drops the phase labels that are not
+    themselves the failure. `--json` returns every kept line. A paused run
+    with no planner exit code is tallied apart from a non-zero exit. It does
+    not import `openHost`.
 
 How to install, configure and run: [README.md](./README.md).

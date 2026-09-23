@@ -15,7 +15,10 @@ export type FetchRequest = {
 const OUTPUT_TRUNCATE = 8_192;
 
 function truncate(text: string): string {
-  return text.length <= OUTPUT_TRUNCATE ? text : `${text.slice(0, OUTPUT_TRUNCATE)}…[truncated]`;
+  if (text.length <= OUTPUT_TRUNCATE) {
+    return text;
+  }
+  return `[…${text.length - OUTPUT_TRUNCATE} characters cut]${text.slice(-OUTPUT_TRUNCATE)}`;
 }
 
 /**
@@ -126,12 +129,26 @@ export function readFetchStdout(stdout: string): FetchResult {
     parsed = JSON.parse(trimmed);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return { kind: "unavailable", detail: `The Fetch stdout is not JSON: ${detail}` };
+    return {
+      kind: "unavailable",
+      detail: `The Fetch stdout is not JSON: ${detail} ${tailOf(trimmed)}`.trim(),
+    };
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { kind: "unavailable", detail: "The Fetch stdout is not a JSON object." };
+    return {
+      kind: "unavailable",
+      detail: `The Fetch stdout is not a JSON object. ${tailOf(trimmed)}`.trim(),
+    };
   }
   return { kind: "merged", object: parsed as Record<string, unknown> };
+}
+
+function tailOf(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= 200) {
+    return flat;
+  }
+  return flat.slice(-200);
 }
 
 function kill(child: ChildProcess): void {
