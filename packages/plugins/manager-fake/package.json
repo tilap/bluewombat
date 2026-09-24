@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/manager-fake",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "File-based FeatureManager: JSON intentions in, Threads out. No account.",
   "keywords": [
@@ -42,6 +42,6 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/manager-kit": "^0.1.2"
+    "@bluewombat/manager-kit": "^0.2.0"
   }
 }

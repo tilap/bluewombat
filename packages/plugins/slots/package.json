@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/slots",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Shipped mason slots: Planners, Builders, Gates, publishers, and refreshers a Project names in its config.",
   "keywords": [
@@ -53,6 +53,6 @@
     "test": "tsx --test $(find test -name '*.test.ts')"
   },
   "dependencies": {
-    "@bluewombat/slot-kit": "^0.1.2"
+    "@bluewombat/slot-kit": "^0.2.0"
   }
 }

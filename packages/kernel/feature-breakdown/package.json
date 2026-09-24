@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/feature-breakdown",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Transformer: FeatureStandard in, a Plan out, or refuse.",
   "keywords": [

@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/slot-kit",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "What a Planner, Builder, or Gate written in Node needs to answer the Transformer that spawned it.",
   "keywords": [

@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/isolation-copy",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Isolation strategy: directory copy attach, directory merge fold.",
   "keywords": [
@@ -41,7 +41,7 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/integrator": "^0.1.2",
-    "@bluewombat/isolator": "^0.1.2"
+    "@bluewombat/integrator": "^0.2.0",
+    "@bluewombat/isolator": "^0.2.0"
   }
 }
