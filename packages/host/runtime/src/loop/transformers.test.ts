@@ -26,10 +26,14 @@ function builderStage(gates: { id: string; argv: string[]; timeoutMs: number }[]
   };
 }
 
-function assemblyStage(gates: { id: string; argv: string[]; timeoutMs: number }[]) {
+function assemblyStage(
+  gates: { id: string; argv: string[]; timeoutMs: number }[],
+  validateCmd?: string[],
+) {
   const cmd = [node, join(fixtures, "builder-ok.mjs")];
   return {
     fix: { cmd, timeoutMs: 20_000 },
+    ...(validateCmd === undefined ? {} : { validate: { cmd: validateCmd, timeoutMs: 20_000 } }),
     gates,
   };
 }
@@ -204,5 +208,51 @@ describe("createTransformers", () => {
     const text = said.join("\n");
     assert.match(text, /unavailable:github:tilap\/web-emojis#3/);
     assert.match(text, /no usable plan/);
+  });
+
+  it("runs assembly.validate with no gates and one attempt, and carries its report", async () => {
+    const transformers = createTransformers({
+      planner: { cmd: [node, "-e", ""], timeoutMs: 20_000 },
+      builder: { ...builderStage([]), maxAttempts: 3 },
+      assembly: {
+        ...assemblyStage(
+          [{ id: "published", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 }],
+          [node, join(fixtures, "builder-fail-retryable.mjs")],
+        ),
+        maxAttempts: 3,
+      },
+      isolation: copyStrategy.isolation,
+      fold: copyStrategy.fold,
+      timeoutMs: 20_000,
+      maxUnits: 10,
+      maxFeatureBytes: 100_000,
+    });
+    const result = await transformers.implement({
+      id: "t:validate",
+      stage: "assembly",
+      validate: true,
+      intention: "i",
+      workspace: workspace(),
+    });
+    // A single, read-only Attempt: assembly.gates would be looking at a
+    // workspace validate never touches, and a second try would judge the same
+    // diff again.
+    assert.equal(result.outcome, "escalated");
+    assert.equal(result.traces.length, 1);
+    assert.equal(result.traces[0]?.report, "builder could not finish");
+  });
+
+  it("does not run assembly.validate when the Project declares none", async () => {
+    const transformers = transformersWith([]);
+    const result = await transformers.implement({
+      id: "t:validate",
+      stage: "assembly",
+      validate: true,
+      intention: "i",
+      workspace: workspace(),
+    });
+    // Nothing to produce: the Attempt makes nothing and there is nothing to
+    // judge, so it validates trivially rather than failing on a missing slot.
+    assert.equal(result.outcome, "validated");
   });
 });

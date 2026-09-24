@@ -117,9 +117,14 @@ function reasonOf(trace: ImplementerTrace): { report: string; from?: string } | 
  * the same thing, and be refused again until the budget is gone.
  */
 function gatesFor(
-  input: { stage?: string; produce?: boolean },
+  input: { stage?: string; produce?: boolean; validate?: boolean },
   slots: TransformerSlots,
 ): GateSpec[] {
+  if (input.validate === true) {
+    // Read-only, and judged on its own answer: a Gate here would be reading a
+    // workspace validate never touches.
+    return [];
+  }
   return input.stage === "assembly" && input.produce === false
     ? slots.assembly.gates
     : slots.builder.gates;
@@ -129,9 +134,15 @@ function gatesFor(
  * How long the agent of this pass may run.
  *
  * A Subtask names its producer. An assembly names a fix, and only when something
- * already refused the whole.
+ * already refused the whole — or, before that, a validate.
  */
-function commandTimeoutMs(input: { stage?: string }, slots: TransformerSlots): number {
+function commandTimeoutMs(
+  input: { stage?: string; validate?: boolean },
+  slots: TransformerSlots,
+): number {
+  if (input.validate === true) {
+    return slots.assembly.validate?.timeoutMs ?? slots.timeoutMs;
+  }
   if (input.stage === "assembly") {
     return slots.assembly.fix?.timeoutMs ?? slots.timeoutMs;
   }
@@ -139,10 +150,10 @@ function commandTimeoutMs(input: { stage?: string }, slots: TransformerSlots): n
 }
 
 function attemptBudget(
-  input: { stage?: string; produce?: boolean },
+  input: { stage?: string; produce?: boolean; validate?: boolean },
   slots: TransformerSlots,
 ): number {
-  if (input.produce === false) {
+  if (input.produce === false || input.validate === true) {
     return 1;
   }
   const stage = input.stage === "assembly" ? slots.assembly : slots.builder;
@@ -150,7 +161,7 @@ function attemptBudget(
 }
 
 function producersFor(
-  input: { stage?: string; produce?: boolean },
+  input: { stage?: string; produce?: boolean; validate?: boolean },
   slots: TransformerSlots,
 ):
   | {
@@ -159,6 +170,10 @@ function producersFor(
       repairTimeoutMs?: number;
     }
   | undefined {
+  if (input.validate === true) {
+    const validate = slots.assembly.validate;
+    return validate === undefined ? undefined : { builderArgv: validate.cmd };
+  }
   if (input.produce === false) {
     return undefined;
   }

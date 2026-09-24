@@ -255,4 +255,70 @@ describe("runDoctor", () => {
     assert.match(output, /FAIL {2}assembly fix/);
     assert.match(output, /assembly\.fix/);
   });
+
+  it("checks assembly.validate's command when declared, and says nothing new when absent", async () => {
+    const withValidate = await doctorIn(
+      sandbox({
+        manager: "@bluewombat/manager-fake",
+        managerOptions: { source: "./source", target: "./threads" },
+        assembly: {
+          validate: { cmd: [node, builder], timeoutMs: 600_000 },
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
+      }),
+    );
+    assert.match(withValidate.output, /ok {4}Assembly validate/);
+
+    const withoutValidate = await doctorIn(
+      sandbox({
+        manager: "@bluewombat/manager-fake",
+        managerOptions: { source: "./source", target: "./threads" },
+      }),
+    );
+    assert.doesNotMatch(withoutValidate.output, /Assembly validate/);
+  });
+
+  it("no longer warns that fix is dead without an Authority, once validate can send work back to it", async () => {
+    const { output } = await doctorIn(
+      sandbox({
+        manager: "@bluewombat/manager-fake",
+        managerOptions: { source: "./source", target: "./threads" },
+        assembly: {
+          fix: { cmd: [node, builder], timeoutMs: 600_000 },
+          validate: { cmd: [node, builder], timeoutMs: 600_000 },
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
+      }),
+    );
+    assert.doesNotMatch(output, /assembly fix.*it will never run/);
+  });
+
+  it("still warns that fix is dead without an Authority or a validate to feed it", async () => {
+    const { output } = await doctorIn(
+      sandbox({
+        manager: "@bluewombat/manager-fake",
+        managerOptions: { source: "./source", target: "./threads" },
+        assembly: {
+          fix: { cmd: [node, builder], timeoutMs: 600_000 },
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
+      }),
+    );
+    assert.match(output, /warn {2}assembly fix.*it will never run/);
+  });
+
+  it("says a validate with no fix escalates rather than failing the check", async () => {
+    const { code, output } = await doctorIn(
+      sandbox({
+        manager: "@bluewombat/manager-fake",
+        managerOptions: { source: "./source", target: "./threads" },
+        assembly: {
+          validate: { cmd: [node, builder], timeoutMs: 600_000 },
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
+      }),
+    );
+    assert.equal(code, 0);
+    assert.match(output, /warn {2}assembly fix.*escalate/);
+  });
 });

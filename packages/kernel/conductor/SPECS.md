@@ -111,6 +111,11 @@ producer to run there is how a correct result gets rewritten so a check expectin
 a change is satisfied. `report` is what a pass before this one left unresolved,
 and it reaches the producer as any Gate's report does.
 
+`validate` marks a third assembly pass, neither of `produce`'s two: a read-only
+judge of the whole, run after align and before offer (or the local judge on
+`produce: false`). It answers directly, before there is a Submission or a Gate
+sequence to hold a verdict. Absent: `stage` and `produce` decide alone.
+
 A Trace carries `ended` and, when the Attempt did not end well, the `report` of
 whatever refused it — the first Gate that did not pass, or the producer's own
 detail. `ended` says an Attempt failed; `report` says why, and whoever drives the
@@ -132,7 +137,11 @@ Gates may send the work back before Conductor escalates.
 ## 6. Paths
 
 Constructor: `openConductor({ ledger, transformers, workLineStable, workspaceRoot,
-transformerDurationMs?, authority?, workLineTarget?, maxRefusals?, observe? })`.
+transformerDurationMs?, authority?, workLineTarget?, maxRefusals?,
+assemblyValidate?, assemblyFixDeclared?, observe? })`. `assemblyValidate` says
+whether a local judge runs after align, with or without an Authority.
+`assemblyFixDeclared` says whether a refusal has anything to repair it with; a
+validate refusal escalates on the spot when it does not.
 `observe` is told, mid-pass, when the plan is recorded, when a Subtask is
 integrated (with the count), and when the work is submitted — awaited, and a
 throw from it changes nothing about the run.
@@ -223,26 +232,35 @@ One FeatureStandard, one Project. Pause flag is off.
 6. When the ledger is `integrating` and pause is off:
    1. If `pending_fingerprint` is set, escalate `kind: "plan"` as in 5.7 and
       stop. Do not align.
-   2. If a Submission `last_report` is set (the Authority sent the work back),
-      `implement` on the feature workspace with `stage: "assembly"`,
-      `produce: true`, and that report **before** align. `escalated` →
-      `escalate({ kind: "assembly" })`.
+   2. If a parked refusal or a Submission `last_report` is set (the parked one
+      wins when both are), `implement` on the feature workspace with
+      `stage: "assembly"`, `produce: true`, and that report **before** align.
+      `escalated` → `escalate({ kind: "assembly" })`.
    3. **Align.** `integrate` with WorkLineStable as **child** and the feature
       workspace as **parent**. `conflict` → return `refused` (`align-conflict`);
       state stays `integrating`. Cancel is still allowed. Retry `runProject`
       retries align. Do not `escalate({ kind: "merging" })` here: that would set
       `born_in_merging` and block cancel before WorkLineStable is the fold parent.
-   4. **Without an Authority.** `implement` on the feature workspace with
+   4. **Validate**, when `assemblyValidate` is set — with or without an
+      Authority. `implement` on the feature workspace with `stage: "assembly"`
+      and `validate: true` (no gates, one attempt). `validated` →
+      `clearParkedRefusal`, then continue to 5 or 6. `escalated`, retryable,
+      under `maxRefusals` (the budget shared with `submission.refusals`), and
+      `assemblyFixDeclared` → `recordParkedRefusal`, return `paused`. Do not
+      continue to 5 or 6. `escalated` otherwise (blocking, at the budget, or no
+      `assembly.fix` declared) → `escalate({ kind: "assembly" })`.
+   5. **Without an Authority.** `implement` on the feature workspace with
       `stage: "assembly"` and `produce: false` (judgement only). `validated` →
       `markMerging`. `escalated` → `escalate({ kind: "assembly" })`.
       Then **final fold**: `integrate` feature child into WorkLineStable.
       `integrated` → `markDone`, delete feature directory, `clearWorkspace`.
       `conflict` → `escalate({ kind: "merging" })`, keep the feature directory.
-   5. **With an Authority.** `submit` the assembled feature. `submitted` →
+   6. **With an Authority.** `submit` the assembled feature. `submitted` →
       `markSubmitted`, return `paused`. `refused` → `escalate({ kind: "submitted" })`.
       `unavailable` → return `paused` (retry later). On a later `runProject` in
       `submitted`: judge with `produce: false`. Blocking or over `maxRefusals` →
-      `escalate({ kind: "submitted" })`. Retryable refusal → `recordRefusal`,
+      `escalate({ kind: "submitted" })`. Retryable refusal → `recordRefusal`
+      (which also drops a stale parked refusal, if one is held),
       return `paused` (next pass repairs then aligns, then offers again).
       `validated` → Authority `fold`. `folded` → `markMerging` then `markDone` (with the fold's `reference`, when the Authority named one)
       (the Authority moved the work line; Conductor does not `integrate` into
@@ -302,6 +320,10 @@ Shipped:
 
 - Import face, `openConductor({ ledger, transformers, workLineStable, workspaceRoot })`
 - Optional Authority (`submit` / `fold`), `workLineTarget`, `maxRefusals`
+- Optional local `assemblyValidate`, before offer or the local judge, with or
+  without an Authority. Its refusal is parked on the aggregate and shares the
+  `maxRefusals` budget; `assemblyFixDeclared` says whether it escalates on the
+  spot instead
 - `reconcile`, `pause`, `resume`, `runProject`, `cancel`
 - Happy path: align, assembly judgement (`produce: false`), `markMerging`, final fold
 - Authority path: offer, judge, `recordRefusal` / fold, no Integrator fold into WorkLineStable

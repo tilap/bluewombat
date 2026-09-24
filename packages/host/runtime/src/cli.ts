@@ -35,6 +35,7 @@ Shared flags: --config FILE --manager NAME --manager-option KEY=VALUE --home DIR
               --builder-repair -- CMD --builder-repair-timeout-ms N
               --builder-gate ID -- CMD --builder-gate-timeout-ms N
               --assembly-fix -- CMD --assembly-fix-timeout-ms N --assembly-max-attempts N
+              --assembly-validate -- CMD --assembly-validate-timeout-ms N
               --assembly-gate ID -- CMD --assembly-gate-timeout-ms N
               --timeout-ms N --poll-interval-ms N
 

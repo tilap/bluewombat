@@ -581,7 +581,7 @@ function hostNextSteps(): string[] {
   return [
     `${BUILDER_FILENAME} — your producer; or point builder.producer at @bluewombat/slots/builders/producer.mjs and builder.repair at builders/repair.mjs, with an agent after --`,
     `builder.gates.gates in ${CONFIG_FILENAME} — start with workspace-changed (examples in @bluewombat/slots/gates/)`,
-    `authority.enabled in ${CONFIG_FILENAME} — true to offer the assembled feature outside, which then needs assembly.fix`,
+    `authority.enabled in ${CONFIG_FILENAME} — true to offer the assembled feature outside, which then needs assembly.fix (assembly.validate is another way to send work back to it, local and optional)`,
   ];
 }
 

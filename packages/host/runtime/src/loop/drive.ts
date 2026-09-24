@@ -55,13 +55,15 @@ export async function driveProject(
 }
 
 /**
- * Drive, then keep driving while a Submission refusal is waiting for repair.
+ * Drive, then keep driving while a refusal is waiting for repair.
  *
- * Conductor returns `paused` after `recordRefusal` (state `integrating` with
- * `last_report`) so the tracker hears "repair is on its way" before the next
- * pass. Waiting a poll interval for that next pass is empty time: the work is
- * local. Re-drive in the same Host tick until that case is gone — a new
- * `submitted`, an escalation, or any non-`paused` outcome (e.g. align-conflict).
+ * Conductor returns `paused` after `recordRefusal` or `recordParkedRefusal`
+ * (state `integrating` with a report held, either on the Submission or parked
+ * on the aggregate) so the tracker hears "repair is on its way" before the
+ * next pass. Waiting a poll interval for that next pass is empty time: the
+ * work is local. Re-drive in the same Host tick until that case is gone — a
+ * new `submitted`, an escalation, or any non-`paused` outcome (e.g.
+ * align-conflict).
  *
  * Do not continue from `submitted`: judging the Authority waits on the outside
  * and must leave room for listen / probe between ticks.
@@ -82,7 +84,8 @@ export async function driveUntilBlocked(
     if (
       !got.ok ||
       got.aggregate.state !== "integrating" ||
-      got.aggregate.submission?.last_report === undefined
+      (got.aggregate.submission?.last_report === undefined &&
+        got.aggregate.parked_refusal === undefined)
     ) {
       break;
     }

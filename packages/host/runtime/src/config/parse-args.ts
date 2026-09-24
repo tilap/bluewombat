@@ -32,6 +32,8 @@ const HOST_FLAGS = new Set([
   "--builder-gate-timeout-ms",
   "--assembly-fix",
   "--assembly-fix-timeout-ms",
+  "--assembly-validate",
+  "--assembly-validate-timeout-ms",
   "--assembly-max-attempts",
   "--assembly-gate",
   "--assembly-gate-timeout-ms",
@@ -40,12 +42,13 @@ const HOST_FLAGS = new Set([
 /** Flags that take a command after `--`, and where each one lands. */
 const COMMAND_FLAGS = new Map<
   string,
-  { stage: "builder"; pass: Pass } | "planner" | "assembly-fix"
+  { stage: "builder"; pass: Pass } | "planner" | "assembly-fix" | "assembly-validate"
 >([
   ["--planner", "planner"],
   ["--builder", { stage: "builder", pass: "producer" }],
   ["--builder-repair", { stage: "builder", pass: "repair" }],
   ["--assembly-fix", "assembly-fix"],
+  ["--assembly-validate", "assembly-validate"],
 ]);
 
 type Pass = "producer" | "repair";
@@ -75,6 +78,7 @@ type StageBag = {
 
 type AssemblyBag = {
   fix: PassBag;
+  validate: PassBag;
   maxAttempts?: number;
   gates: GateSpec[];
   nextGateTimeoutMs?: number;
@@ -104,7 +108,7 @@ function emptyStage(): StageBag {
 }
 
 function emptyAssembly(): AssemblyBag {
-  return { fix: {}, gates: [] };
+  return { fix: {}, validate: {}, gates: [] };
 }
 
 function takeValue(argv: string[], index: number): { value: string; next: number } | null {
@@ -208,6 +212,8 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
         bag.planner.cmd = command.command;
       } else if (lands === "assembly-fix") {
         bag.assembly.fix.cmd = command.command;
+      } else if (lands === "assembly-validate") {
+        bag.assembly.validate.cmd = command.command;
       } else {
         bag[lands.stage][lands.pass].cmd = command.command;
       }
@@ -313,6 +319,7 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       case "--builder-max-attempts":
       case "--builder-gate-timeout-ms":
       case "--assembly-fix-timeout-ms":
+      case "--assembly-validate-timeout-ms":
       case "--assembly-max-attempts":
       case "--assembly-gate-timeout-ms": {
         const value = parsePositiveInt(taken.value);
@@ -337,6 +344,9 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
             break;
           case "--assembly-fix-timeout-ms":
             bag.assembly.fix.timeoutMs = value;
+            break;
+          case "--assembly-validate-timeout-ms":
+            bag.assembly.validate.timeoutMs = value;
             break;
           case "--assembly-max-attempts":
             bag.assembly.maxAttempts = value;
@@ -476,13 +486,20 @@ function overlayAssembly(
   bag: AssemblyBag,
 ): AssemblySpec | undefined {
   const fix = overlayPass(base?.fix, bag.fix);
+  const validate = overlayPass(base?.validate, bag.validate);
   const maxAttempts = bag.maxAttempts ?? base?.maxAttempts;
   const gates = bag.gates.length > 0 ? bag.gates : (base?.gates ?? []);
-  if (fix === undefined && maxAttempts === undefined && gates.length === 0) {
+  if (
+    fix === undefined &&
+    validate === undefined &&
+    maxAttempts === undefined &&
+    gates.length === 0
+  ) {
     return base;
   }
   return {
     ...(fix === undefined ? {} : { fix }),
+    ...(validate === undefined ? {} : { validate }),
     ...(maxAttempts === undefined ? {} : { maxAttempts }),
     gates,
   };

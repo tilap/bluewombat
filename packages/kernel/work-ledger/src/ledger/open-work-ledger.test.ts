@@ -529,3 +529,84 @@ describe("a Submission offered again", () => {
     assert.equal(got.aggregate.submission?.last_refused_by, "ci-green");
   });
 });
+
+describe("recordParkedRefusal / clearParkedRefusal", () => {
+  async function toIntegrating(ledger: WorkLedger): Promise<void> {
+    await ledger.admit(feature());
+    await claimKey(ledger, "proj");
+    await ledger.recordPlan({
+      key: "fake:42",
+      plannedAt: "2026-01-01T00:00:00.000Z",
+      subtasks: [{ id: "a", intention: "i", definition_of_done: "d", depends_on: [] }],
+    });
+    await ledger.startSubtask({ key: "fake:42", subtaskId: "a" });
+    await ledger.recordAttempt({
+      key: "fake:42",
+      subtaskId: "a",
+      number: 1,
+      trace: { ended: "validated" },
+    });
+    await ledger.markSubtaskIntegrated({ key: "fake:42", subtaskId: "a" });
+  }
+
+  it("legal from integrating: parks the report and increments the counter", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    const recorded = await ledger.recordParkedRefusal({
+      key: "fake:42",
+      report: "the diff drops the CLI flag",
+      refusedBy: "assembly.validate",
+    });
+    assert.deepEqual(recorded, { ok: true });
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.state, "integrating");
+    assert.deepEqual(aggregate.parked_refusal, {
+      report: "the diff drops the CLI flag",
+      refused_by: "assembly.validate",
+    });
+    assert.equal(aggregate.parked_refusals, 1);
+
+    const again = await ledger.recordParkedRefusal({ key: "fake:42", report: "still missing it" });
+    assert.deepEqual(again, { ok: true });
+    const after = await requireAggregate(ledger, "fake:42");
+    assert.equal(after.parked_refusals, 2);
+    assert.deepEqual(after.parked_refusal, { report: "still missing it" });
+  });
+
+  it("illegal from any other state", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(feature());
+    const refused = await ledger.recordParkedRefusal({ key: "fake:42", report: "no" });
+    assert.deepEqual(refused, { ok: false, code: "illegal-transition" });
+  });
+
+  it("clearParkedRefusal removes the report and leaves the counter and state alone", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.recordParkedRefusal({ key: "fake:42", report: "no" });
+    const cleared = await ledger.clearParkedRefusal("fake:42");
+    assert.deepEqual(cleared, { ok: true });
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.parked_refusal, undefined);
+    assert.equal(aggregate.parked_refusals, 1);
+    assert.equal(aggregate.state, "integrating");
+  });
+
+  it("clearParkedRefusal is a no-op success when nothing is parked", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    const cleared = await ledger.clearParkedRefusal("fake:42");
+    assert.deepEqual(cleared, { ok: true });
+  });
+
+  it("recordRefusal clears a stale parked refusal once a Submission has its own", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.recordParkedRefusal({ key: "fake:42", report: "stale" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRefusal({ key: "fake:42", report: "fresh", refusedBy: "ci-green" });
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.parked_refusal, undefined);
+    assert.equal(aggregate.submission?.last_report, "fresh");
+  });
+});

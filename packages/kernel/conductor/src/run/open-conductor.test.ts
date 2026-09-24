@@ -877,4 +877,291 @@ describe("openConductor", () => {
     assert.equal(got.aggregate.pending_fingerprint, undefined);
     assert.match(got.aggregate.escalation?.report ?? "", /fp-2/);
   });
+
+  describe("assembly.validate", () => {
+    it("is not called when the Project does not declare it", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(feature());
+      const validateCalls: unknown[] = [];
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            validateCalls.push(input);
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      });
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+      });
+      const result = await conductor.runProject("proj");
+      assert.equal(result.outcome, "done");
+      assert.equal(validateCalls.length, 0);
+    });
+
+    it("runs after align and before the local judge, with no Authority", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(feature());
+      const order: string[] = [];
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            order.push("validate");
+          } else if (input.id.endsWith(":judgement")) {
+            order.push("judgement");
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+        async integrate(input) {
+          if (input.id.endsWith(":align")) {
+            order.push("align");
+          }
+          return { outcome: "integrated" };
+        },
+      });
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        assemblyValidate: true,
+      });
+      const result = await conductor.runProject("proj");
+      assert.equal(result.outcome, "done");
+      assert.deepEqual(order, ["align", "validate", "judgement"]);
+    });
+
+    it("runs after align and before offer, with an Authority", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(feature());
+      const order: string[] = [];
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            order.push("validate");
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+        async integrate(input) {
+          if (input.id.endsWith(":align")) {
+            order.push("align");
+          }
+          return { outcome: "integrated" };
+        },
+      });
+      const acted: string[] = [];
+      const authority: AuthorityPort = {
+        async submit(input) {
+          order.push("offer");
+          acted.push(`submit ${input.ref}`);
+          return { outcome: "submitted", reference: "ref-1" };
+        },
+        async fold() {
+          return { outcome: "folded" };
+        },
+      };
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        authority,
+        workLineTarget: "dev",
+        assemblyValidate: true,
+      });
+      const result = await conductor.runProject("proj");
+      assert.equal(result.outcome, "paused");
+      assert.deepEqual(order, ["align", "validate", "offer"]);
+      assert.deepEqual(acted, ["submit fake:42"]);
+    });
+
+    it("a refusal parks the report and repairs on the next pass, without offering", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(feature());
+      let refuse = true;
+      const fixed: (string | undefined)[] = [];
+      const acted: string[] = [];
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            return refuse
+              ? {
+                  outcome: "escalated",
+                  traces: [
+                    {
+                      ended: "fail-retryable",
+                      report: "drops the CLI flag",
+                      refusedBy: "reviewer",
+                    },
+                  ],
+                }
+              : { outcome: "validated", traces: [{ ended: "validated" }] };
+          }
+          if (input.id.endsWith(":assembly")) {
+            fixed.push(input.report);
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      });
+      const authority: AuthorityPort = {
+        async submit(input) {
+          acted.push(`submit ${input.ref}`);
+          return { outcome: "submitted", reference: "ref-1" };
+        },
+        async fold() {
+          return { outcome: "folded" };
+        },
+      };
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        authority,
+        workLineTarget: "dev",
+        assemblyValidate: true,
+        assemblyFixDeclared: true,
+      });
+
+      const first = await conductor.runProject("proj");
+      assert.equal(first.outcome, "paused");
+      assert.deepEqual(acted, [], "not offered while validate refuses");
+      const parked = await ledger.get("fake:42");
+      assert.ok(parked.ok);
+      assert.equal(parked.aggregate.state, "integrating");
+      assert.equal(parked.aggregate.parked_refusal?.report, "drops the CLI flag");
+      assert.equal(parked.aggregate.parked_refusal?.refused_by, "reviewer");
+      assert.equal(parked.aggregate.parked_refusals, 1);
+
+      refuse = false;
+      const second = await conductor.runProject("proj");
+      assert.equal(second.outcome, "paused");
+      assert.deepEqual(fixed, ["drops the CLI flag"]);
+      assert.deepEqual(acted, ["submit fake:42"]);
+      const cleared = await ledger.get("fake:42");
+      assert.ok(cleared.ok);
+      assert.equal(cleared.aggregate.parked_refusal, undefined);
+      assert.equal(cleared.aggregate.parked_refusals, 1);
+    });
+
+    it("escalates on the spot when no assembly.fix can repair it", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(feature());
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            return {
+              outcome: "escalated",
+              traces: [{ ended: "fail-retryable", report: "needs a human call" }],
+            };
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      });
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        assemblyValidate: true,
+        assemblyFixDeclared: false,
+      });
+      const result = await conductor.runProject("proj");
+      assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
+      const got = await ledger.get("fake:42");
+      assert.ok(got.ok);
+      assert.equal(got.aggregate.escalation?.kind, "assembly");
+      assert.equal(got.aggregate.parked_refusal, undefined);
+      assert.equal(got.aggregate.parked_refusals, undefined);
+      assert.match(got.aggregate.escalation?.report ?? "", /needs a human call/);
+    });
+
+    it("escalates immediately on a blocking refusal, without parking", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(feature());
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            return {
+              outcome: "escalated",
+              traces: [{ ended: "fail-blocking", report: "not usable" }],
+            };
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      });
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        assemblyValidate: true,
+        assemblyFixDeclared: true,
+      });
+      const result = await conductor.runProject("proj");
+      assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
+      const got = await ledger.get("fake:42");
+      assert.ok(got.ok);
+      assert.equal(got.aggregate.parked_refusals, undefined);
+    });
+
+    it("shares the maxRefusals budget with the Authority's own refusals", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(feature());
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            return {
+              outcome: "escalated",
+              traces: [{ ended: "fail-retryable", report: "still off" }],
+            };
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      });
+      const authority: AuthorityPort = {
+        async submit() {
+          throw new Error("must not reach offer while validate keeps refusing");
+        },
+        async fold() {
+          return { outcome: "folded" };
+        },
+      };
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        authority,
+        workLineTarget: "dev",
+        assemblyValidate: true,
+        assemblyFixDeclared: true,
+        maxRefusals: 2,
+      });
+
+      let outcome = "";
+      for (let pass = 0; pass < 8 && outcome !== "escalated"; pass += 1) {
+        outcome = (await conductor.runProject("proj")).outcome;
+      }
+      assert.equal(outcome, "escalated");
+      const got = await ledger.get("fake:42");
+      assert.ok(got.ok);
+      assert.equal(got.aggregate.escalation?.kind, "assembly");
+      // maxRefusals is 2: the first refusal is repaired (parked_refusals → 1),
+      // and the second is the one that spends the budget — it escalates rather
+      // than parking a report nothing will read.
+      assert.equal(got.aggregate.parked_refusals, 1);
+      assert.match(got.aggregate.escalation?.report ?? "", /still off/);
+    });
+  });
 });

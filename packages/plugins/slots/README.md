@@ -65,6 +65,7 @@ these all use it. How Host wires a slot into a run:
 | `builders/producer.mjs`       | Builder   | First pass of a Subtask: fill `{{task}}`, then spawn the agent                             |
 | `builders/repair.mjs`         | Builder   | A Gate refused the Subtask: fill `{{task}}` and `{{report}}`                               |
 | `assembly/fix.mjs`            | Builder   | A judgement refused the assembled feature: fill `{{task}}` and `{{report}}`                |
+| `assembly/validate.mjs`       | Builder   | Read-only review of the assembled feature: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …` |
 | `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
 | `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
 | `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
@@ -183,6 +184,7 @@ assembly, so `assembly/fix` does not fill it at all.
 | `builders/producer` | `{{task}}`, `{{rules}}`               | `{{done_when}}`, `{{id}}`, `{{attempt}}`                   |
 | `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}` |
 | `assembly/fix`      | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{id}}`, `{{attempt}}`                  |
+| `assembly/validate` | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
 
 A first-pass command that receives `--report` is `fail-blocking`: that report
 belongs to the repair command. A repair or fix command without `--report` is the same.
@@ -203,6 +205,27 @@ A judgement of the assembled feature that refused it is not a Subtask retry.
 The units already passed. `assembly/fix.mjs` tells the agent to change what the
 refusal names and leave the rest. Same placeholders as repair except
 `{{done_when}}`, which an assembly has nothing to fill.
+
+### The validate prompt
+
+`assembly/validate.mjs` is a different kind of Builder: it never writes. It
+fills only `{{task}}` and `{{rules}}` — there is nothing to fix yet, so no
+`{{report}}` — and asks the agent to end its final message with one line:
+`MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: <one paragraph>`. Its
+own `{{rules}}` default is not `PROMPT_RULES`: a review has no work to leave
+uncommitted and nothing to push, so it says "read-only" instead of "do not
+commit, do not push".
+
+The slot does not trust the CLI's exit code alone — a review can complete
+cleanly and still find a problem. It reads the agent's own final answer
+(`readResult(run.stdout)?.result`) for the **last** line starting with
+`MASON_VERDICT:` — not a bare search for "VALIDATED" or "REFUSED" anywhere in
+the text, which a model's own reasoning can contain by accident ("the units
+were already validated on their own"). It maps a `REFUSED:` verdict through
+`emitFailure("fail-retryable", …)` itself, the report being what followed
+`REFUSED:` on that line. No `MASON_VERDICT:` line, or one that is neither
+form, is treated the same way, naming what the agent said: a review that did
+not answer as asked is not a silent pass.
 
 ### The rules
 

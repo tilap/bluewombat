@@ -131,6 +131,18 @@ export type InvalidRecord = {
   reason: string;
 };
 
+/**
+ * A refusal `assembly.validate` sent back, kept on the aggregate because there
+ * may be no Submission yet to hold it.
+ *
+ * `refused_by` is opaque, like `SubmissionRecord.last_refused_by`: whatever
+ * named itself in the report.
+ */
+export type ParkedRefusalRecord = {
+  report: string;
+  refused_by?: string;
+};
+
 export type FeatureAggregate = {
   intention: FeatureIntention;
   state: FeatureState;
@@ -153,6 +165,18 @@ export type FeatureAggregate = {
   submission?: SubmissionRecord;
   /** The work line's own name for the fold that made it `done`, when the Authority gave one. Opaque. */
   integration_reference?: string;
+  /**
+   * A refusal `assembly.validate` sent back this round, before any Submission
+   * exists (or with no Authority at all). Present only while `integrating`.
+   * Cleared once validate accepts.
+   */
+  parked_refusal?: ParkedRefusalRecord;
+  /**
+   * How many times the work was sent back by `assembly.validate` while no
+   * Submission held a count of its own. Shares the `maxRefusals` budget with
+   * `submission.refusals` — the comparison that spends it reads both.
+   */
+  parked_refusals?: number;
 };
 
 export type FeatureSummary = {

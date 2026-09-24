@@ -103,6 +103,12 @@ export type WorkLedger = {
   markSubtaskIntegrated(input: { key: string; subtaskId: string }): Promise<CommandResult>;
   markSubmitted(input: { key: string; reference: string }): Promise<CommandResult>;
   recordRefusal(input: { key: string; report: string; refusedBy?: string }): Promise<CommandResult>;
+  recordParkedRefusal(input: {
+    key: string;
+    report: string;
+    refusedBy?: string;
+  }): Promise<CommandResult>;
+  clearParkedRefusal(key: string): Promise<CommandResult>;
   markMerging(key: string): Promise<CommandResult>;
   markDone(key: string, input?: { reference?: string | undefined }): Promise<CommandResult>;
   escalate(input: EscalateInput): Promise<CommandResult>;
@@ -485,7 +491,46 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         ...(input.refusedBy === undefined ? {} : { last_refused_by: input.refusedBy }),
       };
       aggregate.state = "integrating";
+      // A parked refusal from an earlier, Authority-less round is stale the
+      // moment a Submission has its own: two reports would leave the next fix
+      // guessing which one to read.
+      delete aggregate.parked_refusal;
       aggregate.bail = { expires_at: now() + bailDurationMs };
+      return await write(aggregate);
+    },
+
+    /**
+     * `assembly.validate` sent the work back, before any Submission exists to
+     * hold the reason. Shares the `maxRefusals` budget with `recordRefusal`.
+     */
+    async recordParkedRefusal(input): Promise<CommandResult> {
+      const current = await loadOrRefuse(input.key);
+      if (!current.ok) {
+        return current;
+      }
+      const { aggregate } = current;
+      if (aggregate.state !== "integrating") {
+        return refused("illegal-transition");
+      }
+      aggregate.parked_refusal = {
+        report: input.report,
+        ...(input.refusedBy === undefined ? {} : { refused_by: input.refusedBy }),
+      };
+      aggregate.parked_refusals = (aggregate.parked_refusals ?? 0) + 1;
+      return await write(aggregate);
+    },
+
+    /** `assembly.validate` accepted the feature. The counter is the budget spent; it stays. */
+    async clearParkedRefusal(key: string): Promise<CommandResult> {
+      const current = await loadOrRefuse(key);
+      if (!current.ok) {
+        return current;
+      }
+      const { aggregate } = current;
+      if (aggregate.parked_refusal === undefined) {
+        return { ok: true };
+      }
+      delete aggregate.parked_refusal;
       return await write(aggregate);
     },
 

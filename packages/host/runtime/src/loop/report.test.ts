@@ -295,6 +295,49 @@ describe("reporting after a pass", () => {
     assert.deepEqual(reports, []);
   });
 
+  it("says a parked assembly.validate refusal is on its way, before any Submission", async () => {
+    const { input, reports } = harness();
+    const aggregate = aggregateOf({
+      state: "integrating",
+      parked_refusal: { report: "the diff drops the CLI flag", refused_by: "reviewer" },
+      parked_refusals: 1,
+    });
+    await reportAfterRun(input, { outcome: "paused", key: KEY }, aggregate);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.event, "progress");
+    assert.equal(reports[0]?.eventId, `${KEY}:refused:parked:1`);
+    assert.deepEqual(reports[0]?.fields, {
+      summary: "reviewer refused the assembled feature; a repair is on its way (refusal 1 of 3).",
+      stage: "integrating",
+      trace: "the diff drops the CLI flag",
+    });
+  });
+
+  it("prefers the parked refusal over a stale Submission report", async () => {
+    const { input, reports } = harness();
+    const aggregate = aggregateOf({
+      state: "integrating",
+      submission: { reference: "ref-1", submitted_at: 1, refusals: 1, last_report: "stale" },
+      parked_refusal: { report: "fresh" },
+      parked_refusals: 1,
+    });
+    await reportAfterRun(input, { outcome: "paused", key: KEY }, aggregate);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.fields.trace, "fresh");
+    // The shared budget: one Authority refusal plus this one parked refusal.
+    assert.match(String(reports[0]?.fields.summary), /refusal 2 of 3/);
+  });
+
+  it("says nothing when integrating with neither a parked nor a Submission refusal", async () => {
+    const { input, reports } = harness();
+    await reportAfterRun(
+      input,
+      { outcome: "paused", key: KEY },
+      aggregateOf({ state: "integrating" }),
+    );
+    assert.deepEqual(reports, []);
+  });
+
   it("maps each escalation to the stage a reader should look at", async () => {
     const cases: {
       aggregate: FeatureAggregate;

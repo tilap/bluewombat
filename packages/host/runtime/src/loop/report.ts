@@ -267,21 +267,47 @@ function subtaskEscalation(input: HostDeliveryInput, aggregate: FeatureAggregate
 }
 
 /**
- * The Authority sent the Submission back and a repair is on its way. Between
- * "submitted" and the next verdict the tracker would otherwise say nothing,
+ * A refusal sent the work back to `assembly.fix` and a repair is on its way.
+ * Between that and the next verdict the tracker would otherwise say nothing,
  * and a reader would take the silence for waiting.
+ *
+ * Two refusers write here: the Authority (`submission.last_report`, once there
+ * is a Submission) and `assembly.validate` (`parked_refusal`, which can exist
+ * before one does, or without an Authority at all). The parked one is fresher
+ * when both are set, the same priority `open-conductor` gives it.
  */
 async function reportRefusal(input: HostDeliveryInput, aggregate: FeatureAggregate): Promise<void> {
+  if (aggregate.state !== "integrating") {
+    return;
+  }
+  const max = input.options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
+  const parked = aggregate.parked_refusal;
+  if (parked !== undefined) {
+    const parkedRefusals = aggregate.parked_refusals ?? 0;
+    const spent = (aggregate.submission?.refusals ?? 0) + parkedRefusals;
+    await pushReport(input, {
+      event: "progress",
+      key: aggregate.intention.key,
+      project: aggregate.intention.project,
+      // Keyed on the parked count, not the shared total: a Submission refusal
+      // in the same round would otherwise collide with this id.
+      eventId: `${aggregate.intention.key}:refused:parked:${parkedRefusals}`,
+      fields: {
+        summary: `${parked.refused_by ?? "assembly.validate"} refused the assembled feature; a repair is on its way (refusal ${spent} of ${max}).`,
+        stage: "integrating",
+        trace: parked.report,
+      },
+    });
+    return;
+  }
   const submission = aggregate.submission;
   if (
-    aggregate.state !== "integrating" ||
     submission === undefined ||
     submission.last_report === undefined ||
     submission.refusals === 0
   ) {
     return;
   }
-  const max = input.options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
   await pushReport(input, {
     event: "progress",
     key: aggregate.intention.key,

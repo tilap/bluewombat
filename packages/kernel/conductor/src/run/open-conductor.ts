@@ -56,6 +56,20 @@ export type OpenConductorOptions = {
   /** How many times the Authority may send the work back before it escalates. */
   maxRefusals?: number;
   /**
+   * Whether a local judge decides if the assembled feature meets the
+   * intention, before any Submission exists — or, without an Authority,
+   * before the final fold. Absent or `false`: `assembly.validate` is not
+   * declared, and `integrating` goes straight to offer (or the local judge on
+   * `produce: false`), as before.
+   */
+  assemblyValidate?: boolean;
+  /**
+   * Whether `assembly.fix` is declared. A validate refusal with nothing to
+   * repair it escalates on the spot rather than spending the budget on a round
+   * that can only repeat the same refusal.
+   */
+  assemblyFixDeclared?: boolean;
+  /**
    * Told at the moments a pass changes what an outsider would want to know:
    * the plan is in, a Subtask is integrated, the work is submitted. Awaited,
    * so what the caller says lands before the next step; what it throws is
@@ -195,6 +209,8 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   const authority = options.authority;
   const workLineTarget = options.workLineTarget ?? "";
   const maxRefusals = options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
+  const assemblyValidate = options.assemblyValidate ?? false;
+  const assemblyFixDeclared = options.assemblyFixDeclared ?? false;
   let paused = false;
 
   const refused = (code: ConductorRefusalCode): ProjectRunResult => ({
@@ -565,7 +581,10 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (!got.ok) {
       return refused("not-found");
     }
-    const sentBack = got.aggregate.submission?.last_report;
+    // A parked refusal is this round's; a Submission's is carried forward on
+    // purpose and may already be repaired. The fresher one wins.
+    const parked = got.aggregate.parked_refusal;
+    const sentBack = parked?.report ?? got.aggregate.submission?.last_report;
     if (sentBack !== undefined) {
       // Something refused the last round and said why. That report is the only
       // reason this stage has to produce: the Subtasks are already validated.
@@ -576,6 +595,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       // the next round to be taken up at all, and what goes out meanwhile is the
       // state that was already refused — the same refusal comes back, and the
       // budget empties on the delay.
+      const refusedBy = parked?.refused_by ?? got.aggregate.submission?.last_refused_by;
       const remade = await transformers.implement({
         id: `${key}:assembly`,
         context: key,
@@ -584,9 +604,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         intention: got.aggregate.intention.intention,
         workspace: featurePath,
         report: sentBack,
-        ...(got.aggregate.submission?.last_refused_by === undefined
-          ? {}
-          : { reportFrom: got.aggregate.submission.last_refused_by }),
+        ...(refusedBy === undefined ? {} : { reportFrom: refusedBy }),
       });
       if (remade.outcome === "interrupted") {
         return refused("interrupted");
@@ -614,7 +632,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       subject:
         sentBack === undefined
           ? `Align with ${workLineTarget || "the work line"}`
-          : "Repair after the Submission was refused",
+          : "Repair after it was refused",
       mergeSubject: `Merge ${workLineTarget || "the work line"} into the feature`,
     });
     if (aligned.outcome === "interrupted") {
@@ -628,6 +646,53 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     }
     if (paused) {
       return { outcome: "paused", key };
+    }
+    if (assemblyValidate) {
+      const validated = await transformers.implement({
+        id: `${key}:validate`,
+        context: key,
+        stage: "assembly",
+        validate: true,
+        intention: got.aggregate.intention.intention,
+        workspace: featurePath,
+      });
+      if (validated.outcome === "interrupted") {
+        return refused("interrupted");
+      }
+      if (validated.outcome === "invalid-invocation") {
+        return refused("transformer-invalid");
+      }
+      if (validated.outcome === "escalated") {
+        const last = validated.traces.at(-1);
+        const report = last?.report ?? "The assembled feature was refused, with no reason given.";
+        const spent =
+          (got.aggregate.submission?.refusals ?? 0) + (got.aggregate.parked_refusals ?? 0);
+        const canRepair =
+          assemblyFixDeclared && last?.ended !== "fail-blocking" && spent + 1 < maxRefusals;
+        if (!canRepair) {
+          return await freeze(key, {
+            kind: "assembly",
+            report: last?.refusedBy === undefined ? report : `${last.refusedBy}: ${report}`,
+          });
+        }
+        const recorded = await ledger.recordParkedRefusal({
+          key,
+          report,
+          ...(last?.refusedBy === undefined ? {} : { refusedBy: last.refusedBy }),
+        });
+        const failure = fromLedger(recorded);
+        if (failure !== undefined) {
+          return failure;
+        }
+        // Repair is on its way: do not offer, or judge, work that is already
+        // known to need it.
+        return { outcome: "paused", key };
+      }
+      const cleared = await ledger.clearParkedRefusal(key);
+      const clearFail = fromLedger(cleared);
+      if (clearFail !== undefined) {
+        return clearFail;
+      }
     }
     if (authority === undefined) {
       // Nobody outside will look at it, so the Project's own sequence is the

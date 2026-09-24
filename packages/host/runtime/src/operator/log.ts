@@ -150,6 +150,7 @@ function transcriptDir(invocation: HostInvocation): string | undefined {
     invocation.builder.producer.cmd,
     invocation.builder.repair.cmd,
     ...(invocation.assembly.fix === undefined ? [] : [invocation.assembly.fix.cmd]),
+    ...(invocation.assembly.validate === undefined ? [] : [invocation.assembly.validate.cmd]),
   ];
   for (const cmd of commands) {
     const index = cmd.indexOf("--transcript-dir");

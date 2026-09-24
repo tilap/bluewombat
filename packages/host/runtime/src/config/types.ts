@@ -61,7 +61,10 @@ export type HostInvocation = {
   observability?: ObservabilitySpec;
   /** How long any one child outside a Task may run: Planner, manager, isolations. */
   timeoutMs: number;
-  /** Times an Authority may send a Submission back before it escalates. Default 3. */
+  /**
+   * Times the work may be sent back before it escalates, by an Authority, by
+   * `assembly.validate`, or by both — one shared budget. Default 3.
+   */
   maxRefusals?: number;
   pollIntervalMs?: number;
 };
@@ -140,13 +143,20 @@ export type StageSpec = {
  *
  * The units are already validated. The Gates run either way. A command here is
  * not a second first-pass of the request: it is a surgical fix of what a
- * judgement (usually the work line's own checks) refused. That command is
- * reachable only through an Authority, which `doctor` checks against
- * `authority.enabled`.
+ * judgement refused. The work is sent back to `fix` by an Authority, by
+ * `validate`, or by both — `doctor` checks that at least one refuser exists
+ * before `fix` is declared, not `authority.enabled` alone.
  */
 export type AssemblySpec = {
   /** Fixes what a judgement of the whole refused. Needs `--report`. */
   fix?: PassSpec;
+  /**
+   * A local, read-only judge of the assembled feature: whether it meets the
+   * intention, before there is a Submission or a Gate sequence to answer that.
+   * Optional. Runs after align, with or without an Authority. A refusal is
+   * parked on the aggregate and repaired by `fix`, the same as an Authority's.
+   */
+  validate?: PassSpec;
   maxAttempts?: number;
   gates: GateSpec[];
 };

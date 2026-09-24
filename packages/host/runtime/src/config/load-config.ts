@@ -31,7 +31,7 @@ const KNOWN_KEYS = new Set([
 const WORK_LINE_KEYS = new Set(["stable", "branch", "isolation", "isolationOptions"]);
 const PASS_KEYS = new Set(["cmd", "timeoutMs"]);
 const STAGE_KEYS = new Set(["producer", "repair", "maxAttempts", "gates"]);
-const ASSEMBLY_KEYS = new Set(["fix", "maxAttempts", "gates"]);
+const ASSEMBLY_KEYS = new Set(["fix", "validate", "maxAttempts", "gates"]);
 const GATES_KEYS = new Set(["defaultTimeoutMs", "gates"]);
 const AUTHORITY_KEYS = new Set(["enabled", "publish", "refresh", "describe"]);
 const OBSERVABILITY_KEYS = new Set(["streams"]);
@@ -649,6 +649,13 @@ function readAssembly(
       return read;
     }
     spec.fix = read.value;
+  }
+  if (object.validate !== undefined) {
+    const read = readPass(object.validate, configDir, "assembly.validate");
+    if (read.ok === false) {
+      return read;
+    }
+    spec.validate = read.value;
   }
   const maxAttempts = positiveIntField(object, "maxAttempts");
   if (maxAttempts.ok === false) {

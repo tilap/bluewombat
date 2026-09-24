@@ -64,8 +64,13 @@ Passing `--manager` to `init` turns the questions off, which is what a script wa
 
 `builder` makes a Subtask. `assembly` judges the whole, and when that
 judgement refuses it, `assembly.fix` corrects what it named — not a second
-first-pass of the request. `doctor` requires `assembly.fix` exactly when
-`authority.enabled` is true.
+first-pass of the request. The judgement is the Gate sequence, an Authority's
+own checks, or — optionally — `assembly.validate`, a local read-only review run
+before either. Any of them may send work back to `fix`, and all share one
+`maxRefusals` budget. `doctor` requires `assembly.fix` exactly when
+`authority.enabled` is true; a Project may declare `assembly.validate` with no
+`fix` too — a reviewer that only gates, whose refusals escalate on the spot —
+and `doctor` says so rather than failing.
 
 `manager` names any package that exports `createManager`; `managerOptions` is
 opaque to Host and documented by that package. Another tracker is another

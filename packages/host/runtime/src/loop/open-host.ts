@@ -233,6 +233,8 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     ...(authority === undefined ? {} : { authority }),
     ...(target === undefined ? {} : { workLineTarget: target }),
     ...(options.maxRefusals === undefined ? {} : { maxRefusals: options.maxRefusals }),
+    assemblyValidate: options.assembly.validate !== undefined,
+    assemblyFixDeclared: options.assembly.fix !== undefined,
   });
 
   const ctx: HostRunInput = {

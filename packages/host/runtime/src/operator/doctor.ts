@@ -95,8 +95,15 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
           commandFinding(`${label(stage)} ${pass}`, invocation.builder[pass].cmd, input.env),
         );
       }
-    } else if (invocation.assembly.fix !== undefined) {
-      findings.push(commandFinding("Assembly fix", invocation.assembly.fix.cmd, input.env));
+    } else {
+      if (invocation.assembly.fix !== undefined) {
+        findings.push(commandFinding("Assembly fix", invocation.assembly.fix.cmd, input.env));
+      }
+      if (invocation.assembly.validate !== undefined) {
+        findings.push(
+          commandFinding("Assembly validate", invocation.assembly.validate.cmd, input.env),
+        );
+      }
     }
     for (const gate of invocation[stage].gates) {
       findings.push(commandFinding(`${label(stage)} gate ${gate.id}`, gate.argv, input.env));
@@ -364,32 +371,41 @@ function label(stage: "builder" | "assembly"): string {
 }
 
 /**
- * A Submission that comes back needs a command that can fix what the judgement
- * named. Nothing sends one back where no Authority ever took it.
+ * A refusal that comes back needs a command that can fix what it named. The
+ * work is sent back to `assembly.fix` by an Authority, by `assembly.validate`,
+ * or by both — `fix` is dead only when neither refuser exists.
  */
 function assemblyFixFindings(invocation: HostInvocation): Finding[] {
-  const declared = invocation.assembly.fix !== undefined;
+  const fixDeclared = invocation.assembly.fix !== undefined;
+  const validateDeclared = invocation.assembly.validate !== undefined;
   const offering = invocation.authority?.enabled === true;
-  if (offering && !declared) {
-    return [
-      {
-        level: "fail",
-        label: "assembly fix",
-        detail: 'authority.enabled is true, so a Submission can come back. Name "assembly.fix"',
-      },
-    ];
+  const findings: Finding[] = [];
+  if (offering && !fixDeclared) {
+    findings.push({
+      level: "fail",
+      label: "assembly fix",
+      detail: 'authority.enabled is true, so a Submission can come back. Name "assembly.fix"',
+    });
   }
-  if (declared && !offering) {
-    return [
-      {
-        level: "warn",
-        label: "assembly fix",
-        detail:
-          "declared, but nothing sends a Submission back without an Authority — it will never run",
-      },
-    ];
+  if (fixDeclared && !offering && !validateDeclared) {
+    findings.push({
+      level: "warn",
+      label: "assembly fix",
+      detail:
+        "declared, but nothing sends a Submission back without an Authority or assembly.validate — it will never run",
+    });
   }
-  return [];
+  if (validateDeclared && !fixDeclared) {
+    // Not a mistake: a reviewer that gates and never repairs, whose refusals
+    // escalate on the spot. Said here so it reads as a choice, not a bug.
+    findings.push({
+      level: "warn",
+      label: "assembly fix",
+      detail:
+        "assembly.validate is declared with no assembly.fix — its refusals escalate immediately, with nothing to repair them",
+    });
+  }
+  return findings;
 }
 
 /**

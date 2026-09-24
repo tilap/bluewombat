@@ -11,6 +11,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const producer = join(here, "../builders/producer.mjs");
 const repair = join(here, "../builders/repair.mjs");
 const assemblyFix = join(here, "../assembly/fix.mjs");
+const assemblyValidate = join(here, "../assembly/validate.mjs");
 const cursor = join(here, "../agents/cursor.mjs");
 const claude = join(here, "../agents/claude.mjs");
 const fixtures = join(here, "../fixtures");
@@ -20,6 +21,9 @@ const agentRefused = join(fixtures, "agent-refused.mjs");
 const agentUnauthorized = join(fixtures, "agent-unauthorized.mjs");
 const agentEchoArgv = join(fixtures, "agent-echo-argv.mjs");
 const agentOauthExpired = join(fixtures, "agent-oauth-expired.mjs");
+const agentReviewValidated = join(fixtures, "agent-review-validated.mjs");
+const agentReviewRefused = join(fixtures, "agent-review-refused.mjs");
+const agentReviewValidatedWithPreamble = join(fixtures, "agent-review-validated-with-preamble.mjs");
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "host-builder-"));
@@ -345,6 +349,92 @@ describe("assembly fix", () => {
     assert.match(prompt, /Fix what the refusal names/);
     assert.match(prompt, /Refused by: ci-green/);
     assert.match(prompt, /ci red/);
+  });
+});
+
+describe("assembly validate", () => {
+  it("exits 0 when the review validates the assembled feature", () => {
+    const cwd = sandbox();
+    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentReviewValidated]);
+    assert.equal(result.status, 0, result.stderr);
+  });
+
+  it("fail-retryable with the report when the review refuses", () => {
+    const cwd = sandbox();
+    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentReviewRefused]);
+    assert.notEqual(result.status, 0);
+    const failure = failureOf(result.stdout);
+    assert.equal(failure.outcome, "fail-retryable");
+    assert.match(failure.report, /CLI flag from the intention is missing/);
+  });
+
+  it("reads the last MASON_VERDICT: line, ignoring the same words loose in a preamble", () => {
+    // Observed against a real agent CLI: asked to answer with exactly one
+    // word, it reasoned out loud first and only then wrote the verdict. A
+    // bare search for "VALIDATED"/"REFUSED" anywhere would misfire on a
+    // preamble that happens to use either word in prose — this fixture's
+    // does, on purpose.
+    const cwd = sandbox();
+    const result = runRole(assemblyValidate, cursor, cwd, [
+      "--bin",
+      agentReviewValidatedWithPreamble,
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+  });
+
+  it("fail-retryable when the answer has no MASON_VERDICT: line", () => {
+    const cwd = sandbox();
+    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentOk]);
+    assert.notEqual(result.status, 0);
+    const failure = failureOf(result.stdout);
+    assert.equal(failure.outcome, "fail-retryable");
+    assert.match(failure.report, /no MASON_VERDICT: line/);
+  });
+
+  it("fail-blocking when there is no intention", () => {
+    const cwd = sandbox();
+    const result = spawnSync(
+      node,
+      [assemblyValidate, "--", node, cursor, "--bin", agentReviewValidated],
+      { cwd, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.equal(failureOf(result.stdout).outcome, "fail-blocking");
+  });
+
+  it("fail-blocking when a --report arrives — validate is read-only, fix repairs", () => {
+    const cwd = sandbox();
+    const result = runRole(
+      assemblyValidate,
+      cursor,
+      cwd,
+      ["--bin", agentReviewValidated],
+      [],
+      ["--report", "ci red"],
+    );
+    assert.notEqual(result.status, 0);
+    const failure = failureOf(result.stdout);
+    assert.equal(failure.outcome, "fail-blocking");
+    assert.match(failure.report, /read-only review/);
+  });
+
+  it("places the intention and asks for a VALIDATED or REFUSED answer, not a repair prompt", () => {
+    const cwd = sandbox();
+    runRole(assemblyValidate, cursor, cwd, ["--bin", agentEchoArgv]);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /read-only review/);
+    assert.match(prompt, /Write delivered\.txt/);
+    assert.match(prompt, /VALIDATED/);
+    assert.match(prompt, /REFUSED:/);
+    assert.doesNotMatch(prompt, /Refused by:/);
+  });
+
+  it("does not crash the run when the underlying CLI itself fails", () => {
+    const cwd = sandbox();
+    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentFail]);
+    assert.notEqual(result.status, 0);
+    const failure = failureOf(result.stdout);
+    assert.equal(failure.outcome, "fail-retryable");
   });
 });
 

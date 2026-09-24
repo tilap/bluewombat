@@ -181,6 +181,56 @@ work-line refresh question.
 **Instead:** when `runProject` returns a terminal outcome, drive the same
 Project again in that pass until it is idle or frozen.
 
+### C21 · `assembly/validate.mjs`'s verdict is a `MASON_VERDICT:` line the slot parses
+
+`packages/plugins/slots/assembly/validate.mjs` — `answer`, `lastVerdictLine`
+
+Nothing upstream of this change said how a read-only reviewer tells the slot
+its verdict — only that `finishRun`'s exit-0-is-a-pass shortcut is wrong for
+it and that the mapping goes through `emitFailure` instead. This protocol was
+invented here, and revised once already from what a real run showed:
+
+The first cut asked the agent to answer with exactly `VALIDATED` or
+`REFUSED: <paragraph>`, matched at the start of the answer. Run for real
+against `tilap/mason-test` (2026-09-24), the agent reasoned out loud first —
+`"I'll review the assembled feature… — read-only, no changes.VALIDATED"` —
+and the anchored match missed it, parking a refusal that named nothing wrong.
+A bare "search anywhere" fix was rejected in review: a model's own reasoning
+can use either word by accident ("the units were already validated on their
+own"), and a repository could have code or docs where that collides for real.
+
+Shipped instead: the agent ends its final message with one line,
+`MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: <paragraph, one
+line>`; the slot reads the **last** line starting with `MASON_VERDICT:`
+(case-insensitive, anchored to the line start) and ignores everything else,
+including the same words loose in a preamble. Tested against that real
+transcript (as a fixture) and against a synthetic answer that uses both
+words in unrelated sentences before the marker line.
+
+Still open: every future validate prompt (the shipped one and any Project's
+`--prompt-file`) now has to place `MASON_VERDICT:` correctly, and a model
+that never writes that exact line is treated as a malformed refusal. Only
+one real agent CLI (Cursor) has exercised this path so far.
+
+**Instead:** a structured verdict on a side channel (a JSON file the slot reads
+after the agent exits, the way a Gate's own JSON line works).
+
+### C22 · `recordParkedRefusal` / `clearParkedRefusal` are two WorkLedger commands, not one
+
+`packages/kernel/work-ledger/src/ledger/open-work-ledger.ts`
+
+The source spec for this change describes "a command that writes that report
+… and increments the counter. Clearing it when validate accepts" in one
+breath, which could read as a single command (report present → record,
+absent → clear). Implemented here as two commands instead, matching the
+existing shape of `recordRefusal` and `clearWorkspace` as separate verbs
+(§17.2 of `work-ledger/SPECS.md`: "Commands, not `set(state)`"). Behaviourally
+equivalent either way; the two-command shape was picked for test clarity, not
+verified against the author's intent.
+
+**Instead:** one command, `report?: string` present or absent deciding record
+vs. clear.
+
 ---
 
 ## F — Faults found and left

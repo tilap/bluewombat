@@ -637,6 +637,61 @@ describe("parseArgs", () => {
     assert.match(refused.ok === false ? refused.reason : "", /assembly\.fix/);
   });
 
+  it("reads assembly.validate from the config, beside assembly.fix", () => {
+    const dir = dirs();
+    writeFileSync(
+      join(dir.root, CONFIG_FILENAME),
+      JSON.stringify({
+        ...configOf(dir),
+        assembly: {
+          fix: { cmd: [node, builder], timeoutMs: 60_000 },
+          validate: { cmd: [node, builder, "--review"], timeoutMs: 30_000 },
+        },
+      }),
+    );
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) {
+      return;
+    }
+    assert.deepEqual(parsed.invocation.assembly.validate?.cmd, [node, builder, "--review"]);
+    assert.equal(parsed.invocation.assembly.validate?.timeoutMs, 30_000);
+    assert.equal(parsed.invocation.assembly.fix?.cmd[0], node);
+  });
+
+  it("--assembly-validate sets the command and timeout, alongside --assembly-fix", () => {
+    const dir = dirs();
+    const parsed = parseArgs(
+      [
+        "--manager",
+        "@bluewombat/manager-github",
+        ...paths(dir),
+        ...slots(),
+        "--assembly-fix",
+        "--",
+        node,
+        builder,
+        "--assembly-fix-timeout-ms",
+        "60000",
+        "--assembly-validate",
+        "--",
+        node,
+        builder,
+        "--review",
+        "--assembly-validate-timeout-ms",
+        "30000",
+      ],
+      { cwd: dir.root },
+    );
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) {
+      return;
+    }
+    assert.deepEqual(parsed.invocation.assembly.validate?.cmd, [node, builder, "--review"]);
+    assert.equal(parsed.invocation.assembly.validate?.timeoutMs, 30_000);
+    assert.deepEqual(parsed.invocation.assembly.fix?.cmd, [node, builder]);
+  });
+
   it("puts the ledger, the workspaces and home under .mason by the config unless told otherwise", () => {
     const dir = dirs();
     const { workspaceRoot: _w, ledger: _l, ...config } = configOf(dir);

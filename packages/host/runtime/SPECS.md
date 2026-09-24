@@ -179,6 +179,10 @@ other — `workspace-changed` says an Attempt that changed nothing did nothing,
 which is true of a Subtask and false of an assembly whose correct outcome is that
 nothing was left to do. The assembly produces nothing unless something refused it
 first: it is a judgement, and a refusal is `assembly.fix`, not a second first-pass.
+Two things may judge it: the Gate sequence (`assembly.gates`, and an Authority's
+own checks on what was published) and, optionally, `assembly.validate` — a local,
+read-only pass that runs before either. Both send a refusal to the same `fix`
+and spend the same `maxRefusals` budget.
 
 Every child of a Task carries its own ceiling and no other. Every `cmd` names
 its own `timeoutMs`, and none is inherited from a neighbour — nothing else

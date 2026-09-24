@@ -156,11 +156,12 @@ flag paths resolve against the working directory. Flags override the file, and
 | `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited                                                                                                                                                   |
 | `builder.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                   |
 | `builder.gates`             | `defaultTimeoutMs` and `gates`: ordered checks on each Subtask                                                                                                                                                           |
-| `assembly.fix`              | `cmd` / `timeoutMs`. Spawned when a judgement of the whole refused it. Needs `authority.enabled`                                                                                                                         |
+| `assembly.fix`              | `cmd` / `timeoutMs`. Spawned when a judgement of the whole refused it — by an Authority, by `assembly.validate`, or by both                                                                                              |
+| `assembly.validate`         | `cmd` / `timeoutMs`. Optional. A local, read-only judge of the assembled feature, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's                     |
 | `assembly.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                               |
 | `assembly.gates`            | Ordered checks on the assembled feature. Empty: the Authority judges alone                                                                                                                                               |
 | `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                         |
-| `maxRefusals`               | Times an Authority may send a Submission back before it escalates. Default 3                                                                                                                                             |
+| `maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `assembly.validate`, or by both — one shared budget. Default 3                                                                                 |
 | `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick                                                                                                                                                     |
 | `observability.streams`     | `enabled`, `dir`, `keep`. Films what every child says, as it says it — one file per child under `<dir>/<feature>/`, named in the journal by a `stream-opened` line. `dir` resolves against the config file; default `<home>/streams`. `keep` is `stdout` / `stderr`, default both. Off unless `enabled` is true: a stream is the Project's own code and prompts in the clear |
 
@@ -168,6 +169,10 @@ Every `cmd` is named where it is used, and nothing falls back to a neighbour: a
 `repair` with no command of its own is refused rather than quietly running the
 first-pass agent again. `builder` makes a Subtask. `assembly` judges the whole
 and, when that judgement refuses it, runs `assembly.fix` — not a second first-pass.
+`assembly.validate`, when declared, is a second, local judge of the whole: it
+runs after align, before the Authority sees the work (or before the final
+fold, with none). Its refusal is repaired by `assembly.fix` exactly as an
+Authority's is, and shares the same `maxRefusals` budget.
 
 Every tracker field lives in `managerOptions`. Host does not read them.
 
@@ -223,7 +228,17 @@ feature, which makes nothing.
 Spawned in the feature workspace when a judgement of the whole refused it
 (`--report`, `--report-from`). Same argv as a Builder otherwise. Host hands
 Implementer `assembly.fix` as that pass's only agent: there is no first-pass
-producer at this moment.
+producer at this moment. The refusal it repairs may have come from an
+Authority or from `assembly.validate`.
+
+### Assembly validate
+
+Spawned in the feature workspace after align, with or without an Authority —
+`--intention`, `--id`, `--attempt`, `--context`. No `--report`: it is a
+read-only review, not a repair, and takes nothing a producer would. Optional.
+Its verdict is not the exit code alone: the slot reads what the agent itself
+answered and maps a refusal through the Builder failure contract, so a review
+that completes cleanly but finds a problem is still a refusal.
 
 ### Gates
 
@@ -347,7 +362,9 @@ it each stop `mason run` at boot, and `mason doctor` reports the same offline
 and is the operator's directory, as before.
 
 ```
-assembled → Publisher places the work → manager opens the Submission
+assembled → align → assembly.validate (optional, local)
+              refused  → assembly.fix, then align again, then validate again
+              accepted → Publisher places the work → manager opens the Submission
           → submitted, and the run comes back to it on each poll
               assembly.gates judge what was published
               refused  → assembly.fix, then the same Submission is offered again
@@ -355,7 +372,9 @@ assembled → Publisher places the work → manager opens the Submission
 ```
 
 Neither half judges: that is what `assembly.gates` are for. The Authority places
-and folds; a Gate says whether the fold may happen. After the
+and folds; a Gate says whether the fold may happen. `assembly.validate`, when
+declared, judges before either half — the same verdict has the same fate
+whether or not there is an Authority to offer the work to afterwards. After the
 Authority folds, Host brings its copy of the work line up to date with a
 fast-forward — the work line moved where the Authority is, and the next
 Isolation must start from that version, not from a copy left behind.

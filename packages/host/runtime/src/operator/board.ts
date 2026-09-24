@@ -13,6 +13,7 @@ export type BoardFeature = {
   escalation?: { kind: string; subtask_id?: string };
   invalid?: { code: string; reason: string };
   submission?: { reference: string; refusals: number; last_report?: string };
+  parked_refusal?: { report: string; refused_by?: string };
   line: string;
 };
 
@@ -76,6 +77,12 @@ function rowOf(aggregate: FeatureAggregate): BoardFeature {
     };
     if (aggregate.submission.last_report !== undefined) {
       row.submission.last_report = aggregate.submission.last_report;
+    }
+  }
+  if (aggregate.parked_refusal !== undefined) {
+    row.parked_refusal = { report: aggregate.parked_refusal.report };
+    if (aggregate.parked_refusal.refused_by !== undefined) {
+      row.parked_refusal.refused_by = aggregate.parked_refusal.refused_by;
     }
   }
   return row;

@@ -91,6 +91,17 @@ export type ImplementInput = {
    * expecting a change is satisfied. Default: it may.
    */
   produce?: boolean;
+  /**
+   * The read-only judge of an assembled feature, distinct from both halves
+   * `produce` already names.
+   *
+   * `produce: false` is the Gate sequence: it reads what was published.
+   * `produce: true` is `assembly.fix`: it writes. `validate: true` is neither —
+   * it reads the diff against the intention and answers directly, before there
+   * is anything for a Gate to read or a Submission to hold its verdict. Absent:
+   * `stage` and `produce` decide alone, as before.
+   */
+  validate?: boolean;
 };
 
 export type ImplementResult = {

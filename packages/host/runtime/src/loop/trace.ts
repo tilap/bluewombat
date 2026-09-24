@@ -44,7 +44,9 @@ function detailOf(aggregate: FeatureAggregate): string {
     case "planning":
       return "";
     case "integrating":
-      return `${countIntegrated(aggregate)} subtask(s) folded`;
+      return aggregate.parked_refusal === undefined
+        ? `${countIntegrated(aggregate)} subtask(s) folded`
+        : `${countIntegrated(aggregate)} subtask(s) folded, assembly.validate sent it back (repair on its way)`;
     case "invalid":
       return aggregate.invalid?.reason ?? "";
     default:
