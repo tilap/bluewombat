@@ -610,9 +610,10 @@ describe("one Host pass", () => {
 
     assert.equal(stub.listens, 0);
     assert.deepEqual(last, { listenerOutcome: "completed", reported: [] });
+    // Opening Host is itself filmed; nothing was listened to or driven after it.
     assert.deepEqual(
       journal.lines.map((line) => line.event),
-      ["paused"],
+      ["host-started", "paused"],
     );
   });
 

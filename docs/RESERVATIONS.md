@@ -460,3 +460,23 @@ were written against them. A Project without git would get an `init` and a
 the operator asks the loaded isolation plugin for what it needs (its Shape
 already has `check`), and Host's own files name no tool. Not done here: it
 moves three commands, and nothing without git exists yet to test it against.
+### I12 · `id` is still four shapes; only `key` was made consistent
+
+`packages/kernel/conductor/src/run/open-conductor.ts`
+
+Every journal line about a Task now names its Feature in `key`, which is what a
+reader joins on. What a line calls the Task itself was left alone, and it is not
+one thing: FeatureBreakdown says `key`, Isolator and Integrator say `id`,
+Implementer says `task_id`. The values disagree too — `implement` is given a
+bare `s1` for a Subtask but `${key}:assembly` for an assembly, and `integrate` a
+bare `s1` for a Subtask fold but `${key}:align` for the alignment. The stated
+rule is that a Task's id names the unit of work and not what it serves; four of
+the eight call sites break it.
+
+Not fixed here because renaming a field or changing an id's shape is a break for
+anything already reading the journal, and the correlation problem — which is
+what blocked a reader — is solved by `key` alone. The choice left open: make
+every `id` unit-local and let `key` carry all correlation, or make every `id`
+globally unique and drop `context`. The half-and-half is the one that does not
+work.
+

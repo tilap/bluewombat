@@ -405,3 +405,41 @@ describe("runImplementer acceptance", () => {
     );
   });
 });
+
+describe("which feature a Task's progress belongs to", () => {
+  it("every line names the feature, when Implementer was given one", async () => {
+    const { write, lines } = collectLines();
+    const result = await runImplementer({
+      invocation: baseInvocation({
+        workspace: workspace(),
+        context: "fake:42",
+        gates: [{ id: "check", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 5_000 }],
+      }),
+      write,
+    });
+
+    assert.equal(result.outcome, "validated");
+    // A Task id is `s1` and says nothing about which feature it served. Without
+    // this, two features running at once cannot be told apart in the film.
+    assert.ok(lines.length > 0);
+    assert.deepEqual(
+      lines.filter((line) => line.key !== "fake:42"),
+      [],
+      "a line without the feature cannot be joined back to it",
+    );
+    assert.ok(
+      lines.some((line) => line.event === "status"),
+      "the status lines are keyed too, not only the Trace ones",
+    );
+  });
+
+  it("no context, no key: nothing is invented", async () => {
+    const { write, lines } = collectLines();
+    await runImplementer({ invocation: baseInvocation({ workspace: workspace() }), write });
+
+    assert.deepEqual(
+      lines.filter((line) => "key" in line),
+      [],
+    );
+  });
+});

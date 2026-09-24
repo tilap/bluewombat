@@ -30,6 +30,26 @@ export function openJournalFile(ledgerRoot: string, now: () => Date = () => new 
 }
 
 /**
+ * The same film, with facts every line of one run shares.
+ *
+ * A journal holds every run that ever wrote to this ledger, one after another,
+ * and nothing in it says where one stopped and the next began. A reader
+ * looking at a line cannot tell whether it comes from the process that is
+ * running now or from one that died last week. The stamp is what a line is
+ * grouped by; `append` still owns `at`.
+ *
+ * Stamped fields lose to the line's own: a Transformer that already said
+ * `key` knows better than the run does.
+ */
+export function stampJournal(base: Journal, stamp: Record<string, unknown>): Journal {
+  return {
+    append(line) {
+      base.append({ ...stamp, ...line });
+    },
+  };
+}
+
+/**
  * Split a file chunk into complete JSON objects. A truncated last line stays
  * in `remainder` and is not parsed as a Feature.
  */

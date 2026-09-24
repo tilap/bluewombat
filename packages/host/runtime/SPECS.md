@@ -58,7 +58,8 @@ relative paths in a flag resolve against the working directory. Flags override
 the file. `--manager-option key=value` merges per key, so overriding one option
 does not drop the others; a repeated key becomes an array.
 
-Host validates only its own keys. `managerOptions` is copied through untouched:
+Host validates only its own keys, against a closed list: an unknown key is a
+refusal, not something ignored. `managerOptions` is copied through untouched:
 a tracker's fields are that package's business, and its errors are that
 package's words.
 
@@ -238,6 +239,15 @@ directories have an existing ancestor, whether every slot command resolves,
 whether the manager loads, and then the manager's own findings. It parses
 without demanding that paths exist, so one missing directory does not hide
 every other check, and it never uses the network.
+
+A run names itself. `openHost` mints a `run_id`, stamps it on every journal
+line it writes, and opens the film with `host-started` — pid, Host's version,
+the manager, the ledger root — and closes it with `host-stopped` before the lock
+is released. A journal holds every run that ever wrote to that ledger, and
+without these a reader cannot tell one process's film from the next, nor a run
+that ended from one whose process was killed: the missing `host-stopped` is how
+the second is said. Every line about a Task also carries the Feature it serves,
+as `key`; a line that names a Task and no Feature is a line nothing can join.
 
 `watch` and `status` are the operator live view. They open the ledger the same
 way `run` does (`openFilesystemPersist` then `openWorkLedger`) and they do not

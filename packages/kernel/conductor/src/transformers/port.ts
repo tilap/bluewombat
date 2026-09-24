@@ -3,6 +3,14 @@ export type IsolateInput = {
   parent: string;
   child: string;
   durationMs: number;
+  /**
+   * The larger piece of work this isolation serves.
+   *
+   * The id names the space — `key`, or `key:subtaskId` — and a reader parsing
+   * the feature back out of it is guessing at a format nobody promised. Said
+   * here, it is a fact.
+   */
+  context?: string;
 };
 
 export type IsolateOutcome = "isolated" | "failed" | "invalid-invocation" | "interrupted";
@@ -95,6 +103,8 @@ export type IntegrateInput = {
   parent: string;
   child: string;
   durationMs: number;
+  /** The larger piece of work this fold serves. Same reason as `IsolateInput`. */
+  context?: string;
   /** What the folded work is, for whoever reads the history it leaves. */
   subject?: string;
   /** What the fold itself is, when it has to leave a merge of its own. */

@@ -1,6 +1,6 @@
 import type { IsolationBackend } from "../isolate/backend.js";
 import { createChild } from "../isolate/create-child.js";
-import type { ProgressWriter } from "../progress/emit.js";
+import { keyedWriter, type ProgressWriter } from "../progress/emit.js";
 import { announceStatus } from "../status/announce.js";
 import { makeStatus } from "../status/make-status.js";
 import type { Invocation, IsolationOutcome } from "../types.js";
@@ -50,7 +50,7 @@ function withId(id: string | undefined, line: Record<string, unknown>): Record<s
  */
 export async function runIsolator(options: RunOptions): Promise<RunResult> {
   const { invocation, backend } = options;
-  const write = options.write ?? (() => {});
+  const write = keyedWriter(options.write ?? (() => {}), invocation.context);
   const now = options.now ?? (() => Date.now());
 
   const interruptState = options.interruptFlag ?? { interrupted: false };

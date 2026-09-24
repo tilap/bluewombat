@@ -1,7 +1,7 @@
 import { runBuilder } from "../child/run-builder.js";
 import { runGate } from "../child/run-gate.js";
 import { decideAfterAttempt } from "../loop/decide-after-attempt.js";
-import type { ProgressWriter } from "../progress/emit.js";
+import { keyedWriter, type ProgressWriter } from "../progress/emit.js";
 import { announceStatus } from "../status/announce.js";
 import { makeStatus } from "../status/make-status.js";
 import type { AttemptEnded, BuilderInput, Invocation, RunOutcome, Trace } from "../types.js";
@@ -63,12 +63,17 @@ function producerFor(
  */
 export async function runImplementer(options: RunOptions): Promise<RunResult> {
   const { invocation } = options;
-  const write = options.write ?? (() => {});
+  const write = keyedWriter(options.write ?? (() => {}), invocation.context);
 
   const interruptState = options.interruptFlag ?? { interrupted: false };
   const shouldInterrupt = () => interruptState.interrupted;
 
-  return await runLoop({ invocation, write, shouldInterrupt, cwd: options.cwd });
+  return await runLoop({
+    invocation,
+    write,
+    shouldInterrupt,
+    cwd: options.cwd,
+  });
 }
 
 async function runLoop(input: {

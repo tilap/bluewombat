@@ -45,6 +45,7 @@ not read configuration from the Parent or the Child.
 | Argument                 | Content                                                                                                 |
 | ------------------------ | ------------------------------------------------------------------------------------------------------- |
 | `--id`                   | Integration id. Copied onto every Status and progress line. Non-empty.                                  |
+| `--context`              | Optional. The Feature this integration serves. Named as `key` on every Status and progress line. |
 | `--parent`               | Absolute path. Must already exist as a directory. Destination of the fold.                              |
 | `--child`                | Absolute path. Must already exist as a directory. Source of the fold. Integrator does not create this.  |
 | `--duration-ms`          | Positive integer. Wall clock of the Integration, from the moment Integrator starts folding into Parent. |

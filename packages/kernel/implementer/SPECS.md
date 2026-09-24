@@ -54,7 +54,7 @@ not read configuration from the workspace.
 | `--max-attempts`              | Positive integer. Attempts this invocation may start.                                                                       |
 | `--report`                    | Optional. Failure report passed to the producer on Attempt 1 (and kept for retries).                                        |
 | `--report-from`               | Optional. Which Gate produced `--report`, when a Gate did.                                                                  |
-| `--context`                   | Optional. Larger piece of work this Task belongs to, passed through to the producer.                                        |
+| `--context`                   | Optional. Larger piece of work this Task belongs to. Passed through to the producer, and named as `key` on every progress line. |
 | `--stage`                     | Optional. `unit` or `assembly`. Passed to Gates. Absent: Gates receive `unit`.                                              |
 | `--on-status -- <argv…>`      | Optional. Command to run each time Status changes. Omitted: Status still goes to stdout.                                    |
 
@@ -314,11 +314,10 @@ lines rebuild the Trace.
 | `run-finished`     | Run outcome is known        |
 
 Each line carries `task_id`, `attempt` when an Attempt exists, and enough
-to rebuild the Trace without reading the workspace.
-
-Implementer creates no file under `--workspace`. The Builder (and Gates, if
-they must) may write there — that is the work. Implementer deletes nothing
-there.
+to rebuild the Trace without reading the workspace. When `--context` was given,
+every line — `status` included — also carries it as `key`: a Task id names the
+unit of work and not the feature it serves, and a reader holding `s1` alone
+cannot say which feature that was. Nothing is invented: no `--context`, no `key`.
 
 ## 9. Run outcomes
 
