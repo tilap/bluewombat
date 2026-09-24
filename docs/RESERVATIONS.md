@@ -515,3 +515,20 @@ The sink was added to Implementer's and FeatureBreakdown's copies, which spawn
 the agents. The other three spawn git — short, and quiet enough that the journal
 already says what happened. A git command that hangs or fails strangely is
 therefore still as opaque as it was. The same four lines would do it.
+
+### I16 · A `listen` that failed says so and not why
+
+`packages/host/runtime/src/loop/tick.ts` — the `listen` line
+
+The manager answers an outcome and, when it could not read the tracker, a
+`detail` saying what went wrong. The journal keeps the outcome and drops the
+detail, so a run that cannot see its tracker writes `source-lost` every poll
+and nothing else, forever.
+
+Found the hard way: a run polled a repository for half an hour on
+`source-lost`, and the reason — the token belonged to an account that was not a
+collaborator, so GitHub answered 404 — was only recoverable by querying the API
+by hand from outside. Every other failing line in the film carries the child's
+last words (`failureNote` reads `detail`, `reason`, a Gate's report); this one
+is the exception, and it is the line that says the whole run is useless.
+
