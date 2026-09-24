@@ -439,12 +439,17 @@ guess. Bail still has no holder id: nothing in kernel names a holder.
 `packages/host/runtime/src/operator/live.ts`
 
 `mason watch` follows the journal as text and `status` prints a snapshot; that
-is enough to prove the seam and no more. Deferred on purpose, each for its own
-reason: the Builder's stderr forwarded through Implementer's `ProgressWriter`
-(touches `run-child` stdio in four copies); pause and emergency stop as Host
-commands (RUNBOOKS describes them; they mutate the ledger from outside the
-worker, which nothing does yet); journal rotation (once a file is large enough
-to hurt); a full-screen TUI (taste).
+is enough to prove the seam and no more. Still deferred, each for its own
+reason: pause and emergency stop as Host commands (RUNBOOKS describes them;
+they mutate the ledger from outside the worker, which nothing does yet);
+journal rotation (see I13); a full-screen TUI (taste).
+
+Settled since: a child's raw output is no longer lost. It is not forwarded
+through the `ProgressWriter` as this entry once planned — that would put an
+agent's megabytes on the journal's synchronous path — but written to its own
+file by a sink Host injects (`packages/host/runtime/src/loop/streams.ts`).
+Neither `watch` nor `status` reads those files yet: the journal names each one
+in a `stream-opened` line, and following one is the reader's to do.
 
 ### I11 · Host's operator layer still speaks git
 
@@ -460,3 +465,82 @@ were written against them. A Project without git would get an `init` and a
 the operator asks the loaded isolation plugin for what it needs (its Shape
 already has `check`), and Host's own files name no tool. Not done here: it
 moves three commands, and nothing without git exists yet to test it against.
+### I12 · `id` is still four shapes; only `key` was made consistent
+
+`packages/kernel/conductor/src/run/open-conductor.ts`
+
+Every journal line about a Task now names its Feature in `key`, which is what a
+reader joins on. What a line calls the Task itself was left alone, and it is not
+one thing: FeatureBreakdown says `key`, Isolator and Integrator say `id`,
+Implementer says `task_id`. The values disagree too — `implement` is given a
+bare `s1` for a Subtask but `${key}:assembly` for an assembly, and `integrate` a
+bare `s1` for a Subtask fold but `${key}:align` for the alignment. The stated
+rule is that a Task's id names the unit of work and not what it serves; four of
+the eight call sites break it.
+
+Not fixed here because renaming a field or changing an id's shape is a break for
+anything already reading the journal, and the correlation problem — which is
+what blocked a reader — is solved by `key` alone. The choice left open: make
+every `id` unit-local and let `key` carry all correlation, or make every `id`
+globally unique and drop `context`. The half-and-half is the one that does not
+work.
+
+### I13 · Transcripts still grow without bound
+
+`packages/host/slot-kit/src/transcript.ts`
+
+Streams and the journal are bounded now. Streams are discarded when a Feature
+reaches `done` or `cancelled` — what each file held is written to the film
+first, so the shape of the run survives the bytes — and an escalation keeps
+everything, which is the one outcome where somebody has to go and look. The
+journal no longer writes a line per empty pass: they are held and said as one
+line carrying the count, at most once a minute — 56% fewer lines and 42% fewer
+bytes when the rule is replayed over a real ledger.
+
+Transcripts are not. One Markdown file per agent turn, kept forever, on a real
+install 1.9 MB across 143 files. They are not covered by the same rule because
+they are older than it, opt-in per slot, and they are the record the Project
+chose to keep rather than noise this system produces — deleting them on a
+`done` would be deleting somebody's material on their behalf. The same
+ledger-driven hook would do it if that is what a Project wants; nothing reads
+`observability` to decide yet.
+
+### I14 · A stream is written by `createWriteStream`, which buffers in memory
+
+`packages/host/runtime/src/loop/streams.ts` — `sinkOf`
+
+The sink must not block a Task, so it does not write synchronously. What it uses
+instead keeps unwritten chunks in this process's memory when the disk cannot
+keep up, which is the failure the bound in `run-child` exists to prevent for the
+in-memory copy. A local disk keeps up with an agent's stream and nothing has
+been seen to come near it, but no test drives a slow disk. Not chosen: a bounded
+queue that drops on overflow, which is the right shape and is more code than the
+evidence justifies yet.
+
+### I15 · Only two of the five `run-child` copies film anything
+
+`packages/kernel/integrator/src/child/run-child.ts`, `packages/kernel/isolator/src/child/run-child.ts`, `packages/plugins/isolation-git/src/child/run-child.ts`
+
+The sink was added to Implementer's and FeatureBreakdown's copies, which spawn
+the agents. The other three spawn git — short, and quiet enough that the journal
+already says what happened. A git command that hangs or fails strangely is
+therefore still as opaque as it was. The same four lines would do it.
+
+### I16 · A `listen` that failed no longer hides, but still does not say why
+
+`packages/host/manager-kit/src/port.ts` — `ListenResult`
+
+Found the hard way: a run polled a repository for half an hour writing
+`source-lost` every tick, and the reason — the token belonged to an account that
+was not a collaborator — was only recoverable by querying the API by hand.
+
+Half fixed. A `listen` that did not complete is no longer treated as a quiet
+line: `mason log` stops hiding it and the journal never folds it into a
+heartbeat. So the line is visible, repeated, and impossible to miss.
+
+What it says is still only a word. The manager knows the reason — GitHub's own
+`detail` — and `ListenResult` has nowhere to put it: `{ outcome, deliveries }`
+and nothing else. Every other failing line in the film carries the child's last
+words. Fixing it properly means an optional `detail` on that contract, which is
+additive but is a change to what every manager package answers, so it is not
+being slipped in here.

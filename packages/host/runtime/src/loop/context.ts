@@ -3,6 +3,7 @@ import type { EventName, ManagerPort } from "@bluewombat/manager-kit";
 import type { WorkLedger } from "@bluewombat/work-ledger";
 import type { HostOptions } from "../config/types.js";
 import type { Journal } from "./journal.js";
+import type { Streams } from "./streams.js";
 import type { Trace } from "./trace.js";
 
 /**
@@ -17,6 +18,8 @@ export type HostRunInput = {
   conductor: Conductor;
   manager: ManagerPort;
   journal: Journal;
+  /** Where a child's raw output was filmed, when the Project asked for it. */
+  streams?: Streams;
   trace: Trace;
   /** Present when the Project declared an Authority and the manager can submit. */
   authority?: AuthorityPort;

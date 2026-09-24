@@ -9,6 +9,7 @@ import { type FoldBackend, runIntegrator } from "@bluewombat/integrator";
 import { type IsolationBackend, runIsolator } from "@bluewombat/isolator";
 import type { AssemblySpec, PassSpec, StageSpec } from "../config/types.js";
 import type { Journal } from "./journal.js";
+import type { Streams } from "./streams.js";
 import { failureNote, type Trace } from "./trace.js";
 
 export type TransformerSlots = {
@@ -16,6 +17,11 @@ export type TransformerSlots = {
   trace?: Trace;
   /** Film of every progress line, including ones the Trace drops. Absent: nowhere. */
   journal?: Journal;
+  /**
+   * Where a child's raw output is filmed as it arrives. Absent — the default —
+   * nothing is filmed and a child's output leaves a Transformer as one word.
+   */
+  streams?: Streams;
   planner: PassSpec;
   /** Making a Subtask, and the Gates judging what came out of it. */
   builder: StageSpec;
@@ -175,6 +181,7 @@ function producersFor(
 
 export function createTransformers(slots: TransformerSlots): TransformerPort {
   const write = progressWriter(slots);
+  const streams = slots.streams;
   return {
     async isolate(input) {
       const result = await runIsolator({
@@ -183,6 +190,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           parent: input.parent,
           child: input.child,
           durationMs: input.durationMs,
+          ...(input.context === undefined ? {} : { context: input.context }),
         },
         backend: slots.isolation,
         write,
@@ -200,6 +208,11 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
         },
         featureJson: input.featureJson,
         write,
+        // `breakdown` is the name a Planner slot files its transcript under, so
+        // the stream and the prompt behind it land side by side.
+        ...(streams === undefined
+          ? {}
+          : { onChild: (about) => streams.open({ key: about.key, id: "breakdown" }) }),
       });
       if (result.outcome === "planned" && result.plan !== undefined) {
         return {
@@ -250,6 +263,17 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           builderTimeoutMs: commandTimeoutMs(input, slots),
         },
         write,
+        ...(streams === undefined
+          ? {}
+          : {
+              onChild: (about) =>
+                streams.open({
+                  key: about.key,
+                  id: about.task_id,
+                  attempt: about.attempt,
+                  gateId: about.gate_id,
+                }),
+            }),
       });
       return {
         outcome: result.outcome,
@@ -274,6 +298,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           parent: input.parent,
           child: input.child,
           durationMs: input.durationMs,
+          ...(input.context === undefined ? {} : { context: input.context }),
           ...(input.subject === undefined ? {} : { subject: input.subject }),
           ...(input.mergeSubject === undefined ? {} : { mergeSubject: input.mergeSubject }),
         },

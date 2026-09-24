@@ -6,7 +6,14 @@ import type { ProgressWriter } from "../progress/emit.js";
 import { withKey } from "../progress/emit.js";
 import { announceStatus } from "../status/announce.js";
 import { makeStatus } from "../status/make-status.js";
-import type { Invocation, Plan, RefusalCode, RunOutcome, StatusPhase } from "../types.js";
+import type {
+  Invocation,
+  OpenChildSink,
+  Plan,
+  RefusalCode,
+  RunOutcome,
+  StatusPhase,
+} from "../types.js";
 
 export type RunResult = {
   outcome: RunOutcome;
@@ -27,6 +34,13 @@ export type RunOptions = {
   interruptFlag?: { interrupted: boolean };
   /** Working directory for spawned children. Undefined lets them inherit. */
   cwd?: string;
+  /**
+   * Whoever films what the Planner says, as it says it.
+   *
+   * Absent — the default — nothing is filmed and the Planner's output leaves
+   * this Transformer the way it always has: a Plan, or a refusal.
+   */
+  onChild?: OpenChildSink;
 };
 
 function exitCodeFor(outcome: RunOutcome): number {
@@ -55,7 +69,15 @@ export async function runBreakdown(options: RunOptions): Promise<RunResult> {
   const interruptState = options.interruptFlag ?? { interrupted: false };
   const shouldInterrupt = () => interruptState.interrupted;
 
-  return await runOnce({ invocation, featureJson, write, now, shouldInterrupt, cwd: options.cwd });
+  return await runOnce({
+    invocation,
+    featureJson,
+    write,
+    now,
+    shouldInterrupt,
+    cwd: options.cwd,
+    onChild: options.onChild,
+  });
 }
 
 async function runOnce(input: {
@@ -65,6 +87,7 @@ async function runOnce(input: {
   now: () => number;
   shouldInterrupt: () => boolean;
   cwd: string | undefined;
+  onChild: OpenChildSink | undefined;
 }): Promise<RunResult> {
   const { invocation, featureJson, write, now, shouldInterrupt } = input;
 
@@ -95,7 +118,13 @@ async function runOnce(input: {
     cwd: input.cwd,
   });
 
-  const planner = await runPlanner({ cwd: input.cwd, feature, invocation, shouldInterrupt });
+  const planner = await runPlanner({
+    cwd: input.cwd,
+    feature,
+    invocation,
+    shouldInterrupt,
+    onChild: input.onChild,
+  });
 
   write(
     withKey(key, {

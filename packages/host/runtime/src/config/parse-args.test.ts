@@ -193,6 +193,80 @@ describe("parseArgs", () => {
     }
   });
 
+  it("reads observability.streams and resolves its directory against the config", () => {
+    const dir = dirs();
+    const configPath = join(dir.root, "mason.json");
+    const config = configOf(dir) as Record<string, unknown>;
+    config.observability = { streams: { enabled: true, dir: "./films", keep: ["stderr"] } };
+    writeFileSync(configPath, JSON.stringify(config));
+    const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      const streams = parsed.invocation.observability?.streams;
+      assert.equal(streams?.enabled, true);
+      // This system writes here, so the path is the config's, not a child's cwd.
+      assert.equal(streams?.dir, join(dir.root, "films"));
+      assert.deepEqual(streams?.keep, ["stderr"]);
+    }
+  });
+
+  it("--streams-dir turns filming on and resolves against the cwd", () => {
+    const dir = dirs();
+    const parsed = parseArgs(
+      [
+        ...paths(dir),
+        ...slots(),
+        "--manager",
+        "@bluewombat/manager-fake",
+        "--streams-dir",
+        "films",
+      ],
+      { cwd: dir.root },
+    );
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      assert.equal(parsed.invocation.observability?.streams?.enabled, true);
+      assert.equal(parsed.invocation.observability?.streams?.dir, join(dir.root, "films"));
+    }
+  });
+
+  it("refuses an unknown key under observability.streams", () => {
+    const dir = dirs();
+    const configPath = join(dir.root, "mason.json");
+    const config = configOf(dir) as Record<string, unknown>;
+    config.observability = { streams: { enabled: true, rotate: true } };
+    writeFileSync(configPath, JSON.stringify(config));
+    const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /"observability.streams" has unknown key "rotate"/);
+    }
+  });
+
+  it("refuses streams without a declared enabled: filming is a decision", () => {
+    const dir = dirs();
+    const configPath = join(dir.root, "mason.json");
+    const config = configOf(dir) as Record<string, unknown>;
+    config.observability = { streams: { dir: "./films" } };
+    writeFileSync(configPath, JSON.stringify(config));
+    const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /"observability.streams.enabled" must be true or false/);
+    }
+  });
+
+  it("leaves observability unset when the config says nothing", () => {
+    const dir = dirs();
+    const configPath = join(dir.root, "mason.json");
+    writeFileSync(configPath, JSON.stringify(configOf(dir)));
+    const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      assert.equal(parsed.invocation.observability, undefined);
+    }
+  });
+
   it("refuses a tracker field at the top level of the config", () => {
     const dir = dirs();
     const configPath = join(dir.root, "mason.json");

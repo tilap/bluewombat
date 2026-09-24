@@ -43,6 +43,13 @@ export async function driveProject(
     input.trace(describeFeature(got.aggregate));
     journalFeature(input.journal, run.outcome, got.aggregate, input.said);
     await reportAfterRun(input, run, got.aggregate);
+    // The work landed, or it was abandoned: nobody is going to read what the
+    // agents said on the way. An escalation keeps everything — that is the one
+    // outcome where a person has to go and look. What each file held was
+    // already said in the film, so the shape of the run survives the bytes.
+    if (got.aggregate.state === "done" || got.aggregate.state === "cancelled") {
+      input.streams?.discard(key);
+    }
   }
   return run;
 }

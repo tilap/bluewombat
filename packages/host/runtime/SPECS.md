@@ -58,9 +58,16 @@ relative paths in a flag resolve against the working directory. Flags override
 the file. `--manager-option key=value` merges per key, so overriding one option
 does not drop the others; a repeated key becomes an array.
 
-Host validates only its own keys. `managerOptions` is copied through untouched:
+Host validates only its own keys, against a closed list: an unknown key is a
+refusal, not something ignored. `managerOptions` is copied through untouched:
 a tracker's fields are that package's business, and its errors are that
 package's words.
+
+`observability` is the one key that changes nothing about how work is done, only
+what is written down about it. It holds `streams` — `enabled`, `dir`, `keep` —
+and `enabled` is declared rather than defaulted, for the same reason an
+Authority's is: what a stream holds is the Project's own material in the clear.
+See § 8.
 
 ## 4. Loading a manager
 
@@ -238,6 +245,44 @@ directories have an existing ancestor, whether every slot command resolves,
 whether the manager loads, and then the manager's own findings. It parses
 without demanding that paths exist, so one missing directory does not hide
 every other check, and it never uses the network.
+
+A run names itself. `openHost` mints a `run_id`, stamps it on every journal
+line it writes, and opens the film with `host-started` — pid, Host's version,
+the manager, the ledger root — and closes it with `host-stopped` before the lock
+is released. A journal holds every run that ever wrote to that ledger, and
+without these a reader cannot tell one process's film from the next, nor a run
+that ended from one whose process was killed: the missing `host-stopped` is how
+the second is said. Every line about a Task also carries the Feature it serves,
+as `key`; a line that names a Task and no Feature is a line nothing can join.
+
+`observability.streams` films what every child says, as it says it: the
+producers, the Gates, the Planner. One file per child under
+`<dir>/<feature>/<task>-attempt-<n>[-gate-<id>]-<stamp>.ndjson`, one JSON object
+per chunk with its own stamp and which stream it came from, filed under the same
+directory name a transcript uses. Each file is named in the journal by a
+`stream-opened` line, so nothing has to rebuild the path. `dir` resolves against
+the config directory and defaults to `<home>/streams`; `keep` chooses `stdout`,
+`stderr`, or both. `--streams-dir DIR` is the same switch for one run, and there
+is no bare flag: what a stream holds is the Project's own material in the clear,
+and saying where it lands is part of asking for it. Off unless declared.
+
+Writing it is asynchronous and may be lost. The ledger is truth, the journal is
+the film and is written synchronously so it lands before the next phase, and
+this is the noise underneath — an agent's stream is large enough that putting it
+on a synchronous path would make visibility able to take a run down. A child
+killed for writing past its output bound is filmed up to the kill: the bound
+protects Host's memory, and that child is the one worth having a film of.
+
+A film says what it held as it closes — `stream-closed` with the bytes, the
+chunks and the milliseconds — and a Feature that reaches `done` or `cancelled`
+has its films removed, which the journal records as `streams-discarded` with the
+count and the size. An escalation keeps everything: that is the outcome where
+somebody has to go and look. Nothing prunes transcripts.
+
+A pass that listened to nothing and drove nothing is not written as it happens.
+Such passes are held and said as a single `idle` line carrying `passes`, at most
+once a minute, so a `watch` still shows the loop turning without a line every
+poll. A `listen` that did not complete is never held and never hidden.
 
 `watch` and `status` are the operator live view. They open the ledger the same
 way `run` does (`openFilesystemPersist` then `openWorkLedger`) and they do not

@@ -55,11 +55,33 @@ export type HostInvocation = {
    * assembled feature is folded into WorkLineStable and that fold is final.
    */
   authority?: AuthoritySpec;
+  /**
+   * What is filmed beyond the journal. Absent: the journal alone, as before.
+   */
+  observability?: ObservabilitySpec;
   /** How long any one child outside a Task may run: Planner, manager, isolations. */
   timeoutMs: number;
   /** Times an Authority may send a Submission back before it escalates. Default 3. */
   maxRefusals?: number;
   pollIntervalMs?: number;
+};
+
+/**
+ * What a run writes about itself, past the journal every run keeps.
+ *
+ * The journal films phases and verdicts and is always on. This is the level
+ * under it: what a child actually said, as it said it. Large, bursty, and worth
+ * nothing if keeping it can slow a run down — so it is written asynchronously,
+ * may be lost, and is off unless the Project asks.
+ */
+export type ObservabilitySpec = {
+  streams?: {
+    enabled: boolean;
+    /** Already resolved against the config directory. Default: `<home>/streams`. */
+    dir?: string;
+    /** Which of a child's two streams to keep. Default: both. */
+    keep?: ("stdout" | "stderr")[];
+  };
 };
 
 /**

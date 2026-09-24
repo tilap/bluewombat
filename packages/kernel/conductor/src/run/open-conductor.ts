@@ -341,6 +341,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     }
     const isolated = await transformers.isolate({
       id: key,
+      context: key,
       parent: workLineStable,
       child,
       durationMs,
@@ -422,6 +423,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       // Scoped to the feature: a Subtask id is unique inside its plan and
       // nowhere else, so "A" alone would name every feature's first Subtask.
       id: `${key}:${subtaskId}`,
+      context: key,
       parent,
       child,
       durationMs,
@@ -485,6 +487,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     }
     const folded = await transformers.integrate({
       id: subtaskId,
+      context: key,
       parent,
       child,
       durationMs,
@@ -603,6 +606,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     }
     const aligned = await transformers.integrate({
       id: `${key}:align`,
+      context: key,
       parent: featurePath,
       child: workLineStable,
       durationMs,
@@ -784,6 +788,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       : key;
     const folded = await transformers.integrate({
       id: key,
+      context: key,
       parent: workLineStable,
       child: featurePath,
       durationMs,

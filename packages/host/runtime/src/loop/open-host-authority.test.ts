@@ -466,13 +466,17 @@ describe("host with an Authority", () => {
     );
 
     const tick = await host.runOnce();
+    // A pass that found nothing is held, not written; closing flushes it with
+    // the count of passes it stands for.
+    await host.close();
 
     assert.equal(tick.reported.length, 0);
     assert.equal(
       journal.lines.some((line) => line.event === "refresh"),
       false,
     );
-    assert.equal(journal.lines.at(-1)?.event, "idle");
+    const idle = journal.lines.find((line) => line.event === "idle");
+    assert.equal(idle?.passes, 1);
   });
 
   it("starts nothing when the work line cannot be brought up to date", async () => {
@@ -610,9 +614,10 @@ describe("one Host pass", () => {
 
     assert.equal(stub.listens, 0);
     assert.deepEqual(last, { listenerOutcome: "completed", reported: [] });
+    // Opening Host is itself filmed; nothing was listened to or driven after it.
     assert.deepEqual(
       journal.lines.map((line) => line.event),
-      ["paused"],
+      ["host-started", "paused"],
     );
   });
 

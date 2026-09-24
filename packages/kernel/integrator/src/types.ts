@@ -32,6 +32,13 @@ export type Invocation = {
   subject?: string;
   /** What the fold itself is, when it has to leave a merge of its own. */
   mergeSubject?: string;
+  /**
+   * The larger piece of work this Task serves.
+   *
+   * The id names the space; this names what the space is part of. Passed down
+   * untouched, for whoever reads the film and has to group by feature.
+   */
+  context?: string;
   onStatusArgv?: string[];
 };
 

@@ -63,6 +63,28 @@ export type Plan = {
   planned_at: string;
 };
 
+/**
+ * Somewhere a child's raw output is kept as it arrives.
+ *
+ * What the Planner says reaches this Transformer in full and leaves it as a
+ * Plan or a refusal. A sink is whoever wants the stream behind that answer;
+ * FeatureBreakdown neither opens files nor knows where it goes.
+ */
+export type ChildSink = {
+  write(stream: "stdout" | "stderr", chunk: string): void;
+  close(): void;
+};
+
+/** Which child is about to speak, for whoever decides whether to film it. */
+export type ChildAbout = {
+  /** The FeatureStandard being broken down. */
+  key: string;
+  kind: "planner";
+};
+
+/** Answers a sink for one child, or nothing to leave it unfilmed. */
+export type OpenChildSink = (about: ChildAbout) => ChildSink | undefined;
+
 export type Invocation = {
   maxFeatureBytes: number;
   maxUnits: number;

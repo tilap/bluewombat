@@ -43,6 +43,11 @@ export function describe(slot: PassSpec, input: DescribeInput): DescribeAnswer {
       ...rest,
       "--id",
       input.id,
+      // A Describer keeping a record of its turn files it under the feature,
+      // the way every other slot does. Without this its transcripts land in
+      // `no-context/` and the feature has to be read back out of the filename.
+      "--context",
+      input.id,
       "--title",
       input.title,
       "--intention",

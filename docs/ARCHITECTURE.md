@@ -164,6 +164,12 @@ entry in [DECISIONS.md](./DECISIONS.md).
   refreshed, never rewritten. Nothing after the reference (release, deploy) is this
   process.
 - An escalation without a Trace is invalid when an Attempt exists.
+- Visibility never changes what a run does. A journal, a `--on-status` command,
+  a stream sink: each may fail, hang, or be absent, and the Task carries on. The
+  three levels differ in what they promise — the WorkLedger is truth and is
+  never lost, the journal is written synchronously so it lands before the next
+  phase, a stream is written asynchronously and may be lost — and none of them
+  is on the path of the work.
 - After a crash, reconciliation is WorkLedger-first: isolated spaces that do not match
   are destroyed.
 - Transformers are independent: no Transformer depends on another Transformer,
@@ -223,7 +229,7 @@ Deliberate non-capabilities, so nobody re-implements them by accident.
 - Integrator Transformer (behavioural spec): [`packages/kernel/integrator/SPECS.md`](../packages/kernel/integrator/SPECS.md)
 - FeatureBreakdown Transformer (behavioural spec): [`packages/kernel/feature-breakdown/SPECS.md`](../packages/kernel/feature-breakdown/SPECS.md)
 - Transformer contract (all of them): [`packages/kernel/README.md`](../packages/kernel/README.md) (§ Transformers)
-- Operator live view (`mason watch` / `status`): [`packages/host/runtime/SPECS.md`](../packages/host/runtime/SPECS.md) § 8
+- Operator live view (`mason watch` / `status`), the journal, and what a run films of its children: [`packages/host/runtime/SPECS.md`](../packages/host/runtime/SPECS.md) § 8; what it still lacks: [RESERVATIONS.md](./RESERVATIONS.md) § I10, I12–I15
 - Kernel packages: [`packages/kernel/README.md`](../packages/kernel/README.md)
 - Host and its kits: [`packages/host/README.md`](../packages/host/README.md)
 - Plugins: [`packages/plugins/README.md`](../packages/plugins/README.md)

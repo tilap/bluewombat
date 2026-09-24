@@ -47,6 +47,7 @@ read configuration from the Parent or the Child.
 | Argument                 | Content                                                                                            |
 | ------------------------ | -------------------------------------------------------------------------------------------------- |
 | `--id`                   | Isolation id. Copied onto every Status and progress line. Non-empty.                               |
+| `--context`              | Optional. The Feature this isolation serves. Named as `key` on every Status and progress line. |
 | `--parent`               | Absolute path. Must already exist as a directory. Working files here are the snapshot source.      |
 | `--child`                | Absolute path. Must not exist. Isolator creates this directory, including missing ancestors.       |
 | `--duration-ms`          | Positive integer. Wall clock of the Isolation, from the moment Isolator starts creating the Child. |

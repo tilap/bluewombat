@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { openConductor } from "@bluewombat/conductor";
 import { openWorkLedger } from "@bluewombat/work-ledger";
 import { DEFAULT_PERSIST } from "../config/defaults.js";
@@ -10,8 +14,9 @@ import { resolvePersistModule } from "../plugins/persist.js";
 import { openAuthority } from "./authority.js";
 import type { HostRunInput } from "./context.js";
 import { cancelFeature } from "./deliveries.js";
-import { type Journal, openJournalFile } from "./journal.js";
+import { coalesceQuiet, type Journal, openJournalFile, stampJournal } from "./journal.js";
 import { acquireLock } from "./lock.js";
+import { openStreams, type Streams } from "./streams.js";
 import { type Host, run, runOnce } from "./tick.js";
 import { openTrace } from "./trace.js";
 import { createTransformers } from "./transformers.js";
@@ -23,6 +28,25 @@ export type { Host, HostTickResult } from "./tick.js";
 
 const DEFAULT_MAX_UNITS = 10;
 const DEFAULT_MAX_FEATURE_BYTES = 65_536;
+
+/**
+ * Which build of Host is running, for the line that opens the film.
+ *
+ * A global link and an installed copy answer the same command, and a run that
+ * meant to exercise one can silently be the other. The version is the only
+ * thing in the journal that tells them apart afterwards. Unknown rather than
+ * fatal: a film is not worth failing a run over.
+ */
+function hostVersion(): string {
+  try {
+    const manifest = fileURLToPath(new URL("../../package.json", import.meta.url));
+    const parsed: unknown = JSON.parse(readFileSync(manifest, "utf8"));
+    const version = (parsed as { version?: unknown }).version;
+    return typeof version === "string" ? version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 /** What a caller may hand `openHost` that is not configuration: a test's film. */
 export type OpenHostDeps = {
@@ -115,10 +139,37 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const release = await acquireLock(options.ledgerRoot);
   const persist = await backend.module.openPersist({ ledgerRoot: options.ledgerRoot });
   const ledger = openWorkLedger({ persist });
-  const journal = deps.journal ?? openJournalFile(options.ledgerRoot);
+  // Every line this run writes carries the same `run_id`, so a reader can tell
+  // one process's film from the one that wrote to this ledger before it.
+  const runId = randomUUID();
+  // Coalescing sits above the stamp: a heartbeat it writes is a line of this
+  // run like any other, and must carry the run with it.
+  const journal = coalesceQuiet(
+    stampJournal(deps.journal ?? openJournalFile(options.ledgerRoot), { run_id: runId }),
+  );
+  journal.append({
+    event: "host-started",
+    pid: process.pid,
+    version: hostVersion(),
+    manager: managerName,
+    ledger_root: options.ledgerRoot,
+    ...(options.configDir === undefined ? {} : { config_dir: options.configDir }),
+  });
+  // Off unless the Project asked: what a stream holds is its own material in
+  // the clear. `home` is where Host keeps what is its own, like the ledger.
+  const streamsSpec = options.observability?.streams;
+  const streams: Streams | undefined =
+    streamsSpec?.enabled === true
+      ? openStreams({
+          dir: streamsSpec.dir ?? join(home, "streams"),
+          keep: streamsSpec.keep ?? ["stdout", "stderr"],
+          journal,
+        })
+      : undefined;
   const transformers = createTransformers({
     trace,
     journal,
+    ...(streams === undefined ? {} : { streams }),
     planner: options.planner,
     builder: options.builder,
     assembly: options.assembly,
@@ -195,6 +246,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     conductor,
     manager,
     journal,
+    ...(streams === undefined ? {} : { streams }),
     trace,
     watcher,
     said: new Set(),
@@ -207,6 +259,12 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     runOnce: () => runOnce(ctx),
     run: () => run(ctx),
     cancel: (key) => cancelFeature(ctx, key),
-    close: release,
+    // The film closes before the lock does: whoever reads it next has to be
+    // able to tell a run that ended from one whose process was killed, and the
+    // absence of this line is the only way to say the second.
+    close: async () => {
+      journal.append({ event: "host-stopped", pid: process.pid });
+      await release();
+    },
   };
 }

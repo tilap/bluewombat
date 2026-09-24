@@ -75,6 +75,18 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
   }
   findings.push(writableFinding("workspace root", invocation.workspaceRoot));
   findings.push(writableFinding("ledger root", invocation.ledgerRoot));
+  // What a stream holds is the Project's own material in the clear, so whether
+  // it is being written is something an operator should be able to ask.
+  const streams = invocation.observability?.streams;
+  findings.push(
+    streams?.enabled === true
+      ? {
+          level: "ok",
+          label: "streams",
+          detail: `${streams.dir ?? join(invocation.home, "streams")} (${(streams.keep ?? ["stdout", "stderr"]).join(", ")})`,
+        }
+      : { level: "ok", label: "streams", detail: "off — the journal alone" },
+  );
   findings.push(commandFinding("Planner", invocation.planner.cmd, input.env));
   for (const stage of ["builder", "assembly"] as const) {
     if (stage === "builder") {

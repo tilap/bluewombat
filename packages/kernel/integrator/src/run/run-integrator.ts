@@ -1,6 +1,6 @@
 import type { FoldBackend } from "../fold/backend.js";
 import { fold } from "../fold/fold.js";
-import type { ProgressWriter } from "../progress/emit.js";
+import { keyedWriter, type ProgressWriter } from "../progress/emit.js";
 import { announceStatus } from "../status/announce.js";
 import { makeStatus } from "../status/make-status.js";
 import type { IntegrationOutcome, Invocation } from "../types.js";
@@ -52,7 +52,7 @@ function withId(id: string | undefined, line: Record<string, unknown>): Record<s
  */
 export async function runIntegrator(options: RunOptions): Promise<RunResult> {
   const { invocation, backend } = options;
-  const write = options.write ?? (() => {});
+  const write = keyedWriter(options.write ?? (() => {}), invocation.context);
   const now = options.now ?? (() => Date.now());
 
   const interruptState = options.interruptFlag ?? { interrupted: false };
