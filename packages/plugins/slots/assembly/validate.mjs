@@ -186,6 +186,9 @@ function answer(run, bin, name) {
  * already validated on their own"). The *last* such line wins: a model that
  * restates its conclusion, or that is shown an example in the prompt, still
  * means its final one.
+ *
+ * @param {string} text
+ * @returns {string | undefined}
  */
 function lastVerdictLine(text) {
   const marker = /^MASON_VERDICT:\s*/i;
