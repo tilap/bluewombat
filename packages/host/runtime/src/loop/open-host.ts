@@ -14,7 +14,7 @@ import { resolvePersistModule } from "../plugins/persist.js";
 import { openAuthority } from "./authority.js";
 import type { HostRunInput } from "./context.js";
 import { cancelFeature } from "./deliveries.js";
-import { type Journal, openJournalFile, stampJournal } from "./journal.js";
+import { coalesceQuiet, type Journal, openJournalFile, stampJournal } from "./journal.js";
 import { acquireLock } from "./lock.js";
 import { openStreams, type Streams } from "./streams.js";
 import { type Host, run, runOnce } from "./tick.js";
@@ -142,9 +142,11 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   // Every line this run writes carries the same `run_id`, so a reader can tell
   // one process's film from the one that wrote to this ledger before it.
   const runId = randomUUID();
-  const journal = stampJournal(deps.journal ?? openJournalFile(options.ledgerRoot), {
-    run_id: runId,
-  });
+  // Coalescing sits above the stamp: a heartbeat it writes is a line of this
+  // run like any other, and must carry the run with it.
+  const journal = coalesceQuiet(
+    stampJournal(deps.journal ?? openJournalFile(options.ledgerRoot), { run_id: runId }),
+  );
   journal.append({
     event: "host-started",
     pid: process.pid,

@@ -15,12 +15,16 @@ export function formatJournalLine(line: Record<string, unknown>): string {
     .join("  ");
 }
 
-/** Idle polls. A listen that brought nothing is the same noise. */
+/**
+ * Idle polls. A listen that brought nothing is the same noise — unless it did
+ * not complete: a run that cannot see its tracker repeats that line and nothing
+ * else, and hiding it is how half an hour goes into finding out why.
+ */
 export function isQuietJournalLine(line: Record<string, unknown>): boolean {
   if (line.event === "idle") {
     return true;
   }
-  return line.event === "listen" && line.deliveries === 0;
+  return line.event === "listen" && line.deliveries === 0 && line.outcome === "completed";
 }
 
 /**
