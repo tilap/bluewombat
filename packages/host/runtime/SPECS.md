@@ -273,6 +273,17 @@ on a synchronous path would make visibility able to take a run down. A child
 killed for writing past its output bound is filmed up to the kill: the bound
 protects Host's memory, and that child is the one worth having a film of.
 
+A film says what it held as it closes — `stream-closed` with the bytes, the
+chunks and the milliseconds — and a Feature that reaches `done` or `cancelled`
+has its films removed, which the journal records as `streams-discarded` with the
+count and the size. An escalation keeps everything: that is the outcome where
+somebody has to go and look. Nothing prunes transcripts.
+
+A pass that listened to nothing and drove nothing is not written as it happens.
+Such passes are held and said as a single `idle` line carrying `passes`, at most
+once a minute, so a `watch` still shows the loop turning without a line every
+poll. A `listen` that did not complete is never held and never hidden.
+
 `watch` and `status` are the operator live view. They open the ledger the same
 way `run` does (`openFilesystemPersist` then `openWorkLedger`) and they do not
 open a manager, Conductor, or Host. `status` prints a snapshot of every known

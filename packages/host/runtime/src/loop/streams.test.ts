@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -161,5 +161,68 @@ describe("streams", () => {
     sink?.close();
     sink?.close();
     assert.doesNotThrow(() => sink?.write("stderr", "too late\n"));
+  });
+
+  it("says what a film held when it closes, so the bytes can go later", async () => {
+    const dir = root();
+    const journal = memoryJournal();
+    const streams = openStreams({ dir, keep: ["stdout", "stderr"], journal });
+
+    const sink = streams.open({ key: "fake:42", id: "s1", attempt: 1 });
+    sink?.write("stderr", "thinking\n");
+    sink?.write("stderr", "still thinking\n");
+    sink?.close();
+    await settle();
+
+    const closed = journal.lines.find((line) => line.event === "stream-closed");
+    assert.equal(closed?.key, "fake:42");
+    assert.equal(closed?.task_id, "s1");
+    assert.equal(closed?.chunks, 2);
+    assert.equal(closed?.bytes, "thinking\n".length + "still thinking\n".length);
+    assert.equal(typeof closed?.ms, "number");
+  });
+
+  it("closing twice says it once", async () => {
+    const dir = root();
+    const journal = memoryJournal();
+    const streams = openStreams({ dir, keep: ["stderr"], journal });
+
+    const sink = streams.open({ key: "fake:42", id: "s1", attempt: 1 });
+    sink?.close();
+    sink?.close();
+    await settle();
+
+    assert.equal(journal.lines.filter((line) => line.event === "stream-closed").length, 1);
+  });
+
+  it("discards one Feature's films and says how much there was", async () => {
+    const dir = root();
+    const journal = memoryJournal();
+    const streams = openStreams({ dir, keep: ["stderr"], journal });
+
+    const sink = streams.open({ key: "fake:42", id: "s1", attempt: 1 });
+    sink?.write("stderr", "something\n");
+    sink?.close();
+    streams.open({ key: "other:7", id: "s1", attempt: 1 })?.close();
+    await settle();
+
+    streams.discard("fake:42");
+
+    assert.equal(existsSync(join(dir, "fake-42")), false);
+    assert.equal(existsSync(join(dir, "other-7")), true, "another Feature is untouched");
+    const dropped = journal.lines.find((line) => line.event === "streams-discarded");
+    assert.equal(dropped?.key, "fake:42");
+    assert.equal(dropped?.files, 1);
+    assert.ok(Number(dropped?.bytes) > 0);
+  });
+
+  it("discarding what was never filmed says nothing", () => {
+    const dir = root();
+    const journal = memoryJournal();
+    const streams = openStreams({ dir, keep: ["stderr"], journal });
+
+    streams.discard("fake:42");
+
+    assert.deepEqual(journal.lines, []);
   });
 });

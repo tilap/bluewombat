@@ -1,4 +1,11 @@
-import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
+import {
+  createWriteStream,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  type WriteStream,
+} from "node:fs";
 import { join, relative } from "node:path";
 import type { Journal } from "./journal.js";
 
@@ -39,6 +46,14 @@ export type StreamSubject = {
 
 export type Streams = {
   open(subject: StreamSubject): ChildSink | undefined;
+  /**
+   * Forget what was filmed of one Feature.
+   *
+   * Called when a Feature reaches an end nobody has to read: the work landed,
+   * or it was abandoned. An escalation keeps everything — that is exactly when
+   * a person has to go and look.
+   */
+  discard(key: string): void;
 };
 
 export type StreamsSpec = {
@@ -82,22 +97,81 @@ export function openStreams(spec: StreamsSpec): Streams {
           ...(subject.gateId === undefined ? {} : { gate_id: subject.gateId }),
           path: relative(spec.dir, path),
         });
-        return sinkOf(file, keep);
+        return sinkOf(file, keep, (summary) => {
+          // What the file held, kept in the film after the file itself is gone.
+          spec.journal.append({
+            event: "stream-closed",
+            ...(subject.key === undefined ? {} : { key: subject.key }),
+            task_id: subject.id,
+            ...(subject.attempt === undefined ? {} : { attempt: subject.attempt }),
+            ...(subject.gateId === undefined ? {} : { gate_id: subject.gateId }),
+            path: relative(spec.dir, path),
+            ...summary,
+          });
+        });
       } catch {
         // Could not open it: the run carries on unfilmed.
         return undefined;
       }
     },
+    discard(key) {
+      const dir = join(spec.dir, slug(key));
+      let held: { files: number; bytes: number };
+      try {
+        held = measure(dir);
+      } catch {
+        return;
+      }
+      if (held.files === 0) {
+        return;
+      }
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // A film nobody could remove is not a reason to stop a run.
+        return;
+      }
+      spec.journal.append({
+        event: "streams-discarded",
+        key,
+        files: held.files,
+        bytes: held.bytes,
+      });
+    },
   };
 }
 
-function sinkOf(file: WriteStream, keep: ReadonlySet<"stdout" | "stderr">): ChildSink {
+/** What one Feature's directory holds, before it is removed. */
+function measure(dir: string): { files: number; bytes: number } {
+  let files = 0;
+  let bytes = 0;
+  for (const name of readdirSync(dir)) {
+    try {
+      bytes += statSync(join(dir, name)).size;
+      files += 1;
+    } catch {
+      // Gone between the listing and the look: not ours to mind.
+    }
+  }
+  return { files, bytes };
+}
+
+function sinkOf(
+  file: WriteStream,
+  keep: ReadonlySet<"stdout" | "stderr">,
+  report: (summary: { bytes: number; chunks: number; ms: number }) => void,
+): ChildSink {
   let closed = false;
+  let bytes = 0;
+  let chunks = 0;
+  const startedAt = Date.now();
   return {
     write(stream, chunk) {
       if (closed || !keep.has(stream) || chunk.length === 0) {
         return;
       }
+      bytes += chunk.length;
+      chunks += 1;
       // One object per chunk rather than raw bytes: the stamps are what let a
       // reader replay the stream at the speed it happened, and a torn last line
       // is already handled by `parseJournalChunk`, which reads this shape.
@@ -117,6 +191,9 @@ function sinkOf(file: WriteStream, keep: ReadonlySet<"stdout" | "stderr">): Chil
       } catch {
         // Already gone.
       }
+      // Said whether or not the file survives: a purge takes the bytes away,
+      // and this is what is left to say how much there was.
+      report({ bytes, chunks, ms: Date.now() - startedAt });
     },
   };
 }

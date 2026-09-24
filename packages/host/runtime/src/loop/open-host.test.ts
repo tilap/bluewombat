@@ -188,13 +188,21 @@ describe("host", () => {
       opened.every((line) => line.key === KEY),
       true,
     );
-    const written = readdirSync(join(streamsDir, "fake-42"));
-    for (const line of opened) {
-      assert.ok(
-        written.includes(String(line.path).split("/")[1] ?? ""),
-        `${String(line.path)} was written`,
-      );
-    }
+
+    // What each file held outlives the file: the summary is written on close.
+    const closed = lines.filter((line) => line.event === "stream-closed");
+    assert.equal(closed.length, opened.length, "every film says what it held");
+    assert.ok(
+      closed.some((line) => Number(line.bytes) > 0 && Number(line.chunks) > 0),
+      "at least one child actually said something",
+    );
+
+    // The feature landed, so nobody has to read them: the bytes are gone and
+    // the film says how much there was.
+    const dropped = lines.find((line) => line.event === "streams-discarded");
+    assert.equal(dropped?.key, KEY);
+    assert.ok(Number(dropped?.files) > 0 && Number(dropped?.bytes) > 0);
+    assert.equal(existsSync(join(streamsDir, "fake-42")), false);
   });
 
   it("1. convertible upsert: marker on WorkLineStable, accepted planned done, Cursor saved", async () => {

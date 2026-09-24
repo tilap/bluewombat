@@ -485,15 +485,25 @@ every `id` unit-local and let `key` carry all correlation, or make every `id`
 globally unique and drop `context`. The half-and-half is the one that does not
 work.
 
-### I13 · Nothing prunes a film, and there is now more of it
+### I13 · Transcripts still grow without bound
 
-`packages/host/runtime/src/loop/journal.ts`, `packages/host/runtime/src/loop/streams.ts`
+`packages/host/slot-kit/src/transcript.ts`
 
-Rotation was already nobody's job for `events.jsonl` and for transcripts (C18).
-Streams make it worse by a large factor: one file per child, per Attempt, per
-Gate, holding everything an agent said. A Project that turns them on and forgets
-will fill a disk, and nothing warns it. `--streams-dir` at least puts them
-somewhere an operator chose.
+Streams and the journal are bounded now. Streams are discarded when a Feature
+reaches `done` or `cancelled` — what each file held is written to the film
+first, so the shape of the run survives the bytes — and an escalation keeps
+everything, which is the one outcome where somebody has to go and look. The
+journal no longer writes a line per empty pass: they are held and said as one
+line carrying the count, at most once a minute — 56% fewer lines and 42% fewer
+bytes when the rule is replayed over a real ledger.
+
+Transcripts are not. One Markdown file per agent turn, kept forever, on a real
+install 1.9 MB across 143 files. They are not covered by the same rule because
+they are older than it, opt-in per slot, and they are the record the Project
+chose to keep rather than noise this system produces — deleting them on a
+`done` would be deleting somebody's material on their behalf. The same
+ledger-driven hook would do it if that is what a Project wants; nothing reads
+`observability` to decide yet.
 
 ### I14 · A stream is written by `createWriteStream`, which buffers in memory
 
@@ -516,19 +526,21 @@ the agents. The other three spawn git — short, and quiet enough that the journ
 already says what happened. A git command that hangs or fails strangely is
 therefore still as opaque as it was. The same four lines would do it.
 
-### I16 · A `listen` that failed says so and not why
+### I16 · A `listen` that failed no longer hides, but still does not say why
 
-`packages/host/runtime/src/loop/tick.ts` — the `listen` line
+`packages/host/manager-kit/src/port.ts` — `ListenResult`
 
-The manager answers an outcome and, when it could not read the tracker, a
-`detail` saying what went wrong. The journal keeps the outcome and drops the
-detail, so a run that cannot see its tracker writes `source-lost` every poll
-and nothing else, forever.
+Found the hard way: a run polled a repository for half an hour writing
+`source-lost` every tick, and the reason — the token belonged to an account that
+was not a collaborator — was only recoverable by querying the API by hand.
 
-Found the hard way: a run polled a repository for half an hour on
-`source-lost`, and the reason — the token belonged to an account that was not a
-collaborator, so GitHub answered 404 — was only recoverable by querying the API
-by hand from outside. Every other failing line in the film carries the child's
-last words (`failureNote` reads `detail`, `reason`, a Gate's report); this one
-is the exception, and it is the line that says the whole run is useless.
+Half fixed. A `listen` that did not complete is no longer treated as a quiet
+line: `mason log` stops hiding it and the journal never folds it into a
+heartbeat. So the line is visible, repeated, and impossible to miss.
 
+What it says is still only a word. The manager knows the reason — GitHub's own
+`detail` — and `ListenResult` has nowhere to put it: `{ outcome, deliveries }`
+and nothing else. Every other failing line in the film carries the child's last
+words. Fixing it properly means an optional `detail` on that contract, which is
+additive but is a change to what every manager package answers, so it is not
+being slipped in here.

@@ -246,6 +246,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     conductor,
     manager,
     journal,
+    ...(streams === undefined ? {} : { streams }),
     trace,
     watcher,
     said: new Set(),
