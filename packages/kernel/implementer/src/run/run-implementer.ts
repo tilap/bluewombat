@@ -4,7 +4,14 @@ import { decideAfterAttempt } from "../loop/decide-after-attempt.js";
 import { keyedWriter, type ProgressWriter } from "../progress/emit.js";
 import { announceStatus } from "../status/announce.js";
 import { makeStatus } from "../status/make-status.js";
-import type { AttemptEnded, BuilderInput, Invocation, RunOutcome, Trace } from "../types.js";
+import type {
+  AttemptEnded,
+  BuilderInput,
+  Invocation,
+  OpenChildSink,
+  RunOutcome,
+  Trace,
+} from "../types.js";
 
 export type RunResult = {
   outcome: RunOutcome;
@@ -19,6 +26,13 @@ export type RunOptions = {
   interruptFlag?: { interrupted: boolean };
   /** Working directory for spawned children. Undefined lets them inherit. */
   cwd?: string;
+  /**
+   * Whoever films what the producers and Gates say, as they say it.
+   *
+   * Absent — the default — nothing is filmed and a child's output leaves this
+   * Transformer the way it always has: one word, or the tail of a crash.
+   */
+  onChild?: OpenChildSink;
 };
 
 function exitCodeFor(outcome: RunOutcome): number {
@@ -73,6 +87,7 @@ export async function runImplementer(options: RunOptions): Promise<RunResult> {
     write,
     shouldInterrupt,
     cwd: options.cwd,
+    onChild: options.onChild,
   });
 }
 
@@ -81,6 +96,7 @@ async function runLoop(input: {
   write: ProgressWriter;
   shouldInterrupt: () => boolean;
   cwd: string | undefined;
+  onChild: OpenChildSink | undefined;
 }): Promise<RunResult> {
   const { invocation, write, shouldInterrupt } = input;
   const traces: Trace[] = [];
@@ -145,6 +161,7 @@ async function runLoop(input: {
             previousRefusedBy,
             timeoutMs: producer.timeoutMs,
             shouldInterrupt,
+            onChild: input.onChild,
           });
 
     if (invocation.builderArgv !== undefined) {
@@ -194,6 +211,7 @@ async function runLoop(input: {
           gate,
           timeoutMs: gate.timeoutMs,
           shouldInterrupt,
+          onChild: input.onChild,
         });
 
         gateEntries.push(gateRun.entry);

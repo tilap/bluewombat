@@ -439,12 +439,17 @@ guess. Bail still has no holder id: nothing in kernel names a holder.
 `packages/host/runtime/src/operator/live.ts`
 
 `mason watch` follows the journal as text and `status` prints a snapshot; that
-is enough to prove the seam and no more. Deferred on purpose, each for its own
-reason: the Builder's stderr forwarded through Implementer's `ProgressWriter`
-(touches `run-child` stdio in four copies); pause and emergency stop as Host
-commands (RUNBOOKS describes them; they mutate the ledger from outside the
-worker, which nothing does yet); journal rotation (once a file is large enough
-to hurt); a full-screen TUI (taste).
+is enough to prove the seam and no more. Still deferred, each for its own
+reason: pause and emergency stop as Host commands (RUNBOOKS describes them;
+they mutate the ledger from outside the worker, which nothing does yet);
+journal rotation (see I13); a full-screen TUI (taste).
+
+Settled since: a child's raw output is no longer lost. It is not forwarded
+through the `ProgressWriter` as this entry once planned — that would put an
+agent's megabytes on the journal's synchronous path — but written to its own
+file by a sink Host injects (`packages/host/runtime/src/loop/streams.ts`).
+Neither `watch` nor `status` reads those files yet: the journal names each one
+in a `stream-opened` line, and following one is the reader's to do.
 
 ### I11 · Host's operator layer still speaks git
 
@@ -480,3 +485,33 @@ every `id` unit-local and let `key` carry all correlation, or make every `id`
 globally unique and drop `context`. The half-and-half is the one that does not
 work.
 
+### I13 · Nothing prunes a film, and there is now more of it
+
+`packages/host/runtime/src/loop/journal.ts`, `packages/host/runtime/src/loop/streams.ts`
+
+Rotation was already nobody's job for `events.jsonl` and for transcripts (C18).
+Streams make it worse by a large factor: one file per child, per Attempt, per
+Gate, holding everything an agent said. A Project that turns them on and forgets
+will fill a disk, and nothing warns it. `--streams-dir` at least puts them
+somewhere an operator chose.
+
+### I14 · A stream is written by `createWriteStream`, which buffers in memory
+
+`packages/host/runtime/src/loop/streams.ts` — `sinkOf`
+
+The sink must not block a Task, so it does not write synchronously. What it uses
+instead keeps unwritten chunks in this process's memory when the disk cannot
+keep up, which is the failure the bound in `run-child` exists to prevent for the
+in-memory copy. A local disk keeps up with an agent's stream and nothing has
+been seen to come near it, but no test drives a slow disk. Not chosen: a bounded
+queue that drops on overflow, which is the right shape and is more code than the
+evidence justifies yet.
+
+### I15 · Only two of the five `run-child` copies film anything
+
+`packages/kernel/integrator/src/child/run-child.ts`, `packages/kernel/isolator/src/child/run-child.ts`, `packages/plugins/isolation-git/src/child/run-child.ts`
+
+The sink was added to Implementer's and FeatureBreakdown's copies, which spawn
+the agents. The other three spawn git — short, and quiet enough that the journal
+already says what happened. A git command that hangs or fails strangely is
+therefore still as opaque as it was. The same four lines would do it.

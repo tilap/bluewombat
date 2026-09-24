@@ -125,7 +125,7 @@ Two things to know:
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Unclear product rule                  | [PRODUCT.md](./PRODUCT.md)                                                                                                                                          |
 | Unclear where code belongs            | [ARCHITECTURE.md](./ARCHITECTURE.md) — `kernel` vs `host` vs `plugins`; then [`packages/README.md`](../packages/README.md)                                          |
-| Unclear how an operator watches a run | [`packages/host/runtime/README.md`](../packages/host/runtime/README.md) — `mason watch` / `status`; what it still lacks: [RESERVATIONS.md](./RESERVATIONS.md) § I10 |
+| Unclear how an operator watches a run | [`packages/host/runtime/README.md`](../packages/host/runtime/README.md) — `mason watch` / `status`, and `observability.streams` for what each child says; what it still lacks: [RESERVATIONS.md](./RESERVATIONS.md) § I10, I12–I15 |
 | A Transformer will not start          | that Transformer's own docs                                                                                                                                         |
 | Tests fail on missing `dist/`         | `npm run build` — or just `npm test`, which runs `^build` first                                                                                                     |
 

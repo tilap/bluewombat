@@ -1,4 +1,4 @@
-import type { GateSpec, GateTraceEntry, Invocation } from "../types.js";
+import type { GateSpec, GateTraceEntry, Invocation, OpenChildSink } from "../types.js";
 import { parseGateVerdictJson } from "./parse-child-output.js";
 import { combinedOutput, runChild, type SpawnOutcome } from "./run-child.js";
 
@@ -14,6 +14,8 @@ export async function runGate(input: {
   gate: GateSpec;
   timeoutMs: number;
   shouldInterrupt: () => boolean;
+  /** Whoever films this child's output. Absent: it is not filmed. */
+  onChild?: OpenChildSink | undefined;
 }): Promise<GateRunResult> {
   const { invocation, attempt, gate, timeoutMs, shouldInterrupt } = input;
 
@@ -38,6 +40,18 @@ export async function runGate(input: {
     cwd: invocation.workspace,
     timeoutMs,
     shouldInterrupt,
+    ...(input.onChild === undefined
+      ? {}
+      : {
+          openSink: () =>
+            input.onChild?.({
+              task_id: invocation.id,
+              ...(invocation.context === undefined ? {} : { key: invocation.context }),
+              attempt,
+              kind: "gate",
+              gate_id: gate.id,
+            }),
+        }),
   });
 
   return interpretGateOutcome(gate.id, outcome, timeoutMs);

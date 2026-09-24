@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildSink } from "../types.js";
 
 // Two bounds, for two different things.
 //
@@ -21,6 +22,11 @@ export type SpawnRequest = {
   shouldInterrupt: () => boolean;
   /** Undefined lets the child inherit the caller's environment. */
   env?: NodeJS.ProcessEnv | undefined;
+  /**
+   * Opened once the child is running, closed when it settles. Absent, or
+   * answering nothing: its output is not filmed, which is the default.
+   */
+  openSink?: (() => ChildSink | undefined) | undefined;
 };
 
 export type SpawnOutcome =
@@ -79,12 +85,16 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     let stderr = "";
     let timer: NodeJS.Timeout | undefined;
     let interruptPoll: NodeJS.Timeout | undefined;
+    let sink: ChildSink | undefined;
 
     const finish = (outcome: SpawnOutcome): void => {
       if (settled) {
         return;
       }
       settled = true;
+      // `settled` already guards this block, so the sink is closed once on
+      // every path out: exited, timed out, interrupted, or over the bound.
+      sink?.close();
       if (timer !== undefined) {
         clearTimeout(timer);
       }
@@ -112,6 +122,10 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
       return;
     }
 
+    // After the spawn: a child that never started has no output to film, and
+    // that path has already resolved.
+    sink = request.openSink?.();
+
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let overflowed = false;
@@ -126,12 +140,18 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
       }
       return true;
     };
+    // The sink is fed before the bound, deliberately. `take` protects this
+    // process's memory; a sink writes elsewhere and accumulates nothing. A child
+    // killed for saying too much is exactly the one whose words are worth
+    // keeping, and cutting the film at the same place would lose them.
     child.stdout.on("data", (chunk: string) => {
+      sink?.write("stdout", chunk);
       if (take(chunk)) {
         stdout += chunk;
       }
     });
     child.stderr.on("data", (chunk: string) => {
+      sink?.write("stderr", chunk);
       if (take(chunk)) {
         stderr += chunk;
       }

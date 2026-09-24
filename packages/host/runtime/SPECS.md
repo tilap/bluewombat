@@ -63,6 +63,12 @@ refusal, not something ignored. `managerOptions` is copied through untouched:
 a tracker's fields are that package's business, and its errors are that
 package's words.
 
+`observability` is the one key that changes nothing about how work is done, only
+what is written down about it. It holds `streams` — `enabled`, `dir`, `keep` —
+and `enabled` is declared rather than defaulted, for the same reason an
+Authority's is: what a stream holds is the Project's own material in the clear.
+See § 8.
+
 ## 4. Loading a manager
 
 `manager` is a package name or a path. Resolution imports the bare specifier
@@ -248,6 +254,24 @@ without these a reader cannot tell one process's film from the next, nor a run
 that ended from one whose process was killed: the missing `host-stopped` is how
 the second is said. Every line about a Task also carries the Feature it serves,
 as `key`; a line that names a Task and no Feature is a line nothing can join.
+
+`observability.streams` films what every child says, as it says it: the
+producers, the Gates, the Planner. One file per child under
+`<dir>/<feature>/<task>-attempt-<n>[-gate-<id>]-<stamp>.ndjson`, one JSON object
+per chunk with its own stamp and which stream it came from, filed under the same
+directory name a transcript uses. Each file is named in the journal by a
+`stream-opened` line, so nothing has to rebuild the path. `dir` resolves against
+the config directory and defaults to `<home>/streams`; `keep` chooses `stdout`,
+`stderr`, or both. `--streams-dir DIR` is the same switch for one run, and there
+is no bare flag: what a stream holds is the Project's own material in the clear,
+and saying where it lands is part of asking for it. Off unless declared.
+
+Writing it is asynchronous and may be lost. The ledger is truth, the journal is
+the film and is written synchronously so it lands before the next phase, and
+this is the noise underneath — an agent's stream is large enough that putting it
+on a synchronous path would make visibility able to take a run down. A child
+killed for writing past its output bound is filmed up to the kill: the bound
+protects Host's memory, and that child is the one worth having a film of.
 
 `watch` and `status` are the operator live view. They open the ledger the same
 way `run` does (`openFilesystemPersist` then `openWorkLedger`) and they do not

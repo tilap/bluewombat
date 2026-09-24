@@ -1,5 +1,5 @@
 import { runChild } from "../child/run-child.js";
-import type { FeatureStandard, Invocation } from "../types.js";
+import type { FeatureStandard, Invocation, OpenChildSink } from "../types.js";
 import { type PlannerParsed, parsePlannerStdout } from "./parse-planner.js";
 
 export type PlannerRun =
@@ -44,6 +44,8 @@ export async function runPlanner(input: {
   invocation: Invocation;
   shouldInterrupt: () => boolean;
   cwd: string | undefined;
+  /** Whoever films this child's output. Absent: it is not filmed. */
+  onChild?: OpenChildSink | undefined;
 }): Promise<{ answer: PlannerRun; finished: PlannerFinishedEvent }> {
   const { feature, invocation, shouldInterrupt, cwd } = input;
   const spawn = await runChild({
@@ -53,6 +55,9 @@ export async function runPlanner(input: {
     timeoutClock: "planner",
     shouldInterrupt,
     preserveStdout: true,
+    ...(input.onChild === undefined
+      ? {}
+      : { openSink: () => input.onChild?.({ key: feature.key, kind: "planner" }) }),
   });
 
   if (spawn.kind === "interrupted") {

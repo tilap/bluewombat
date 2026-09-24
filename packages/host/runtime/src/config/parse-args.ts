@@ -18,6 +18,7 @@ const HOST_FLAGS = new Set([
   "--workspace-root",
   "--ledger",
   "--persist",
+  "--streams-dir",
   "--timeout-ms",
   "--poll-interval-ms",
   "--planner",
@@ -95,6 +96,7 @@ type FlagBag = {
   assembly: AssemblyBag;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  streamsDir?: string;
 };
 
 function emptyStage(): StageBag {
@@ -279,6 +281,15 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       case "--ledger":
         bag.ledgerRoot = taken.value;
         break;
+      // Naming the directory is what turns filming on. There is no bare
+      // `--streams`: what a stream holds is the Project's own material in the
+      // clear, and saying where it lands is part of asking for it.
+      case "--streams-dir":
+        if (taken.value.length === 0) {
+          return { ok: false, reason: "--streams-dir must be a non-empty directory path." };
+        }
+        bag.streamsDir = taken.value;
+        break;
       case "--persist":
         if (taken.value.length === 0) {
           return {
@@ -370,6 +381,16 @@ function overlay(
   }
   if (bag.workLineStable !== undefined) {
     merged.workLineStable = resolve(cwd, bag.workLineStable);
+  }
+  if (bag.streamsDir !== undefined) {
+    merged.observability = {
+      ...(base.observability ?? {}),
+      streams: {
+        ...(base.observability?.streams ?? {}),
+        enabled: true,
+        dir: resolve(cwd, bag.streamsDir),
+      },
+    };
   }
   if (bag.workLineBranch !== undefined) {
     merged.workLineBranch = bag.workLineBranch;
@@ -560,6 +581,9 @@ function finalize(merged: Partial<HostInvocation>, cwd: string, checkPaths: bool
   }
   if (merged.authority !== undefined) {
     invocation.authority = merged.authority;
+  }
+  if (merged.observability !== undefined) {
+    invocation.observability = merged.observability;
   }
   if (merged.maxRefusals !== undefined) {
     invocation.maxRefusals = merged.maxRefusals;

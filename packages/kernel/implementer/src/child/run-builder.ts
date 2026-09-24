@@ -1,4 +1,4 @@
-import type { BuilderResult, Invocation } from "../types.js";
+import type { BuilderResult, Invocation, OpenChildSink } from "../types.js";
 import { parseBuilderFailureJson } from "./parse-child-output.js";
 import { combinedOutput, runChild, type SpawnOutcome } from "./run-child.js";
 
@@ -24,6 +24,8 @@ export async function runBuilder(input: {
   previousRefusedBy: string | undefined;
   timeoutMs: number;
   shouldInterrupt: () => boolean;
+  /** Whoever films this child's output. Absent: it is not filmed. */
+  onChild?: OpenChildSink | undefined;
 }): Promise<BuilderRunResult> {
   const {
     invocation,
@@ -61,6 +63,17 @@ export async function runBuilder(input: {
     cwd: invocation.workspace,
     timeoutMs,
     shouldInterrupt,
+    ...(input.onChild === undefined
+      ? {}
+      : {
+          openSink: () =>
+            input.onChild?.({
+              task_id: invocation.id,
+              ...(invocation.context === undefined ? {} : { key: invocation.context }),
+              attempt,
+              kind: "builder",
+            }),
+        }),
   });
 
   return interpretBuilderOutcome(outcome, timeoutMs);

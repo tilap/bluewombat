@@ -147,6 +147,56 @@ async function hostFor(paths: Paths, gates: GateSpec[], over: Partial<HostOption
 }
 
 describe("host", () => {
+  it("0. one whole pass: every line names its run and its feature, and the children are filmed", async () => {
+    const paths = sandbox();
+    const streamsDir = join(dirname(paths.ledgerRoot), "streams");
+    publish(paths.source, "0001-create.json", convertible());
+    const host = await hostFor(paths, passingGates(), {
+      observability: { streams: { enabled: true, dir: streamsDir, keep: ["stdout", "stderr"] } },
+    });
+    const tick = await host.runOnce();
+    await host.close();
+    assert.equal(tick.lastRun?.outcome, "done");
+
+    const lines = journalEvents(paths.ledgerRoot);
+
+    // One run, named on every line, opened and closed.
+    const runIds = new Set(lines.map((line) => line.run_id));
+    assert.equal(runIds.size, 1);
+    assert.equal(typeof [...runIds][0], "string");
+    assert.equal(lines[0]?.event, "host-started");
+    assert.equal(lines.at(-1)?.event, "host-stopped");
+
+    // Every line about a Task says which feature it served. Before this, the
+    // Implementer's lines carried a bare `s1` and the Isolator a bare id.
+    const orphans = lines.filter(
+      (line) =>
+        (line.task_id !== undefined || line.id !== undefined) &&
+        line.key === undefined &&
+        line.event !== "host-started",
+    );
+    assert.deepEqual(orphans, [], "a line about a Task that cannot be joined to its feature");
+    for (const event of ["status", "attempt-started", "gate-finished", "isolation-started"]) {
+      const found = lines.find((line) => line.event === event);
+      assert.equal(found?.key, KEY, `${event} names the feature`);
+    }
+
+    // The children were filmed, and the journal names the files.
+    const opened = lines.filter((line) => line.event === "stream-opened");
+    assert.ok(opened.length >= 2, "the Planner and the Builder were both filmed");
+    assert.equal(
+      opened.every((line) => line.key === KEY),
+      true,
+    );
+    const written = readdirSync(join(streamsDir, "fake-42"));
+    for (const line of opened) {
+      assert.ok(
+        written.includes(String(line.path).split("/")[1] ?? ""),
+        `${String(line.path)} was written`,
+      );
+    }
+  });
+
   it("1. convertible upsert: marker on WorkLineStable, accepted planned done, Cursor saved", async () => {
     const paths = sandbox();
     publish(paths.source, "0001-create.json", convertible());

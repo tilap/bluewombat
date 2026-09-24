@@ -319,6 +319,25 @@ every line — `status` included — also carries it as `key`: a Task id names t
 unit of work and not the feature it serves, and a reader holding `s1` alone
 cannot say which feature that was. Nothing is invented: no `--context`, no `key`.
 
+### Filming a child
+
+A caller may hand `runImplementer` an `onChild`. It is asked once per child
+about to run — the producer, then each Gate — and answers a sink, or nothing to
+leave that child unfilmed. Implementer opens no file and knows nothing of where
+a sink writes.
+
+A sink is opened after the child is running and closed exactly once, on every
+way out: exited, timed out, interrupted, or killed for writing past the output
+bound. Chunks reach it before that bound is applied — the bound protects this
+process's memory, and a child killed for saying too much is the one whose words
+are worth keeping. Nothing a sink does changes a run's outcome; the default is
+no sink at all, and a child's output then leaves Implementer as it always has:
+a verdict, or the tail of a crash.
+
+Implementer creates no file under `--workspace`. The Builder (and Gates, if
+they must) may write there — that is the work. Implementer deletes nothing
+there.
+
 ## 9. Run outcomes
 
 Exactly one per invocation. The meaning is entirely inside this process.

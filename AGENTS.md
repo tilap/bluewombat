@@ -31,7 +31,7 @@ answer your question, and open only those. Do not load the whole `docs/` set.
 | The workflow, its rules, the human surface, the words               | `docs/PRODUCT.md`                                                                       |
 | What no unit suite proves, and what was deleted with `integration/` | `docs/RESERVATIONS.md` § U11                                                            |
 | Who exists, who may import whom                                     | `packages/README.md`                                                                    |
-| Operator live view (`mason watch`)                                  | `packages/host/runtime/SPECS.md` § 8; what it still lacks: `docs/RESERVATIONS.md` § I10 |
+| Operator live view (`mason watch`), the journal, streams            | `packages/host/runtime/SPECS.md` § 8; what it still lacks: `docs/RESERVATIONS.md` § I10, I12–I15 |
 | Implementer Transformer specification                               | `packages/kernel/implementer/SPECS.md`                                                  |
 | Isolator Transformer specification                                  | `packages/kernel/isolator/SPECS.md`                                                     |
 | Integrator Transformer specification                                | `packages/kernel/integrator/SPECS.md`                                                   |

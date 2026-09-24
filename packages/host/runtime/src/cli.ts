@@ -29,6 +29,7 @@ init flags:   --manager PKG --manager-option KEY=VALUE --work-line-stable DIR
 
 Shared flags: --config FILE --manager NAME --manager-option KEY=VALUE --home DIR
               --work-line-stable DIR --work-line-branch NAME --workspace-root DIR --ledger DIR
+              --streams-dir DIR
               --planner -- CMD --planner-timeout-ms N
               --builder -- CMD --builder-timeout-ms N --builder-max-attempts N
               --builder-repair -- CMD --builder-repair-timeout-ms N
@@ -47,6 +48,11 @@ log also takes --problems, --all, and --json (every kept line).
 Without --config, the nearest ${CONFIG_FILENAME} is used. --home is where Host
 keeps its own files (default ${DEFAULT_HOME}): the ledger, the workspaces, its copy of
 the work line.
+
+--streams-dir films what every child says, as it says it, one file per child.
+Naming the directory is what turns it on; the config key "observability.streams"
+is the same switch for good. It is off by default: a stream is the Project's own
+material — its code, its prompts — written down in the clear.
 `;
 
 function installSignalHandlers(state: { interrupted: boolean }): () => void {

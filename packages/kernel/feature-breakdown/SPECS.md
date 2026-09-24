@@ -377,6 +377,14 @@ Diagnostics go to stderr. Stdout is the contract.
 
 FeatureBreakdown creates no file.
 
+### Filming the Planner
+
+A caller may hand `runBreakdown` an `onChild`. It is asked once, before the
+Planner runs, and answers a sink for that child's raw output or nothing to leave
+it unfilmed. FeatureBreakdown opens no file and knows nothing of where a sink
+writes. The sink is opened after the child is running, closed exactly once on
+every way out, and nothing it does changes the outcome. Default: no sink.
+
 ## 10. Refusal
 
 `refused` is a verdict, delivered on stdout with a machine-readable `code` and a

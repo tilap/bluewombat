@@ -61,6 +61,34 @@ export type Trace = {
   ended: AttemptEnded;
 };
 
+/**
+ * Somewhere a child's raw output is kept as it arrives.
+ *
+ * What a child says reaches this Transformer in full and leaves it as one word:
+ * a verdict, or the tail of a crash. An agent that talks for two minutes is
+ * unreadable afterwards, and unwatchable while it runs. A sink is whoever wants
+ * that stream; Implementer neither opens files nor knows where it goes.
+ */
+export type ChildSink = {
+  write(stream: "stdout" | "stderr", chunk: string): void;
+  close(): void;
+};
+
+/** Which child is about to speak, for whoever decides whether to film it. */
+export type ChildAbout = {
+  /** The Task, from `--id`. */
+  task_id: string;
+  /** The larger piece of work it serves, from `--context`, when there is one. */
+  key?: string;
+  attempt: number;
+  kind: "builder" | "gate";
+  /** Present when `kind` is `gate`. */
+  gate_id?: string;
+};
+
+/** Answers a sink for one child, or nothing to leave it unfilmed. */
+export type OpenChildSink = (about: ChildAbout) => ChildSink | undefined;
+
 export type GateSpec = {
   id: string;
   argv: string[];

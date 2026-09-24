@@ -162,6 +162,7 @@ flag paths resolve against the working directory. Flags override the file, and
 | `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                         |
 | `maxRefusals`               | Times an Authority may send a Submission back before it escalates. Default 3                                                                                                                                             |
 | `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick                                                                                                                                                     |
+| `observability.streams`     | `enabled`, `dir`, `keep`. Films what every child says, as it says it — one file per child under `<dir>/<feature>/`, named in the journal by a `stream-opened` line. `dir` resolves against the config file; default `<home>/streams`. `keep` is `stdout` / `stderr`, default both. Off unless `enabled` is true: a stream is the Project's own code and prompts in the clear |
 
 Every `cmd` is named where it is used, and nothing falls back to a neighbour: a
 `repair` with no command of its own is refused rather than quietly running the
@@ -483,7 +484,7 @@ src/
   cli.ts                 mason run | watch | status | log | cancel | init | setup | doctor
   config/                argv, JSON config, config discovery → HostOptions; defaults: the plugin names Host ships with
   plugins/               load: the one loader; manager, isolation, persist: one shape each; discover
-  loop/                  open-host (composition), tick (the loop), deliveries, drive, probe, report, authority, work-line, cursor, lock, journal, trace, transformers
+  loop/                  open-host (composition), tick (the loop), deliveries, drive, probe, report, authority, work-line, cursor, lock, journal (the film), streams (what a child said), trace, transformers
   operator/              init, setup, doctor, live (watch / status), log, film, cancel, board, prompt, git-remote
 fixtures/                stand-in slots for the loop's tests
 ```

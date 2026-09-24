@@ -1,7 +1,14 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { GateSpec } from "@bluewombat/implementer";
-import type { AssemblySpec, AuthoritySpec, HostInvocation, PassSpec, StageSpec } from "./types.js";
+import type {
+  AssemblySpec,
+  AuthoritySpec,
+  HostInvocation,
+  ObservabilitySpec,
+  PassSpec,
+  StageSpec,
+} from "./types.js";
 
 const KNOWN_KEYS = new Set([
   "manager",
@@ -15,6 +22,7 @@ const KNOWN_KEYS = new Set([
   "builder",
   "assembly",
   "authority",
+  "observability",
   "timeoutMs",
   "maxRefusals",
   "pollIntervalMs",
@@ -26,6 +34,9 @@ const STAGE_KEYS = new Set(["producer", "repair", "maxAttempts", "gates"]);
 const ASSEMBLY_KEYS = new Set(["fix", "maxAttempts", "gates"]);
 const GATES_KEYS = new Set(["defaultTimeoutMs", "gates"]);
 const AUTHORITY_KEYS = new Set(["enabled", "publish", "refresh", "describe"]);
+const OBSERVABILITY_KEYS = new Set(["streams"]);
+const STREAMS_KEYS = new Set(["enabled", "dir", "keep"]);
+const STREAM_NAMES = new Set(["stdout", "stderr"]);
 
 export type LoadedConfig =
   | { ok: true; invocation: Partial<HostInvocation> }
@@ -158,6 +169,14 @@ export function loadConfig(path: string): LoadedConfig {
       return authority;
     }
     invocation.authority = authority.value;
+  }
+
+  if (object.observability !== undefined) {
+    const observability = readObservability(object.observability, configDir);
+    if (observability.ok === false) {
+      return observability;
+    }
+    invocation.observability = observability.value;
   }
 
   const timeoutMs = positiveIntField(object, "timeoutMs");
@@ -371,6 +390,73 @@ function readAuthority(
     spec.describeArgv = resolveArgv(describe as string[], configDir);
   }
   return { ok: true, value: spec };
+}
+
+/**
+ * What a Project asks to be filmed beyond the journal.
+ *
+ * `enabled` is declared rather than defaulted, like an Authority's: what a
+ * stream holds is the Project's own material in the clear — its code, its
+ * prompts, whatever an agent read out loud — and a directory happening to exist
+ * is not a decision to write that down.
+ */
+function readObservability(
+  value: unknown,
+  configDir: string,
+): { ok: true; value: ObservabilitySpec } | { ok: false; reason: string } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, reason: 'Config "observability" must be a JSON object.' };
+  }
+  const object = value as Record<string, unknown>;
+  for (const name of Object.keys(object)) {
+    if (!OBSERVABILITY_KEYS.has(name)) {
+      return { ok: false, reason: `Config "observability" has unknown key "${name}".` };
+    }
+  }
+  if (object.streams === undefined) {
+    return { ok: true, value: {} };
+  }
+  const streams = object.streams;
+  if (streams === null || typeof streams !== "object" || Array.isArray(streams)) {
+    return { ok: false, reason: 'Config "observability.streams" must be a JSON object.' };
+  }
+  const fields = streams as Record<string, unknown>;
+  for (const name of Object.keys(fields)) {
+    if (!STREAMS_KEYS.has(name)) {
+      return { ok: false, reason: `Config "observability.streams" has unknown key "${name}".` };
+    }
+  }
+  const enabled = fields.enabled;
+  if (typeof enabled !== "boolean") {
+    return { ok: false, reason: 'Config "observability.streams.enabled" must be true or false.' };
+  }
+  const spec: ObservabilitySpec["streams"] = { enabled };
+  if (fields.dir !== undefined) {
+    if (typeof fields.dir !== "string" || fields.dir.trim().length === 0) {
+      return {
+        ok: false,
+        reason: 'Config "observability.streams.dir" must be a non-empty string.',
+      };
+    }
+    // This system writes here, so it resolves against the config directory —
+    // the same rule as a slot's `--transcript-dir`. Left relative to whatever
+    // a child's working directory happens to be, the films would land inside a
+    // Task workspace and be folded into the feature.
+    spec.dir = resolve(configDir, fields.dir);
+  }
+  if (fields.keep !== undefined) {
+    if (
+      !Array.isArray(fields.keep) ||
+      fields.keep.some((name) => typeof name !== "string" || !STREAM_NAMES.has(name))
+    ) {
+      return {
+        ok: false,
+        reason: 'Config "observability.streams.keep" must be an array of "stdout" / "stderr".',
+      };
+    }
+    spec.keep = fields.keep as ("stdout" | "stderr")[];
+  }
+  return { ok: true, value: { streams: spec } };
 }
 
 function readGates(

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openConductor } from "@bluewombat/conductor";
 import { openWorkLedger } from "@bluewombat/work-ledger";
@@ -15,6 +16,7 @@ import type { HostRunInput } from "./context.js";
 import { cancelFeature } from "./deliveries.js";
 import { type Journal, openJournalFile, stampJournal } from "./journal.js";
 import { acquireLock } from "./lock.js";
+import { openStreams, type Streams } from "./streams.js";
 import { type Host, run, runOnce } from "./tick.js";
 import { openTrace } from "./trace.js";
 import { createTransformers } from "./transformers.js";
@@ -151,9 +153,21 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     ledger_root: options.ledgerRoot,
     ...(options.configDir === undefined ? {} : { config_dir: options.configDir }),
   });
+  // Off unless the Project asked: what a stream holds is its own material in
+  // the clear. `home` is where Host keeps what is its own, like the ledger.
+  const streamsSpec = options.observability?.streams;
+  const streams: Streams | undefined =
+    streamsSpec?.enabled === true
+      ? openStreams({
+          dir: streamsSpec.dir ?? join(home, "streams"),
+          keep: streamsSpec.keep ?? ["stdout", "stderr"],
+          journal,
+        })
+      : undefined;
   const transformers = createTransformers({
     trace,
     journal,
+    ...(streams === undefined ? {} : { streams }),
     planner: options.planner,
     builder: options.builder,
     assembly: options.assembly,
