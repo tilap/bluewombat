@@ -251,6 +251,24 @@ describe("isolation-git fold", () => {
     assert.deepEqual(gitLog(parent), ["parent work", "init"]);
   });
 
+  it("a path the Child's own .gitignore excludes stays out of the fold", async () => {
+    const { parent, child } = gitPair({ "a.txt": "base\n", ".gitignore": "ignored/\n" });
+    writeFileSync(join(child, "new.txt"), "work\n");
+    writeTree(child, { "ignored/build-output.js": "generated\n" });
+    const result = await runIntegrator({
+      backend: strategy.fold,
+      invocation: { id: "s1", parent, child, durationMs: 30_000, subject: "Add new.txt" },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "integrated");
+    assert.equal(readFileSync(join(parent, "new.txt"), "utf8"), "work\n");
+    assert.equal(existsSync(join(parent, "ignored", "build-output.js")), false);
+    assert.equal(
+      execFileSync("git", ["ls-files", "ignored"], { cwd: parent, encoding: "utf8" }),
+      "",
+    );
+  });
+
   it("leaves one merge commit, named after the fold, when both sides moved", async () => {
     const { parent, child } = gitPair({ "a.txt": "base\n" });
     writeFileSync(join(parent, "b.txt"), "parent\n");

@@ -391,7 +391,12 @@ async function writeWorkingTreeCommit(input: {
   });
 
   try {
-    const add = await git(["add", "-A", "-f"], timed());
+    // No `-f`: a Child's node_modules/, dist/, or any other generated output
+    // its own build step produced stays off the snapshot exactly as `.gitignore`
+    // says, the same as a human's `git add -A` would leave it. The Isolator's
+    // copy step ignores `.gitignore` on purpose, for the Builder's own use of
+    // the directory; nothing about that means those bytes belong in history.
+    const add = await git(["add", "-A"], timed());
     if (!add.ok) {
       return add;
     }
