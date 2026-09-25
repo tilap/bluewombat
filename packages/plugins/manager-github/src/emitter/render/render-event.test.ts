@@ -147,6 +147,7 @@ describe("renderEvent", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
+        readyLabel: "ready",
         fields: {
           reason: "a forbidden path is required",
           stage: "unit",
@@ -168,7 +169,7 @@ describe("renderEvent", () => {
         "",
         "After 3 of 3 attempts on `u-2`.",
         "",
-        "No further work starts until a human answers.",
+        "No further work starts until a human answers. Add the `ready` label once it is fixed, to resume.",
         "",
         "### Trace",
         "",
@@ -180,6 +181,17 @@ describe("renderEvent", () => {
     );
     assert.doesNotMatch(rendered.section, /- reason:/);
     assert.doesNotMatch(rendered.section, /counters:/);
+  });
+
+  it("says nothing about resuming when the manager carries no ready label", () => {
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        fields: { reason: "a forbidden path is required", stage: "unit" },
+      }),
+    );
+    assert.doesNotMatch(rendered.section, /Add the `/);
+    assert.match(rendered.section, /No further work starts until a human answers\.\n/);
   });
 
   it("locates a thin Subtask escalation by its unit, not by field labels", () => {

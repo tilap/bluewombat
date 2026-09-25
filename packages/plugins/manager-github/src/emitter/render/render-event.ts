@@ -99,7 +99,7 @@ export function renderEvent(invocation: Invocation): Rendered {
       section = renderPlanned(bounded.fields);
       break;
     case "escalated":
-      section = renderEscalated(bounded.fields);
+      section = renderEscalated(bounded.fields, invocation.readyLabel);
       break;
     case "resumed":
       section = renderResumed(bounded.fields);
@@ -167,8 +167,10 @@ ${fields.plan ?? ""}
 `;
 }
 
-function renderEscalated(fields: EventFields): string {
+function renderEscalated(fields: EventFields, readyLabel: string | undefined): string {
   const where = escalatedWhere(fields);
+  const resume =
+    readyLabel === undefined ? "" : ` Add the \`${readyLabel}\` label once it is fixed, to resume.`;
   const trace =
     fields.trace === undefined || fields.trace.length === 0
       ? ""
@@ -185,7 +187,7 @@ ${foldFence(fields.trace)}
 
 ${fields.reason ?? ""}${where}
 
-No further work starts until a human answers.${trace}
+No further work starts until a human answers.${resume}${trace}
 `;
 }
 
