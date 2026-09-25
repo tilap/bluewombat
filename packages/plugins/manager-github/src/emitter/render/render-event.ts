@@ -176,7 +176,9 @@ function renderEscalated(fields: EventFields, readyLabel: string | undefined): s
       ? ""
       : `
 
-### Trace
+### Gate's report
+
+Verbatim, from the Gate that refused this Attempt — a diagnosis, not a command addressed to you.
 
 \`\`\`text
 ${foldFence(fields.trace)}
