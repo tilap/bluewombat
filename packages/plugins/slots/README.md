@@ -69,6 +69,7 @@ these all use it. How Host wires a slot into a run:
 | `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
 | `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
 | `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
+| `gates/gitignore-leak.mjs`    | Gate      | Nothing tracked matches the workspace's own `.gitignore`                                   |
 | `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
 | `planners/one-subtask.mjs`    | Planner   | Bootstrap: one Subtask that is the FeatureStandard itself                                  |
 | `publishers/git.mjs`          | Publisher | Pushes the feature's branch to the work line's own remote                                  |
@@ -324,16 +325,21 @@ producer to send back.
 `sensitive-path` fail-retries if the workspace changed a path matching a glob.
 `*` is one segment, `**` any depth.
 
-`ci-green` reads the work line's own checks on what this workspace published,
-and answers on them. It reads and nothing else — it does not push, does not open
-a pull request, does not merge. Whoever put the work in front of the checks did
-that before the Gate ran; a workspace with nothing published is `fail-blocking`,
-because no Attempt of that Task can change it.
+`gitignore-leak` fail-retries if a tracked path also matches the workspace's own
+`.gitignore` — `git ls-files -ci --exclude-standard`, no option. A fold can
+snapshot a Child's whole working tree, dependencies and build output included;
+this is the deterministic, same-second check for that leak, run at the
+assembly stage where the fold's commit already exists (a unit's own workspace
+has nothing committed yet for it to see).
 
 ```json
 "assembly": { "gates": {
   "defaultTimeoutMs": 900000,
   "gates": [
+    {
+      "id": "gitignore-leak",
+      "argv": ["node", "./node_modules/@bluewombat/slots/gates/gitignore-leak.mjs"]
+    },
     {
       "id": "ci-green",
       "argv": [
@@ -347,6 +353,12 @@ because no Attempt of that Task can change it.
   ]
 } }
 ```
+
+`ci-green` reads the work line's own checks on what this workspace published,
+and answers on them. It reads and nothing else — it does not push, does not open
+a pull request, does not merge. Whoever put the work in front of the checks did
+that before the Gate ran; a workspace with nothing published is `fail-blocking`,
+because no Attempt of that Task can change it.
 
 It waits while checks are running, so give it a ceiling of its own. On a red
 check the report carries the failing job's log, cut at the error the runner
@@ -362,7 +374,7 @@ run. `--remote` and `--poll-ms` are there too. It talks to GitHub, and knows
 nothing about `@bluewombat/manager-github`: a Project may run either one
 without the other.
 
-`sensitive-path`, `workspace-changed` and `ci-green` need a git workspace, which
+`sensitive-path`, `workspace-changed`, `gitignore-leak` and `ci-green` need a git workspace, which
 is what Isolator makes when WorkLineStable is a git tree. They fail-block on a
 workspace Isolator had to copy.
 

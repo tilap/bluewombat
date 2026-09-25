@@ -13,6 +13,7 @@ const parentClean = join(gates, "parent-clean.mjs");
 const sensitivePath = join(gates, "sensitive-path.mjs");
 const workspaceChanged = join(gates, "workspace-changed.mjs");
 const ciGreen = join(gates, "ci-green.mjs");
+const gitignoreLeak = join(gates, "gitignore-leak.mjs");
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "host-gate-"));
@@ -262,6 +263,60 @@ describe("sensitive-path", () => {
     const result = verdictOf(run(sensitivePath, cwd, ["**/.env"]));
     assert.equal(result.verdict, "fail-retryable");
     assert.match(result.report, /\.env/);
+  });
+});
+
+describe("gitignore-leak", () => {
+  it("refuses a workspace that is not git", () => {
+    const cwd = sandbox();
+    writeFileSync(join(cwd, "a.txt"), "a\n");
+    const result = verdictOf(run(gitignoreLeak, cwd));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /git/);
+  });
+
+  it("refuses an option", () => {
+    const cwd = sandbox();
+    gitInit(cwd);
+    const result = verdictOf(run(gitignoreLeak, cwd, ["--since", "HEAD"]));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /--since/);
+  });
+
+  it("passes when nothing tracked matches .gitignore", () => {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/\ndist/\n");
+    writeFileSync(join(cwd, "src.txt"), "ok\n");
+    gitCommit(cwd, "seed");
+    const result = verdictOf(run(gitignoreLeak, cwd));
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("passes when ignored paths sit on disk but were never tracked", () => {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/\ndist/\n");
+    writeFileSync(join(cwd, "src.txt"), "ok\n");
+    gitCommit(cwd, "seed");
+    mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
+    const result = verdictOf(run(gitignoreLeak, cwd));
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("fail-retryable when a fold force-added a path .gitignore excludes", () => {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/\ndist/\n");
+    writeFileSync(join(cwd, "src.txt"), "ok\n");
+    mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "seed, force-added"]);
+    const result = verdictOf(run(gitignoreLeak, cwd));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /node_modules\/left-pad\/index\.js/);
   });
 });
 
