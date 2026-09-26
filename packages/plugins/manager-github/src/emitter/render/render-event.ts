@@ -50,6 +50,12 @@ const FIELD_LABELS: Partial<Record<EventName, Partial<Record<FieldName, string>>
 const HIGH_PRIORITY = 75;
 const LOW_PRIORITY = 25;
 
+/**
+ * A fenced block does not wrap. One long line is a horizontal scroll, so a
+ * Trace is folded here, on spaces, before it is fenced.
+ */
+const FENCE_WIDTH = 80;
+
 export type Rendered = {
   record: EventRecord;
   /** One section for the human surface, trailing newline included. */
@@ -171,7 +177,7 @@ function renderEscalated(fields: EventFields): string {
 ### Trace
 
 \`\`\`text
-${fields.trace}
+${foldFence(fields.trace)}
 \`\`\``;
   return `## Escalated
 
@@ -292,7 +298,7 @@ function renderSection(invocation: Invocation, fields: EventFields): string {
     if (typeof value !== "string") {
       continue;
     }
-    lines.push("", `### ${title(field)}`, "", "```text", value, "```");
+    lines.push("", `### ${title(field)}`, "", "```text", foldFence(value), "```");
   }
 
   lines.push("");
@@ -332,6 +338,32 @@ function label(event: EventName, field: FieldName): string {
 
 function title(field: FieldName): string {
   return SECTION_TITLES[field] ?? field.replace(/_/g, " ");
+}
+
+function foldFence(value: string): string {
+  return value
+    .split("\n")
+    .flatMap((line) => foldLine(line, FENCE_WIDTH))
+    .join("\n");
+}
+
+function foldLine(line: string, width: number): string[] {
+  if (line.length <= width) {
+    return [line];
+  }
+  const lines: string[] = [];
+  let rest = line;
+  while (rest.length > width) {
+    const window = rest.slice(0, width + 1);
+    const space = window.lastIndexOf(" ");
+    const breakAt = space > 0 ? space : width;
+    lines.push(rest.slice(0, breakAt).trimEnd());
+    rest = rest.slice(breakAt).trimStart();
+  }
+  if (rest.length > 0) {
+    lines.push(rest);
+  }
+  return lines;
 }
 
 function bullet(value: unknown): string {

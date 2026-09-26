@@ -288,6 +288,27 @@ describe("renderEvent", () => {
     );
   });
 
+  it("folds a one-line Trace so the fence is several lines", () => {
+    const sentence =
+      "Theme behavior in index.html, src/style.css, src/main.js, and public/sw.js looks correct, but the commit also adds node_modules and dist, so the diff should keep only the theme source files, then re-validate.";
+    const rendered = renderEvent(
+      invocation({
+        event: "progress",
+        fields: {
+          summary: "assembly.validate refused the assembled feature.",
+          stage: "integrating",
+          trace: sentence,
+        },
+      }),
+    );
+    const fenced = /```text\n([\s\S]*?)\n```/.exec(rendered.section);
+    assert.ok(fenced?.[1]);
+    const lines = fenced[1].split("\n");
+    assert.ok(lines.length > 1);
+    assert.ok(lines.every((line) => line.length <= 80));
+    assert.equal(lines.join(" "), sentence);
+  });
+
   it("keeps the blank lines inside a Trace", () => {
     const rendered = renderEvent(
       invocation({
