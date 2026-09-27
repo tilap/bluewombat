@@ -204,7 +204,8 @@ const STAGE_PHRASE: Record<Stage, string> = {
   plan: "while planning",
   unit: "on a Subtask",
   integrating: "while assembling the feature",
-  submitting: "while the Submission was under review",
+  // A refused offer stops here too, before any Submission exists to review.
+  submitting: "while submitting the work",
   merging: "while folding into the work line",
 };
 

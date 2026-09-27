@@ -230,6 +230,19 @@ describe("renderEvent", () => {
     assert.equal(late.section.includes("after the point of no return"), true);
   });
 
+  it("places a submitting escalation without claiming a review happened", () => {
+    // The offer can be refused before any Submission exists (a push the
+    // remote dropped): "under review" sent a reader to look for a pull request.
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        fields: { reason: "The work could not be submitted.", stage: "submitting" },
+      }),
+    );
+    assert.match(rendered.section, /This happened while submitting the work\./);
+    assert.doesNotMatch(rendered.section, /under review/);
+  });
+
   it("cuts long free text, marks the cut, and lists what it cut", () => {
     const rendered = renderEvent(
       invocation({
