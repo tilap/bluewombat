@@ -323,7 +323,10 @@ producer to send back.
 (`--parent DIR`, or the other git worktrees of this Child).
 
 `sensitive-path` fail-retries if the workspace changed a path matching a glob.
-`*` is one segment, `**` any depth.
+`*` is one segment, `**` any depth. It looks at what a fold can carry out of
+the workspace — tracked paths, and new ones `.gitignore` does not exclude — so
+what an install left under an ignored directory (a dependency's own `.github/`)
+is not a change to guard.
 
 `gitignore-leak --base REF` fail-retries if the feature's commits add a path the
 workspace's own `.gitignore` excludes — a Builder's `node_modules/`, a build's

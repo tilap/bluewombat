@@ -254,6 +254,34 @@ describe("sensitive-path", () => {
     assert.match(result.report, /\.env/);
   });
 
+  it("passes on what an install left under an ignored directory", () => {
+    // Seen live: node_modules/iconv-lite/.github/dependabot.yml refused two of
+    // three Attempts that touched nothing sensitive.
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
+    writeFileSync(join(cwd, "src.txt"), "ok\n");
+    gitCommit(cwd, "seed");
+    mkdirSync(join(cwd, "node_modules", "iconv-lite", ".github"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "iconv-lite", ".github", "dependabot.yml"), "x\n");
+    const result = verdictOf(run(sensitivePath, cwd, ["**/.github/**"]));
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("still sees a tracked path under an ignored directory", () => {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "vendor/\n");
+    mkdirSync(join(cwd, "vendor", ".github"), { recursive: true });
+    writeFileSync(join(cwd, "vendor", ".github", "ci.yml"), "one\n");
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "seed"]);
+    writeFileSync(join(cwd, "vendor", ".github", "ci.yml"), "two\n");
+    const result = verdictOf(run(sensitivePath, cwd, ["**/.github/**"]));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /vendor\/\.github\/ci\.yml/);
+  });
+
   it("fail-retryable when a matching file is deleted", () => {
     const cwd = sandbox();
     gitInit(cwd);
