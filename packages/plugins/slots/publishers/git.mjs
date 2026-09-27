@@ -46,8 +46,11 @@ if (!existsSync(join(cwd, ".git"))) {
   process.exit(0);
 }
 
+// C locale: git's words become the refusal a team reads on the tracker, and a
+// machine's own language would put French or German in an English thread.
 const pushed = spawnSync("git", ["-C", cwd, "push", remote, `${ref}:${ref}`], {
   encoding: "utf8",
+  env: { ...process.env, LC_ALL: "C" },
 });
 if (pushed.error !== undefined) {
   writeDiagnostic(`git publisher cannot run git: ${pushed.error.message}\n`);

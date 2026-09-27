@@ -181,7 +181,7 @@ export async function reportAfterRun(
         eventId,
         fields: {
           stage: "submitting",
-          reason: "The Submission was refused and no attempt is left.",
+          reason: submittedReason(aggregate, input.options.maxRefusals ?? DEFAULT_MAX_REFUSALS),
           ...((aggregate.escalation?.report ?? aggregate.submission?.last_report) === undefined
             ? {}
             : {
@@ -201,6 +201,23 @@ export async function reportAfterRun(
       });
       return;
   }
+}
+
+/**
+ * One escalation kind covers three stops: the offer refused before any
+ * Submission existed (the Publisher could not push, the Authority would not
+ * open one), a republish refused, and a judgement that sent it back once too
+ * often. Say only what the ledger shows; the Trace says who refused and why.
+ */
+function submittedReason(aggregate: FeatureAggregate, maxRefusals: number): string {
+  const submission = aggregate.submission;
+  if (submission === undefined) {
+    return "The work could not be submitted.";
+  }
+  // The refusal that stopped it is never recorded as one (open-conductor).
+  return submission.refusals + 1 >= maxRefusals
+    ? "The Submission was refused and no attempt is left."
+    : "The Submission was refused.";
 }
 
 /** `<key>:escalated:<round>:<kind>[:<subtask>]` — the same escalation hashes the same after a restart. */

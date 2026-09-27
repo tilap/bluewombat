@@ -451,6 +451,9 @@ that places its work some other way writes its own Publisher and changes nothing
 else. A refusal stops the Submission and travels back to the tracker; a slot that
 could not run at all exits non-zero and says why on stderr.
 
+`git.mjs` runs git with `LC_ALL=C`: the refusal quotes git, and it is posted on a
+tracker a team reads, whatever language the machine that ran it speaks.
+
 ## Refreshers
 
 The other half of the Publisher's seam: what the Authority accepted has moved the
@@ -471,7 +474,8 @@ else, so it answers `ok` with nothing to do.
 A refusal stops the pass: nothing starts, and the next one tries again. The
 reason is written for the person who reads `mason run`'s trace: the copy is the
 system's, nothing in it is worth keeping, and the reason says the one command
-that puts it back.
+that puts it back. Git runs with `LC_ALL=C` here too, for the same reason as the
+Publisher.
 
 ## Stack
 

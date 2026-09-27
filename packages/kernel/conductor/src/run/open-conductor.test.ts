@@ -408,6 +408,38 @@ describe("openConductor", () => {
     assert.equal(calls.filter((c) => c.op === "integrate" && c.parent === stable).length, 0);
   });
 
+  it("keeps the Publisher's reason when the first offer is refused", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(feature());
+    const { transformers } = recordingTransformers();
+    const authority: AuthorityPort = {
+      async submit() {
+        return { outcome: "refused", reason: "git push rejected: non-fast-forward" };
+      },
+      async fold() {
+        return { outcome: "folded" };
+      },
+    };
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority,
+      workLineTarget: "dev",
+    });
+
+    const outcome = await conductor.runProject("proj");
+    assert.equal(outcome.outcome, "escalated");
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.escalation?.kind, "submitted");
+    // Discarding this reason left a person reading the escalation with
+    // nothing but "refused" — no way to tell a push rejection from a dead API.
+    assert.match(got.aggregate.escalation?.report ?? "", /non-fast-forward/);
+  });
+
   it("judges what was published with Gates, and folds only on their word", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });

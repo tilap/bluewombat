@@ -102,6 +102,24 @@ describe("runLog", () => {
     assert.doesNotMatch(text, /deliveries|listen {2}/);
   });
 
+  it("--problems keeps a refused offer, with who refused it and why", async () => {
+    const { cwd, ledgerRoot } = sandbox();
+    const journal = openJournalFile(ledgerRoot, () => new Date("2026-09-26T17:13:42.000Z"));
+    journal.append({ event: "listen", outcome: "completed", deliveries: 0 });
+    journal.append({
+      event: "submit-refused",
+      key: "github:acme/app#3",
+      by: "publisher",
+      reason: "Could not publish issue/3: error: RPC failed; HTTP 400",
+    });
+    journal.append({ event: "ran", key: "github:acme/app#3", outcome: "escalated" });
+    const lines: string[] = [];
+    await runLog({ cwd, argv: ["--problems"], write: (line) => lines.push(line) });
+    const text = lines.join("");
+    assert.match(text, /submit-refused {2}github:acme\/app#3/);
+    assert.match(text, /Could not publish issue\/3: error: RPC failed; HTTP 400/);
+  });
+
   it("--all keeps idle", async () => {
     const { cwd, ledgerRoot } = sandbox();
     film(ledgerRoot);

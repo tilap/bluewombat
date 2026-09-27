@@ -499,6 +499,51 @@ describe("reporting after a pass", () => {
     assert.equal(reports[0]?.eventId, `${KEY}:escalated:0:submitted`);
     assert.equal(reports[0]?.fields.trace, "reviewer: no", "the escalation's own words win");
   });
+
+  it("says only what the ledger shows about a refused Submission", async () => {
+    const reasonFor = async (over: Partial<FeatureAggregate>, maxRefusals: number) => {
+      const { input, reports } = harness();
+      input.options = { maxRefusals } as HostDeliveryInput["options"];
+      await reportAfterRun(input, ESCALATED, aggregateOf(over));
+      return reports[0]?.fields;
+    };
+
+    // The offer itself was refused: there never was a Submission to review, and
+    // no budget was spent — "no attempt is left" would send a reader the wrong way.
+    const offer = await reasonFor(
+      {
+        state: "escalated",
+        escalation: {
+          kind: "submitted",
+          born_in_merging: false,
+          report: "Could not publish issue/3: error: RPC failed; HTTP 400",
+        },
+      },
+      2,
+    );
+    assert.equal(offer?.reason, "The work could not be submitted.");
+    assert.equal(offer?.stage, "submitting");
+    assert.equal(offer?.trace, "Could not publish issue/3: error: RPC failed; HTTP 400");
+
+    const spent = await reasonFor(
+      {
+        escalation: { kind: "submitted", born_in_merging: false, report: "ci-green: red" },
+        submission: { reference: "pr-1", submitted_at: 1, refusals: 1 },
+      },
+      2,
+    );
+    assert.equal(spent?.reason, "The Submission was refused and no attempt is left.");
+
+    // A blocking refusal, or a republish refused, with budget still standing.
+    const early = await reasonFor(
+      {
+        escalation: { kind: "submitted", born_in_merging: false, report: "ci-green: no checks" },
+        submission: { reference: "pr-1", submitted_at: 1, refusals: 0 },
+      },
+      3,
+    );
+    assert.equal(early?.reason, "The Submission was refused.");
+  });
 });
 
 describe("where a resumed feature picks up", () => {
