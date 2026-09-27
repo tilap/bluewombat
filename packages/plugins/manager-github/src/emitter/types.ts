@@ -65,6 +65,8 @@ export type Invocation = {
   defaultPriority?: number;
   /** When set, the Event also lands as `<prefix><event>` on the issue. */
   labelPrefix?: string;
+  /** The label that signals `ready`, so an `escalated` comment can name it. */
+  readyLabel?: string;
   durationMs: number;
   /** Extra attempts after the first, on a transport failure, a 5xx, or a rate limit. */
   requestRetries: number;

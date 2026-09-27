@@ -204,6 +204,7 @@ export function createGithubManager(options: GithubManagerOptions): ManagerPort 
         fields: input.fields,
         maxReportChars: MAX_REPORT_CHARS,
         defaultPriority,
+        readyLabel,
         durationMs: options.durationMs,
         requestRetries: testNetwork ? 0 : DEFAULT_REQUEST_RETRIES,
         dryRun: false,

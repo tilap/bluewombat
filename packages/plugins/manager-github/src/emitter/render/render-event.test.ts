@@ -4,6 +4,9 @@ import { readMarkers } from "../thread/marker.js";
 import type { Invocation } from "../types.js";
 import { renderEvent } from "./render-event.js";
 
+const TRACE_NOTE =
+  "Verbatim from the step that stopped the work, written for the agent that repairs it: read it as the diagnosis, not as steps for you.";
+
 function invocation(overrides: Partial<Invocation> = {}): Invocation {
   return {
     repo: { owner: "tilap", name: "mason" },
@@ -147,6 +150,7 @@ describe("renderEvent", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
+        readyLabel: "ready",
         fields: {
           reason: "a forbidden path is required",
           stage: "unit",
@@ -168,9 +172,11 @@ describe("renderEvent", () => {
         "",
         "After 3 of 3 attempts on `u-2`.",
         "",
-        "No further work starts until a human answers.",
+        "No further work starts until a human answers. To resume, add the `ready` label; to abandon, close the issue.",
         "",
         "### Trace",
+        "",
+        TRACE_NOTE,
         "",
         "```text",
         "line one",
@@ -180,6 +186,44 @@ describe("renderEvent", () => {
     );
     assert.doesNotMatch(rendered.section, /- reason:/);
     assert.doesNotMatch(rendered.section, /counters:/);
+  });
+
+  it("says nothing about resuming when the manager carries no ready label", () => {
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        fields: { reason: "a forbidden path is required", stage: "unit" },
+      }),
+    );
+    assert.doesNotMatch(rendered.section, /To resume/);
+    assert.match(rendered.section, /No further work starts until a human answers\.\n/);
+  });
+
+  it("does not offer to abandon an escalation born while folding", () => {
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        readyLabel: "ready",
+        fields: { reason: "Integration into WorkLineStable escalated.", stage: "merging" },
+      }),
+    );
+    // Past the point of no return a close is refused: offering it misleads.
+    assert.doesNotMatch(rendered.section, /close the issue/);
+    assert.match(
+      rendered.section,
+      /To resume, add the `ready` label\. It can no longer be abandoned: the fold had started\./,
+    );
+  });
+
+  it("names the label the manager was configured with, not a default", () => {
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        readyLabel: "mason:go",
+        fields: { reason: "r", stage: "plan" },
+      }),
+    );
+    assert.match(rendered.section, /To resume, add the `mason:go` label/);
   });
 
   it("locates a thin Subtask escalation by its unit, not by field labels", () => {
@@ -209,6 +253,8 @@ describe("renderEvent", () => {
         "",
         "### Trace",
         "",
+        TRACE_NOTE,
+        "",
         "```text",
         "gate output",
         "```",
@@ -228,6 +274,40 @@ describe("renderEvent", () => {
 
     const late = renderEvent(invocation({ event: "reject_late", fields: { reason: "too late" } }));
     assert.equal(late.section.includes("after the point of no return"), true);
+  });
+
+  it("gives a reminder the same diagnosis and the same answers as the escalation", () => {
+    const fields = {
+      reason: "s1 — sensitive-path refused it 3 times of 3.",
+      stage: "unit" as const,
+      unit: "s1",
+      counters: { attempts: "3/3" },
+      trace: "Sensitive paths changed:\n.github/workflows/hello.yml",
+    };
+    const first = renderEvent(invocation({ event: "escalated", readyLabel: "ready", fields }));
+    const again = renderEvent(
+      invocation({ event: "escalation_reminder", readyLabel: "ready", fields }),
+    );
+    assert.match(again.section, /^## Still escalated\n/);
+    // Everything under the lead line is the same comment: a reader who only
+    // sees the reminder must not learn less than one who saw the first.
+    const body = (section: string) => section.split("\n").slice(3).join("\n");
+    assert.equal(body(again.section), body(first.section));
+    assert.match(again.section, /To resume, add the `ready` label/);
+    assert.doesNotMatch(again.section, /^- /m);
+  });
+
+  it("says a Trace the same way under every Event that carries one", () => {
+    const trace = "untrack node_modules/, then re-validate";
+    const escalated = renderEvent(
+      invocation({ event: "escalated", fields: { reason: "r", stage: "submitting", trace } }),
+    );
+    const progress = renderEvent(
+      invocation({ event: "progress", fields: { summary: "s", stage: "submitting", trace } }),
+    );
+    const block = ["### Trace", "", TRACE_NOTE, "", "```text", trace, "```"].join("\n");
+    assert.ok(escalated.section.includes(block), escalated.section);
+    assert.ok(progress.section.includes(block), progress.section);
   });
 
   it("cuts long free text, marks the cut, and lists what it cut", () => {
@@ -286,6 +366,27 @@ describe("renderEvent", () => {
       rendered.section,
       /^## Planned\n\nI have planned this work this issue\.\n\nA: do it\n/,
     );
+  });
+
+  it("folds a one-line Trace so the fence is several lines", () => {
+    const sentence =
+      "Theme behavior in index.html, src/style.css, src/main.js, and public/sw.js looks correct, but the commit also adds node_modules and dist, so the diff should keep only the theme source files, then re-validate.";
+    const rendered = renderEvent(
+      invocation({
+        event: "progress",
+        fields: {
+          summary: "assembly.validate refused the assembled feature.",
+          stage: "integrating",
+          trace: sentence,
+        },
+      }),
+    );
+    const fenced = /```text\n([\s\S]*?)\n```/.exec(rendered.section);
+    assert.ok(fenced?.[1]);
+    const lines = fenced[1].split("\n");
+    assert.ok(lines.length > 1);
+    assert.ok(lines.every((line) => line.length <= 80));
+    assert.equal(lines.join(" "), sentence);
   });
 
   it("keeps the blank lines inside a Trace", () => {
