@@ -69,6 +69,7 @@ these all use it. How Host wires a slot into a run:
 | `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
 | `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
 | `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
+| `gates/gitignore-leak.mjs`    | Gate      | The feature's commits add nothing its own `.gitignore` excludes                            |
 | `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
 | `planners/one-subtask.mjs`    | Planner   | Bootstrap: one Subtask that is the FeatureStandard itself                                  |
 | `publishers/git.mjs`          | Publisher | Pushes the feature's branch to the work line's own remote                                  |
@@ -324,16 +325,30 @@ producer to send back.
 `sensitive-path` fail-retries if the workspace changed a path matching a glob.
 `*` is one segment, `**` any depth.
 
-`ci-green` reads the work line's own checks on what this workspace published,
-and answers on them. It reads and nothing else — it does not push, does not open
-a pull request, does not merge. Whoever put the work in front of the checks did
-that before the Gate ran; a workspace with nothing published is `fail-blocking`,
-because no Attempt of that Task can change it.
+`gitignore-leak --base REF` fail-retries if the feature's commits add a path the
+workspace's own `.gitignore` excludes — a Builder's `node_modules/`, a build's
+`dist/`, a generated file. `REF` is the work line the feature is offered to
+(`main`): only what the feature adds since it left that line is judged, and
+only what is committed, so a path tracked on purpose before the feature began
+is not blamed on it, and a removal staged but not committed does not pass. The
+report is written for `assembly.fix`: untrack the paths, or change `.gitignore`
+if tracking one is the point. It passes at `--stage unit`, where no commit
+holds a Subtask's work yet.
+
+It is a second line, not the first: the `isolation-git` fold already keeps an
+ignored path out of the commits it makes. It catches a leak that came some
+other way — another isolation strategy, an agent that committed. Like every
+assembly Gate, with an Authority it judges what was published, so it stops the
+fold into the work line, not the push.
 
 ```json
 "assembly": { "gates": {
   "defaultTimeoutMs": 900000,
   "gates": [
+    {
+      "id": "gitignore-leak",
+      "argv": ["node", "./node_modules/@bluewombat/slots/gates/gitignore-leak.mjs", "--base", "main"]
+    },
     {
       "id": "ci-green",
       "argv": [
@@ -347,6 +362,12 @@ because no Attempt of that Task can change it.
   ]
 } }
 ```
+
+`ci-green` reads the work line's own checks on what this workspace published,
+and answers on them. It reads and nothing else — it does not push, does not open
+a pull request, does not merge. Whoever put the work in front of the checks did
+that before the Gate ran; a workspace with nothing published is `fail-blocking`,
+because no Attempt of that Task can change it.
 
 It waits while checks are running, so give it a ceiling of its own. On a red
 check the report carries the failing job's log, cut at the error the runner
@@ -362,7 +383,7 @@ run. `--remote` and `--poll-ms` are there too. It talks to GitHub, and knows
 nothing about `@bluewombat/manager-github`: a Project may run either one
 without the other.
 
-`sensitive-path`, `workspace-changed` and `ci-green` need a git workspace, which
+`sensitive-path`, `workspace-changed`, `gitignore-leak` and `ci-green` need a git workspace, which
 is what Isolator makes when WorkLineStable is a git tree. They fail-block on a
 workspace Isolator had to copy.
 

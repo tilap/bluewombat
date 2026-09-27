@@ -251,6 +251,65 @@ describe("isolation-git fold", () => {
     assert.deepEqual(gitLog(parent), ["parent work", "init"]);
   });
 
+  it("a path the Child's own .gitignore excludes stays out of the fold", async () => {
+    const { parent, child } = gitPair({ "a.txt": "base\n", ".gitignore": "ignored/\n" });
+    writeFileSync(join(child, "new.txt"), "work\n");
+    writeTree(child, { "ignored/build-output.js": "generated\n" });
+    const result = await runIntegrator({
+      backend: strategy.fold,
+      invocation: { id: "s1", parent, child, durationMs: 30_000, subject: "Add new.txt" },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "integrated");
+    assert.equal(readFileSync(join(parent, "new.txt"), "utf8"), "work\n");
+    assert.equal(existsSync(join(parent, "ignored", "build-output.js")), false);
+    assert.equal(
+      execFileSync("git", ["ls-files", "ignored"], { cwd: parent, encoding: "utf8" }),
+      "",
+    );
+  });
+
+  it("keeps a path that is tracked on purpose even though .gitignore matches it", async () => {
+    const { parent, child } = gitPair({ "a.txt": "base\n", ".gitignore": "dist/\n" });
+    writeTree(parent, { "dist/.gitkeep": "" });
+    execFileSync("git", ["add", "-f", "dist/.gitkeep"], { cwd: parent });
+    execFileSync("git", ["commit", "-qm", "keep dist/"], { cwd: parent });
+    execFileSync("git", ["reset", "-q", "--hard", "main"], { cwd: child });
+    writeFileSync(join(child, "a.txt"), "child\n");
+    const result = await runIntegrator({
+      backend: strategy.fold,
+      invocation: { id: "s1", parent, child, durationMs: 30_000, subject: "s1" },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "integrated");
+    // Dropping it would fold a deletion nobody asked for, on disk and in history.
+    assert.match(
+      execFileSync("git", ["ls-files"], { cwd: parent, encoding: "utf8" }),
+      /^dist\/\.gitkeep$/m,
+    );
+    assert.equal(existsSync(join(parent, "dist", ".gitkeep")), true);
+  });
+
+  it("counts a removal the Child staged and did not commit", async () => {
+    const { parent, child } = gitPair({ "a.txt": "base\n", ".gitignore": "node_modules/\n" });
+    writeTree(parent, { "node_modules/x/index.js": "1\n" });
+    execFileSync("git", ["add", "-f", "node_modules"], { cwd: parent });
+    execFileSync("git", ["commit", "-qm", "vendored by mistake"], { cwd: parent });
+    execFileSync("git", ["reset", "-q", "--hard", "main"], { cwd: child });
+    // What a repair agent told not to commit does: untrack, leave the bytes.
+    execFileSync("git", ["rm", "-r", "-q", "--cached", "node_modules"], { cwd: child });
+    const result = await runIntegrator({
+      backend: strategy.fold,
+      invocation: { id: "s1", parent, child, durationMs: 30_000, subject: "Untrack node_modules" },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "integrated");
+    assert.doesNotMatch(
+      execFileSync("git", ["ls-files"], { cwd: parent, encoding: "utf8" }),
+      /node_modules/,
+    );
+  });
+
   it("leaves one merge commit, named after the fold, when both sides moved", async () => {
     const { parent, child } = gitPair({ "a.txt": "base\n" });
     writeFileSync(join(parent, "b.txt"), "parent\n");

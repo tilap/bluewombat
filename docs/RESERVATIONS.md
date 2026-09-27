@@ -102,7 +102,8 @@ project's `mason.config.json`
 
 `workspace-changed` → `parent-clean` → `sensitive-path` → `npm-test`: cheapest
 and most structural first, the Project's own check last. Defensible, never
-agreed.
+agreed. At the assembly stage, `gitignore-leak` before `ci-green` for the same
+reason: a local answer in a second before a wait on CI.
 
 ### C16 · Where a failing job's log is cut
 
@@ -354,6 +355,27 @@ hides exactly this.
 
 ---
 
+### F26 · A Submission carries every commit the feature workspace ever made
+
+`packages/plugins/slots/publishers/git.mjs` — a plain push of the feature
+branch; `packages/plugins/isolation-git/src/git-merge.ts` — each fold and
+align adds history, never rewrites it
+
+What reaches the Authority is the branch, history and all. A blob that entered
+it once is pushed even after a later commit removed it: seen live, a feature
+whose first fold had committed a Builder's install (1 531 files, a 17 MB
+`libvips` and a 10 MB `esbuild` binary) still had a 17 MB pack to push after
+the repair took them out, and every push failed mid-way (`RPC failed; HTTP
+400`, `unexpected disconnect while reading sideband packet`) while the same
+token's API calls kept working. The pack's size over HTTPS is the likely
+cause, not a proved one. The pull request is squash-merged, so the work line stays clean;
+the branch and the push do not. The fold now keeps ignored paths out of
+history (DECISIONS), which closes the way this happened, not the class.
+
+**Instead:** publish one commit per Submission — the feature's tree on the
+work line's head — rather than the workspace's history; or refuse, before the
+push, a branch whose history holds what its tip does not.
+
 ## U — Never run against the real thing
 
 Everything here is covered by tests. None of it has been seen working outside
@@ -438,6 +460,29 @@ pays one refusal round.
 The workflow, the skip-if-already-published loop, and the GitHub Release step
 have never run. `npm trust github` has never been run for the sixteen
 packages. The by-hand first publish has never been done from this repository.
+
+### U13 · A fold from a copy of the directory's index
+
+`packages/plugins/isolation-git/src/git-merge.ts` — `writeWorkingTreeCommit`,
+`seedIndex`
+
+Covered by `fold.test.ts` (an ignored build output stays out, a path tracked
+under an ignored directory stays in, a staged `git rm --cached` counts). The
+live run that found the leak ran the earlier `-f` fold, then a version with an
+empty index; this one has not folded a real feature yet. Unproved outside the
+tests: a Child whose index git cannot read from a copy (`core.splitIndex`, a
+`sparse` index) — git resolves a shared index against `$GIT_DIR`, so it should
+hold, and nothing checks it.
+
+### U14 · `gitignore-leak` on a real Submission
+
+`packages/plugins/slots/gates/gitignore-leak.mjs`
+
+Covered by `test/gates.test.ts` against throwaway repositories. It has never
+judged a real assembled feature, and its `--base` has only ever been a local
+`main`: a work line whose branch is not named the same in the feature
+workspace (a copy that fetched only `origin/main`) would fail-block it, which
+is loud, but untried.
 
 ---
 

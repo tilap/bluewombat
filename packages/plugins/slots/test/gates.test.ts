@@ -13,6 +13,7 @@ const parentClean = join(gates, "parent-clean.mjs");
 const sensitivePath = join(gates, "sensitive-path.mjs");
 const workspaceChanged = join(gates, "workspace-changed.mjs");
 const ciGreen = join(gates, "ci-green.mjs");
+const gitignoreLeak = join(gates, "gitignore-leak.mjs");
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "host-gate-"));
@@ -262,6 +263,136 @@ describe("sensitive-path", () => {
     const result = verdictOf(run(sensitivePath, cwd, ["**/.env"]));
     assert.equal(result.verdict, "fail-retryable");
     assert.match(result.report, /\.env/);
+  });
+});
+
+describe("gitignore-leak", () => {
+  const assembly = (...own: string[]) => [...own, "--stage", "assembly"];
+
+  /** A work line on `main` that ignores node_modules/ and dist/, and a feature branch off it. */
+  function featureOff(baseFiles: Record<string, string> = {}): string {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/\ndist/\n");
+    writeFileSync(join(cwd, "src.txt"), "ok\n");
+    for (const [path, content] of Object.entries(baseFiles)) {
+      mkdirSync(dirname(join(cwd, path)), { recursive: true });
+      writeFileSync(join(cwd, path), content);
+    }
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "work line"]);
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "feature"]);
+    return cwd;
+  }
+
+  /** What the leak looked like for real: a fold that force-added a Builder's install. */
+  function commitVendored(cwd: string): void {
+    mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
+    writeFileSync(join(cwd, "src.txt"), "feature\n");
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "feature, with its install"]);
+  }
+
+  it("refuses a workspace that is not git", () => {
+    const cwd = sandbox();
+    writeFileSync(join(cwd, "a.txt"), "a\n");
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /git/);
+  });
+
+  it("refuses an option it does not read", () => {
+    const cwd = featureOff();
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--since", "HEAD")));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /--since/);
+  });
+
+  it("refuses to judge without the work line it is measured against", () => {
+    const cwd = featureOff();
+    const missing = verdictOf(run(gitignoreLeak, cwd, assembly()));
+    assert.equal(missing.verdict, "fail-blocking");
+    assert.match(missing.report, /--base/);
+    const unknown = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "nowhere")));
+    assert.equal(unknown.verdict, "fail-blocking");
+    assert.match(unknown.report, /cannot find --base "nowhere"/);
+  });
+
+  it("says nothing about a unit, whose work no commit holds yet", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, ["--base", "main"])).verdict, "pass");
+    assert.equal(
+      verdictOf(run(gitignoreLeak, cwd, ["--base", "main", "--stage", "unit"])).verdict,
+      "pass",
+    );
+  });
+
+  it("passes a feature that adds only what .gitignore lets in", () => {
+    const cwd = featureOff();
+    writeFileSync(join(cwd, "added.txt"), "new\n");
+    mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "on disk only\n");
+    gitCommit(cwd, "feature");
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
+  });
+
+  it("does not blame a feature for a path the work line tracked on purpose", () => {
+    const cwd = featureOff({ "dist/.gitkeep": "" });
+    writeFileSync(join(cwd, "src.txt"), "feature\n");
+    gitCommit(cwd, "feature");
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
+  });
+
+  it("fail-retryable when the feature's commits add an ignored path", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /^node_modules\/left-pad\/index\.js$/m);
+    assert.match(result.report, /git rm -r --cached/);
+    assert.doesNotMatch(result.report, /src\.txt/);
+  });
+
+  it("judges what is committed, not a removal only staged", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    execFileSync("git", ["-C", cwd, "rm", "-r", "-q", "--cached", "node_modules"]);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+  });
+
+  it("passes once a later commit took the path out again", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    execFileSync("git", ["-C", cwd, "rm", "-r", "-q", "--cached", "node_modules"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "untrack node_modules"]);
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
+  });
+
+  it("sees a tracked file moved under an ignored directory", () => {
+    const cwd = featureOff({ "lib/out.js": "built\n" });
+    mkdirSync(join(cwd, "dist"), { recursive: true });
+    execFileSync("git", ["-C", cwd, "mv", "-f", "lib/out.js", "dist/out.js"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "move the build output"]);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /^dist\/out\.js$/m);
+  });
+
+  it("lists fifty paths and counts the rest", () => {
+    const cwd = featureOff();
+    mkdirSync(join(cwd, "dist"), { recursive: true });
+    for (let i = 0; i < 55; i++) {
+      writeFileSync(join(cwd, "dist", `f${String(i).padStart(2, "0")}.js`), `${i}\n`);
+    }
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "build output"]);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.equal((result.report.match(/^dist\//gm) ?? []).length, 50);
+    assert.match(result.report, /… and 5 more$/);
   });
 });
 
