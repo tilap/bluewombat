@@ -325,7 +325,10 @@ producer to send back.
 `*` is one segment, `**` any depth.
 
 `ci-green` reads the work line's own checks on what this workspace published,
-and answers on them. It reads and nothing else — it does not push, does not open
+and answers on them: GitHub Actions' check runs and the commit statuses a CI
+outside Actions reports (Vercel, Netlify, Jenkins…) — the two lists GitHub
+shows on a pull request. A pending status is still running; a failed one's
+report is its context, what it said, and its link. It reads and nothing else — it does not push, does not open
 a pull request, does not merge. Whoever put the work in front of the checks did
 that before the Gate ran; a workspace with nothing published is `fail-blocking`,
 because no Attempt of that Task can change it.
@@ -358,7 +361,7 @@ the variable holding a token that can read the checks — the same one the
 manager's `tokenEnv` names. It has no default on purpose: `GITHUB_TOKEN` is
 what `gh` reads ahead of its own login, so an operator must not export it,
 and a Gate that fell back to it refused only at the first assembly of a real
-run. `--remote` and `--poll-ms` are there too. It talks to GitHub, and knows
+run. `--remote`, `--poll-ms` and `--api-base` (GitHub Enterprise) are there too. It talks to GitHub, and knows
 nothing about `@bluewombat/manager-github`: a Project may run either one
 without the other.
 
