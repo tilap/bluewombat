@@ -256,7 +256,9 @@ One FeatureStandard, one Project. Pause flag is off.
       `integrated` → `markDone`, delete feature directory, `clearWorkspace`.
       `conflict` → `escalate({ kind: "merging" })`, keep the feature directory.
    6. **With an Authority.** `submit` the assembled feature. `submitted` →
-      `markSubmitted`, return `paused`. `refused` → `escalate({ kind: "submitted" })`.
+      `markSubmitted`, return `paused`. `refused` → `escalate({ kind: "submitted" })`
+      with the refusal's reason as its report — the Publisher's or the
+      Authority's own words, the only record of why the offer failed.
       `unavailable` → return `paused` (retry later). On a later `runProject` in
       `submitted`: judge with `produce: false`. Blocking or over `maxRefusals` →
       `escalate({ kind: "submitted" })`. Retryable refusal → `recordRefusal`
