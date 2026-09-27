@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
@@ -189,6 +190,150 @@ describe("ci-green", () => {
     const result = verdictOf(run(ciGreen, cwd, ["--token-env", "MASON_TEST_TOKEN_UNSET"]));
     assert.equal(result.verdict, "fail-blocking");
     assert.match(result.report, /MASON_TEST_TOKEN_UNSET/);
+  });
+
+  /**
+   * A GitHub that answers the three reads this Gate makes, for one open pull
+   * request on `feature` at sha `abc`. `statuses` is called on every read, so a
+   * test can move a status from pending to settled between polls; `undefined`
+   * answers 404, as for a token that may not read them.
+   */
+  async function fakeGitHub(
+    checkRuns: unknown[],
+    statuses: () => unknown[] | undefined,
+  ): Promise<{ base: string; close: () => void }> {
+    const server = createServer((request, response) => {
+      const path = request.url ?? "";
+      let body: unknown;
+      if (path.startsWith("/repos/o/r/pulls?")) {
+        body = [{ number: 7, head: { sha: "abc" } }];
+      } else if (path.startsWith("/repos/o/r/commits/abc/check-runs")) {
+        body = { total_count: checkRuns.length, check_runs: checkRuns };
+      } else if (path.startsWith("/repos/o/r/commits/abc/status")) {
+        const listed = statuses();
+        body = listed === undefined ? undefined : { state: "whatever", statuses: listed };
+      }
+      response.writeHead(body === undefined ? 404 : 200, { "content-type": "application/json" });
+      response.end(JSON.stringify(body ?? { message: "Not Found" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address !== null && typeof address === "object");
+    return { base: `http://127.0.0.1:${address.port}`, close: () => server.close() };
+  }
+
+  function onFeatureBranch(): string {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, "a.txt"), "a\n");
+    gitCommit(cwd, "seed");
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "feature"]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:o/r.git"]);
+    return cwd;
+  }
+
+  /** The Gate, spawned without blocking: the fake GitHub lives in this process. */
+  function judge(cwd: string, base: string): Promise<{ verdict: string; report: string }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        node,
+        [
+          ciGreen,
+          "--token-env",
+          "CI_GREEN_TEST_TOKEN",
+          "--api-base",
+          base,
+          "--require-checks",
+          "--poll-ms",
+          "20",
+          "--id",
+          "t",
+          "--attempt",
+          "1",
+          "--gate-id",
+          "g",
+          "--intention",
+          "i",
+          "--definition-of-done",
+          "d",
+        ],
+        { cwd, env: { ...process.env, CI_GREEN_TEST_TOKEN: "t0ken" } },
+      );
+      let stdout = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.on("error", reject);
+      child.on("close", () => resolve(verdictOf({ stdout, stderr: "" })));
+    });
+  }
+
+  it("reads a commit status as a check: a repository whose CI is not Actions still has one", {
+    timeout: 20_000,
+  }, async () => {
+    // Seen on a Vercel-only repository: no check run ever, one status. With
+    // --require-checks the Gate waited out its whole timeout, on every round.
+    const github = await fakeGitHub([], () => [
+      { context: "Vercel", state: "success", description: "Deployment has completed" },
+    ]);
+    try {
+      assert.equal((await judge(onFeatureBranch(), github.base)).verdict, "pass");
+    } finally {
+      github.close();
+    }
+  });
+
+  it("refuses on a failed status, with what the reporter said and where", {
+    timeout: 20_000,
+  }, async () => {
+    const github = await fakeGitHub([], () => [
+      {
+        context: "Vercel",
+        state: "failure",
+        description: "Build failed",
+        target_url: "https://vercel.com/tilap/web-emojis/abc",
+      },
+    ]);
+    try {
+      const result = await judge(onFeatureBranch(), github.base);
+      assert.equal(result.verdict, "fail-retryable");
+      assert.equal(
+        result.report,
+        "Vercel: failure\nBuild failed\nhttps://vercel.com/tilap/web-emojis/abc",
+      );
+    } finally {
+      github.close();
+    }
+  });
+
+  it("waits on a pending status, and answers once it settles", { timeout: 20_000 }, async () => {
+    let reads = 0;
+    const github = await fakeGitHub([], () => {
+      reads += 1;
+      return [{ context: "Vercel", state: reads < 3 ? "pending" : "success" }];
+    });
+    try {
+      assert.equal((await judge(onFeatureBranch(), github.base)).verdict, "pass");
+      assert.ok(reads >= 3, `read ${reads} times`);
+    } finally {
+      github.close();
+    }
+  });
+
+  it("still judges check runs, and a status it cannot read is no status", {
+    timeout: 20_000,
+  }, async () => {
+    const server = await fakeGitHub(
+      [{ id: 1, name: "test", status: "completed", conclusion: "failure" }],
+      () => undefined,
+    );
+    try {
+      const result = await judge(onFeatureBranch(), server.base);
+      assert.equal(result.verdict, "fail-retryable");
+      assert.match(result.report, /^test: failure/);
+    } finally {
+      server.close();
+    }
   });
 });
 
