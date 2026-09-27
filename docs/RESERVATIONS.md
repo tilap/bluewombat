@@ -439,6 +439,19 @@ The workflow, the skip-if-already-published loop, and the GitHub Release step
 have never run. `npm trust github` has never been run for the sixteen
 packages. The by-hand first publish has never been done from this repository.
 
+### U13 · A fold from a copy of the directory's index
+
+`packages/plugins/isolation-git/src/git-merge.ts` — `writeWorkingTreeCommit`,
+`seedIndex`
+
+Covered by `fold.test.ts` (an ignored build output stays out, a path tracked
+under an ignored directory stays in, a staged `git rm --cached` counts). The
+live run that found the leak ran the earlier `-f` fold, then a version with an
+empty index; this one has not folded a real feature yet. Unproved outside the
+tests: a Child whose index git cannot read from a copy (`core.splitIndex`, a
+`sparse` index) — git resolves a shared index against `$GIT_DIR`, so it should
+hold, and nothing checks it.
+
 ---
 
 ## I — Working, and worse than it could be

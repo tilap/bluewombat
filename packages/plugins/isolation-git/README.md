@@ -37,9 +37,23 @@ A pattern with no `/` is matched against the last path segment, at any depth
 path from the root (`build/out`). `*` is any run of characters within one
 segment, `**` anything, and a leading `**/` means "at any depth". An unknown
 key, or an `exclude` that is not a list of non-empty strings, stops `mason
-run` before it isolates anything. Nothing here reads `.gitignore`: what git
+run` before it isolates anything. The copy reads no `.gitignore`: what git
 ignores is very often exactly what a Builder needs (its dependencies, the
 Project's own agent configuration).
+
+## What a fold keeps
+
+The copy and the fold answer different questions. The copy decides what a
+Builder can use; the fold decides what enters history. The fold snapshots a
+directory the way `git add -A` would there: tracked paths — even ones
+`.gitignore` matches, if someone tracked them on purpose — and new paths
+`.gitignore` does not exclude. What a Builder's own build or install left
+behind (`node_modules/`, `dist/`, a generated file the Project ignores) stays
+on disk and out of the commit.
+
+It starts from a copy of that directory's own index, so a removal staged and
+not committed (`git rm --cached`) counts, and the directory's index is never
+written to.
 
 Each root entry is copied by `cp` — `-c` on macOS, `--reflink=auto` elsewhere
 — so on a file system that clones (APFS, btrfs, XFS) the Child shares its
