@@ -4,6 +4,9 @@ import { readMarkers } from "../thread/marker.js";
 import type { Invocation } from "../types.js";
 import { renderEvent } from "./render-event.js";
 
+const TRACE_NOTE =
+  "Verbatim from the step that stopped the work, written for the agent that repairs it: read it as the diagnosis, not as steps for you.";
+
 function invocation(overrides: Partial<Invocation> = {}): Invocation {
   return {
     repo: { owner: "tilap", name: "mason" },
@@ -169,11 +172,11 @@ describe("renderEvent", () => {
         "",
         "After 3 of 3 attempts on `u-2`.",
         "",
-        "No further work starts until a human answers. Add the `ready` label once it is fixed, to resume.",
+        "No further work starts until a human answers. To resume, add the `ready` label; to abandon, close the issue.",
         "",
-        "### Gate's report",
+        "### Trace",
         "",
-        "Verbatim, from the Gate that refused this Attempt — a diagnosis, not a command addressed to you.",
+        TRACE_NOTE,
         "",
         "```text",
         "line one",
@@ -192,8 +195,35 @@ describe("renderEvent", () => {
         fields: { reason: "a forbidden path is required", stage: "unit" },
       }),
     );
-    assert.doesNotMatch(rendered.section, /Add the `/);
+    assert.doesNotMatch(rendered.section, /To resume/);
     assert.match(rendered.section, /No further work starts until a human answers\.\n/);
+  });
+
+  it("does not offer to abandon an escalation born while folding", () => {
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        readyLabel: "ready",
+        fields: { reason: "Integration into WorkLineStable escalated.", stage: "merging" },
+      }),
+    );
+    // Past the point of no return a close is refused: offering it misleads.
+    assert.doesNotMatch(rendered.section, /close the issue/);
+    assert.match(
+      rendered.section,
+      /To resume, add the `ready` label\. It can no longer be abandoned: the fold had started\./,
+    );
+  });
+
+  it("names the label the manager was configured with, not a default", () => {
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        readyLabel: "mason:go",
+        fields: { reason: "r", stage: "plan" },
+      }),
+    );
+    assert.match(rendered.section, /To resume, add the `mason:go` label/);
   });
 
   it("locates a thin Subtask escalation by its unit, not by field labels", () => {
@@ -221,9 +251,9 @@ describe("renderEvent", () => {
         "",
         "No further work starts until a human answers.",
         "",
-        "### Gate's report",
+        "### Trace",
         "",
-        "Verbatim, from the Gate that refused this Attempt — a diagnosis, not a command addressed to you.",
+        TRACE_NOTE,
         "",
         "```text",
         "gate output",
@@ -244,6 +274,40 @@ describe("renderEvent", () => {
 
     const late = renderEvent(invocation({ event: "reject_late", fields: { reason: "too late" } }));
     assert.equal(late.section.includes("after the point of no return"), true);
+  });
+
+  it("gives a reminder the same diagnosis and the same answers as the escalation", () => {
+    const fields = {
+      reason: "s1 — sensitive-path refused it 3 times of 3.",
+      stage: "unit" as const,
+      unit: "s1",
+      counters: { attempts: "3/3" },
+      trace: "Sensitive paths changed:\n.github/workflows/hello.yml",
+    };
+    const first = renderEvent(invocation({ event: "escalated", readyLabel: "ready", fields }));
+    const again = renderEvent(
+      invocation({ event: "escalation_reminder", readyLabel: "ready", fields }),
+    );
+    assert.match(again.section, /^## Still escalated\n/);
+    // Everything under the lead line is the same comment: a reader who only
+    // sees the reminder must not learn less than one who saw the first.
+    const body = (section: string) => section.split("\n").slice(3).join("\n");
+    assert.equal(body(again.section), body(first.section));
+    assert.match(again.section, /To resume, add the `ready` label/);
+    assert.doesNotMatch(again.section, /^- /m);
+  });
+
+  it("says a Trace the same way under every Event that carries one", () => {
+    const trace = "untrack node_modules/, then re-validate";
+    const escalated = renderEvent(
+      invocation({ event: "escalated", fields: { reason: "r", stage: "submitting", trace } }),
+    );
+    const progress = renderEvent(
+      invocation({ event: "progress", fields: { summary: "s", stage: "submitting", trace } }),
+    );
+    const block = ["### Trace", "", TRACE_NOTE, "", "```text", trace, "```"].join("\n");
+    assert.ok(escalated.section.includes(block), escalated.section);
+    assert.ok(progress.section.includes(block), progress.section);
   });
 
   it("cuts long free text, marks the cut, and lists what it cut", () => {

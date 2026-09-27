@@ -111,9 +111,10 @@ path that may read a 404 as absence.
 6. Disabled issues, a read-only token, and an unreachable repository each block
    before any label is created.
 7. `scaffoldManager` keeps a `repo` it was given and names `GITHUB_TOKEN`.
-8. `invalid`, `accepted`, `planned`, `escalated` and `resumed` comments are
-   written as string literals, not a field dump. An `invalid` comment is the
-   heading and the reason as a paragraph, with no `- reason:` bullet.
+8. `invalid`, `accepted`, `planned`, `escalated`, `escalation_reminder` and
+   `resumed` comments are written as string literals, not a field dump. An
+   `invalid` comment is the heading and the reason as a paragraph, with no
+   `- reason:` bullet.
 9. `probe` of an open issue is `present`; closed or 404 is `gone`; 403 is
    `unavailable`. A key with no issue number does not call the API.
 10. A template's HTML comments and a task list's boxes leave the intention;
@@ -122,5 +123,13 @@ path that may read a 404 as absence.
     noise falls back to the title.
 11. `setup` blocks on a `branch` the repository does not have, and names the
     repository's default branch when the config named none.
+12. An `escalated` comment says what a human can do from the issue, in this
+    tracker's gestures: add `readyLabel` to resume, close the issue to
+    abandon — and, for an escalation born in `merging`, only the first, since
+    a close there is refused. An `escalation_reminder` is the same comment
+    under "Still escalated": same diagnosis, same answers.
+13. A Trace renders the same under every Event that carries one: a `Trace`
+    heading, one line saying it is the stopping step's own words written for
+    the agent that repairs it, then the text fenced and folded at 80 columns.
 
 How to build and configure: [README.md](./README.md).
