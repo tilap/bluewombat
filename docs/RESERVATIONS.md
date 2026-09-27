@@ -376,22 +376,6 @@ history (DECISIONS), which closes the way this happened, not the class.
 work line's head — rather than the workspace's history; or refuse, before the
 push, a branch whose history holds what its tip does not.
 
-### F27 · `sensitive-path` reads what git ignores
-
-`packages/plugins/slots/gates/sensitive-path.mjs` — `walkFiles` walks the
-whole workspace, `node_modules/` included
-
-A path on disk with no blob at `HEAD` reads as changed. An ignored file a
-Builder's install put there has none, so a glob such as `**/.github/**` matches
-a dependency's own metadata: seen live, `node_modules/iconv-lite/.github/dependabot.yml`
-refused a Subtask Attempt that touched nothing sensitive, and spent one of its
-three Attempts.
-
-**Instead:** skip paths git ignores and never tracked — they cannot leave the
-workspace now that the fold honours `.gitignore` — at the price of no longer
-seeing a Builder write an ignored `.env` in its own workspace; or leave the
-Gate alone and anchor a Project's globs (`.github/**`, not `**/.github/**`).
-
 ## U — Never run against the real thing
 
 Everything here is covered by tests. None of it has been seen working outside
