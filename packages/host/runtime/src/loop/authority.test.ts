@@ -357,6 +357,22 @@ describe("the Authority against a real remote", () => {
     assert.doesNotMatch(git(remote, ["log", "--oneline", "issue/fake-42"]), /ours\.txt/);
   });
 
+  it("says git's refusal in English whatever the machine speaks", async () => {
+    // The reason is posted on the tracker; seen live in French on a French
+    // machine. On a machine with no French locale git speaks English anyway,
+    // and this passes without proving anything there.
+    const { copy } = remoteAndCopy();
+    const seen: SubmissionRequest[] = [];
+    const french = { LC_ALL: "fr_FR.UTF-8", LANG: "fr_FR.UTF-8", LANGUAGE: "fr" };
+
+    // No branch by the Child's name: git refuses the refspec.
+    const result = await authorityOn(copy, seen, undefined, french).submit(offer());
+
+    assert.ok(result.outcome === "refused", JSON.stringify(result));
+    assert.match(result.reason, /does not match any/);
+    assert.doesNotMatch(result.reason, /ne correspond|erreur/);
+  });
+
   it("refuses a work line that is not a git repository", async () => {
     const copy = mkdtempSync(join(tmpdir(), "authority-plain-"));
     const seen: SubmissionRequest[] = [];
@@ -397,6 +413,20 @@ describe("bringing the work line copy up to date", () => {
     assert.match(refreshed.detail ?? "", new RegExp(`git -C \\S+ reset --hard origin/${TARGET}`));
     assert.match(refreshed.detail ?? "", /delete the directory/);
     assert.match(git(copy, ["log", "--oneline", TARGET]), /ours\.txt/);
+  });
+
+  it("says git's words in English whatever the machine speaks", () => {
+    const { copy } = remoteAndCopy();
+    const refreshed = refreshWorkLine({
+      workLineStable: copy,
+      workLineTarget: "nowhere",
+      refreshArgv: ["node", GIT_REFRESHER],
+      timeoutMs: 60_000,
+      env: { LC_ALL: "fr_FR.UTF-8", LANG: "fr_FR.UTF-8", LANGUAGE: "fr" },
+    });
+    assert.equal(refreshed.ok, false);
+    assert.match(refreshed.detail ?? "", /couldn't find remote ref nowhere/);
+    assert.doesNotMatch(refreshed.detail ?? "", /impossible|distante/);
   });
 
   it("has nothing to do when the work line is a plain directory", () => {

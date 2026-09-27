@@ -69,7 +69,13 @@ if (merged.status !== 0) {
 
 emitRefreshed();
 
-/** @param {string[]} args */
+/**
+ * C locale, as in the Publisher: what git says here ends up in a report.
+ * @param {string[]} args
+ */
 function git(args) {
-  return spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  return spawnSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, LC_ALL: "C" },
+  });
 }

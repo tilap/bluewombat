@@ -213,7 +213,8 @@ function materializeCopy(
 function git(argv: string[], cwd?: string): { ok: boolean; stdout: string; stderr: string } {
   const result = spawnSync("git", argv, {
     encoding: "utf8",
-    env: { ...process.env, ...runEnv() },
+    // C locale: a failed clone's words are the reason `mason run` stops on.
+    env: { ...process.env, ...runEnv(), LC_ALL: "C" },
     ...(cwd === undefined ? {} : { cwd }),
   });
   return {

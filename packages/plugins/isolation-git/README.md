@@ -60,3 +60,7 @@ that touch the work line (Publisher, Refresher) — and to nothing else: a
 Builder never inherits a token.
 
 Without `author`, commits carry the identity of whoever runs the process.
+
+Every process this package spawns runs with `LC_ALL=C`: what git says when an
+Isolation or a fold fails becomes a report a team reads, whatever language the
+machine speaks.

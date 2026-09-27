@@ -21,17 +21,20 @@ export type SpawnRequest = {
 };
 
 /**
+ * A child's messages become the detail of a failed Isolation or fold, and so
+ * a report a team reads: in C, whatever language the machine speaks.
+ */
+const MESSAGES: NodeJS.ProcessEnv = { LC_ALL: "C" };
+
+/**
  * The one place ambient environment enters a child. `env` replaces it outright;
  * `envOverrides` layers on top of what the child would inherit anyway.
  */
-function childEnv(request: SpawnRequest): NodeJS.ProcessEnv | undefined {
+export function childEnv(request: SpawnRequest): NodeJS.ProcessEnv {
   if (request.env !== undefined) {
-    return request.env;
+    return { ...request.env, ...MESSAGES };
   }
-  if (request.envOverrides !== undefined) {
-    return { ...process.env, ...request.envOverrides };
-  }
-  return undefined;
+  return { ...process.env, ...request.envOverrides, ...MESSAGES };
 }
 
 export type SpawnOutcome =
