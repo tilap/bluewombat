@@ -147,6 +147,13 @@ Transformer progress, admitted, reported, queued, idle, a heartbeat while
 the ledger is still right. `mason run` still writes a human Trace on stdout.
 The journal is how another process attaches.
 
+An offer the work could not get past is journaled `submit-refused`, with the
+Feature's `key`, `by` (`publisher` when the work could not be placed,
+`authority` when the Authority would not open a Submission) and the refuser's
+own `reason`. The same reason becomes the escalation's Trace; the line is so
+`mason log --problems` and a watcher see why a run stopped, not only that it
+did.
+
 After listen, if the manager declares `probe` and the listen reached the source
 (`completed`, `listened` — not `source-lost` / `interrupted` / `invalid-invocation`),
 Host asks `probe` of every Feature abandon is still legal for (`received`,

@@ -174,6 +174,63 @@ describe("the Authority against a real remote", () => {
     assert.equal(seen.length, 0);
   });
 
+  it("journals a refused offer: who refused, and in their words", async () => {
+    // The reason also reaches the escalation, but `mason log` and a watcher
+    // read the journal: without this line the film showed a run that simply
+    // stopped at "escalated".
+    const { copy } = remoteAndCopy();
+    const dir = mkdtempSync(join(tmpdir(), "publisher-"));
+    const refusing = join(dir, "no.mjs");
+    writeFileSync(
+      refusing,
+      'console.log(JSON.stringify({ outcome: "refused", reason: "the shelf is full" }));',
+    );
+    const placing = join(dir, "yes.mjs");
+    writeFileSync(placing, 'console.log(JSON.stringify({ ref: "issue/fake-42" }));');
+    const offerWith = (publisher: string, manager: ManagerPort) => {
+      const lines: Record<string, unknown>[] = [];
+      const authority = openAuthority({
+        manager,
+        workLineStable: copy,
+        workLineTarget: TARGET,
+        publishArgv: ["node", publisher],
+        timeoutMs: 60_000,
+        refOf: strategy.refOf,
+        journal: { append: (line) => lines.push(line) },
+      });
+      assert.ok(authority !== undefined);
+      return { lines, submit: () => authority.submit(offer()) };
+    };
+
+    const byPublisher = offerWith(refusing, stubManager([]));
+    await byPublisher.submit();
+    assert.deepEqual(byPublisher.lines, [
+      { event: "submit-refused", key: "fake:42", by: "publisher", reason: "the shelf is full" },
+    ]);
+
+    const closing: ManagerPort = {
+      ...stubManager([]),
+      async submit() {
+        return { outcome: "refused", reason: "Validation Failed: no commits between dev and it" };
+      },
+    };
+    const byAuthority = offerWith(placing, closing);
+    const result = await byAuthority.submit();
+    assert.equal(result.outcome, "refused");
+    assert.deepEqual(byAuthority.lines, [
+      {
+        event: "submit-refused",
+        key: "fake:42",
+        by: "authority",
+        reason: "Validation Failed: no commits between dev and it",
+      },
+    ]);
+
+    const accepted = offerWith(placing, stubManager([]));
+    await accepted.submit();
+    assert.deepEqual(accepted.lines, [], "a Submission that happened is not a refusal");
+  });
+
   it("hands the Publisher the work line's environment, and nothing else does", async () => {
     // The identity and credentials the reference named reach the slot that
     // pushes — and only through this call: Host's own environment stays clean,
