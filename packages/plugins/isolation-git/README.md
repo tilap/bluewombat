@@ -41,6 +41,11 @@ run` before it isolates anything. The copy reads no `.gitignore`: what git
 ignores is very often exactly what a Builder needs (its dependencies, the
 Project's own agent configuration).
 
+Each root entry is copied by `cp` — `-c` on macOS, `--reflink=auto` elsewhere
+— so on a file system that clones (APFS, btrfs, XFS) the Child shares its
+bytes with the Parent instead of doubling them; where `cp` cannot, the entry
+is copied by hand. Excluded paths are removed from the Child afterwards.
+
 ## What a fold keeps
 
 The copy and the fold answer different questions. The copy decides what a
@@ -54,11 +59,6 @@ on disk and out of the commit.
 It starts from a copy of that directory's own index, so a removal staged and
 not committed (`git rm --cached`) counts, and the directory's index is never
 written to.
-
-Each root entry is copied by `cp` — `-c` on macOS, `--reflink=auto` elsewhere
-— so on a file system that clones (APFS, btrfs, XFS) the Child shares its
-bytes with the Parent instead of doubling them; where `cp` cannot, the entry
-is copied by hand. Excluded paths are removed from the Child afterwards.
 
 ## The reference, and who the system is
 
