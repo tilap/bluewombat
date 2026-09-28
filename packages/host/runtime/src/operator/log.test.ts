@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILENAME } from "../config/find-config.js";
 import { openJournalFile } from "../loop/journal.js";
 import { runLog } from "./log.js";
@@ -21,7 +22,7 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
   mkdirSync(ledgerRoot);
   writeFileSync(
     join(root, CONFIG_FILENAME),
-    JSON.stringify({
+    stringifyYaml({
       manager: "@bluewombat/manager-fake",
       managerOptions: { source: "./source", target: "./threads" },
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },
@@ -243,11 +244,11 @@ describe("runLog", () => {
       join(transcripts, "breakdown-attempt-1.md"),
       "# breakdown · attempt 1\n\n- exit: 0\n- duration: 12.0s\n",
     );
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8")) as {
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8")) as {
       planner: { cmd: string[] };
     };
     config.planner.cmd.push("--transcript-dir", transcripts);
-    writeFileSync(join(cwd, CONFIG_FILENAME), JSON.stringify(config));
+    writeFileSync(join(cwd, CONFIG_FILENAME), stringifyYaml(config));
     const lines: string[] = [];
     const code = await runLog({ cwd, argv: ["--problems"], write: (line) => lines.push(line) });
     assert.equal(code, 0);

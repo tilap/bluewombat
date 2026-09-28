@@ -3,37 +3,35 @@
 The Planner, Builder, and Gate commands that ship with mason. A Project points
 its config at one of these paths; nothing here is imported.
 
-```json
-"planner": ["node", "./node_modules/@bluewombat/slots/planners/one-subtask.mjs"],
-"builder": {
-  "producer": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/producer.mjs",
-      "--prompt-file", "./build.md",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/claude.mjs"
-    ],
-    "timeoutMs": 600000
-  },
-  "repair": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/repair.mjs",
-      "--prompt-file", "./repair.md",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/claude.mjs"
-    ],
-    "timeoutMs": 600000
-  },
-  "gates": {
-    "defaultTimeoutMs": 120000,
-    "gates": [
-      {
-        "id": "workspace-changed",
-        "argv": ["node", "./node_modules/@bluewombat/slots/gates/workspace-changed.mjs"]
-      }
-    ]
-  }
-}
+```yaml
+planner:
+  cmd: [node, ./node_modules/@bluewombat/slots/planners/one-subtask.mjs]
+builder:
+  producer:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/producer.mjs
+      - --prompt-file
+      - ./build.md
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/claude.mjs
+    timeoutMs: 600000
+  repair:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/repair.mjs
+      - --prompt-file
+      - ./repair.md
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/claude.mjs
+    timeoutMs: 600000
+  gates:
+    defaultTimeoutMs: 120000
+    gates:
+      - id: workspace-changed
+        argv: [node, ./node_modules/@bluewombat/slots/gates/workspace-changed.mjs]
 ```
 
 A slot is an opaque command: it reads argv and writes one JSON line on stdout.
@@ -86,10 +84,12 @@ and print the serialized run on stdout with `writeContract` (so a large
 stream-json transcript survives `process.exit`). They do not know `--intention`
 or `--report`. A role slot after `--` is what names one:
 
-```json
-"--",
-"node", "./node_modules/@bluewombat/slots/agents/cursor.mjs",
-"--transcript-dir", "./.mason/transcripts"
+```yaml
+- --
+- node
+- ./node_modules/@bluewombat/slots/agents/cursor.mjs
+- --transcript-dir
+- ./.mason/transcripts
 ```
 
 `cursor.mjs` needs `cursor-agent` on PATH (`cursor-agent login`); `claude.mjs`
@@ -157,18 +157,18 @@ in: it names no part of mason, because none of it is visible from there. What
 changes from one Project to the next is that text, not the agent, so it is a
 template file on the role:
 
-```json
-"builder": {
-  "producer": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/producer.mjs",
-      "--prompt-file", "./mason-prompt.md",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/cursor.mjs"
-    ],
-    "timeoutMs": 600000
-  }
-}
+```yaml
+builder:
+  producer:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/producer.mjs
+      - --prompt-file
+      - ./mason-prompt.md
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/cursor.mjs
+    timeoutMs: 600000
 ```
 
 A path that names a file next to the config resolves against the config; any
@@ -254,18 +254,18 @@ them — `skills` and `usage` (`unknown`, `(none)`, or the values). Files are
 filed under the Feature the Task belongs to, named for the Subtask and the
 Attempt. It belongs on the **agent** command, after `--`.
 
-```json
-"builder": {
-  "producer": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/producer.mjs",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/cursor.mjs",
-      "--transcript-dir", "./.mason/transcripts"
-    ],
-    "timeoutMs": 600000
-  }
-}
+```yaml
+builder:
+  producer:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/producer.mjs
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/cursor.mjs
+      - --transcript-dir
+      - ./.mason/transcripts
+    timeoutMs: 600000
 ```
 
 ```
@@ -288,29 +288,21 @@ Every Gate answers with one JSON object on stdout — `{"verdict":"pass"}`, or
 in, and what mason appends to its argv, is in
 [`@bluewombat/runtime`](../../host/runtime/README.md).
 
-```json
-"builder": { "gates": {
-  "defaultTimeoutMs": 120000,
-  "gates": [
-    {
-      "id": "workspace-changed",
-      "argv": ["node", "./node_modules/@bluewombat/slots/gates/workspace-changed.mjs"]
-    },
-    {
-      "id": "parent-clean",
-      "argv": ["node", "./node_modules/@bluewombat/slots/gates/parent-clean.mjs"]
-    },
-    {
-      "id": "sensitive-path",
-      "argv": [
-        "node",
-        "./node_modules/@bluewombat/slots/gates/sensitive-path.mjs",
-        "**/.env",
-        "**/secrets/**"
-      ]
-    }
-  ]
-} }
+```yaml
+builder:
+  gates:
+    defaultTimeoutMs: 120000
+    gates:
+      - id: workspace-changed
+        argv: [node, ./node_modules/@bluewombat/slots/gates/workspace-changed.mjs]
+      - id: parent-clean
+        argv: [node, ./node_modules/@bluewombat/slots/gates/parent-clean.mjs]
+      - id: sensitive-path
+        argv:
+          - node
+          - ./node_modules/@bluewombat/slots/gates/sensitive-path.mjs
+          - "**/.env"
+          - "**/secrets/**"
 ```
 
 `workspace-changed` fail-retries when the workspace has no uncommitted change —
@@ -344,26 +336,20 @@ other way — another isolation strategy, an agent that committed. Like every
 assembly Gate, with an Authority it judges what was published, so it stops the
 fold into the work line, not the push.
 
-```json
-"assembly": { "gates": {
-  "defaultTimeoutMs": 900000,
-  "gates": [
-    {
-      "id": "gitignore-leak",
-      "argv": ["node", "./node_modules/@bluewombat/slots/gates/gitignore-leak.mjs", "--base", "main"]
-    },
-    {
-      "id": "ci-green",
-      "argv": [
-        "node",
-        "./node_modules/@bluewombat/slots/gates/ci-green.mjs",
-        "--token-env",
-        "MASON_GITHUB_TOKEN",
-        "--require-checks"
-      ]
-    }
-  ]
-} }
+```yaml
+assembly:
+  gates:
+    defaultTimeoutMs: 900000
+    gates:
+      - id: gitignore-leak
+        argv: [node, ./node_modules/@bluewombat/slots/gates/gitignore-leak.mjs, --base, main]
+      - id: ci-green
+        argv:
+          - node
+          - ./node_modules/@bluewombat/slots/gates/ci-green.mjs
+          - --token-env
+          - MASON_GITHUB_TOKEN
+          - --require-checks
 ```
 
 `ci-green` reads the work line's own checks on what this workspace published,
@@ -404,16 +390,17 @@ it takes no option.
 before answering and writes nothing into it. `--prompt-file` and `--read` belong
 on the role; the vendor is named after `--`, the same way a Builder names it.
 
-```json
-"planner": {
-  "cmd": [
-    "node", "./node_modules/@bluewombat/slots/planners/producer.mjs",
-    "--read", "./work-line-stable",
-    "--",
-    "node", "./node_modules/@bluewombat/slots/agents/cursor.mjs"
-  ],
-  "timeoutMs": 600000
-}
+```yaml
+planner:
+  cmd:
+    - node
+    - ./node_modules/@bluewombat/slots/planners/producer.mjs
+    - --read
+    - ./work-line-stable
+    - --
+    - node
+    - ./node_modules/@bluewombat/slots/agents/cursor.mjs
+  timeoutMs: 600000
 ```
 
 | Option               | Meaning                                                       |

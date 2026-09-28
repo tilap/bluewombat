@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ManagerQuestion, ManagerScaffold } from "@bluewombat/manager-kit";
 import { PRODUCT } from "@bluewombat/manager-kit";
+import { stringify as stringifyYaml } from "yaml";
 import { BOOTSTRAP_PLANNER, ISOLATION_COPY, ISOLATION_GIT } from "../config/defaults.js";
 import { CONFIG_FILENAME } from "../config/find-config.js";
 import { DEFAULT_HOME, inHome } from "../config/home.js";
@@ -186,7 +187,7 @@ async function init(input: InitInput): Promise<InitResult> {
     timeoutMs: DURATION_MS,
     pollIntervalMs: 30_000,
   };
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  writeFileSync(path, stringifyYaml(config, { lineWidth: 0 }), "utf8");
 
   const builderPath = resolve(input.cwd, BUILDER_FILENAME);
   if (!existsSync(builderPath)) {

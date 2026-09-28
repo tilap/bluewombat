@@ -98,7 +98,7 @@ manager did not mint — hand-edited, or from another host — silently becomes
 ### C13 · The Gate order in the shipped example
 
 `packages/plugins/slots/README.md` (the example config), and the trial
-project's `mason.config.json`
+project's `mason.config.yaml`
 
 `workspace-changed` → `parent-clean` → `sensitive-path` → `npm-test`: cheapest
 and most structural first, the Project's own check last. Defensible, never

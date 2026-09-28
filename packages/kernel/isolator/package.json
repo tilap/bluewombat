@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/isolator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Transformer: snapshot a Parent directory into a new independent Child.",
   "keywords": [

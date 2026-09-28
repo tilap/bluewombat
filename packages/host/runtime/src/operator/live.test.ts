@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { openFilesystemPersist } from "@bluewombat/persist-fs";
 import { openWorkLedger } from "@bluewombat/work-ledger";
+import { stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILENAME } from "../config/find-config.js";
 import { journalPath, openJournalFile } from "../loop/journal.js";
 import { runLive } from "./live.js";
@@ -23,7 +24,7 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
   mkdirSync(ledgerRoot);
   writeFileSync(
     join(root, CONFIG_FILENAME),
-    JSON.stringify({
+    stringifyYaml({
       manager: "@bluewombat/manager-fake",
       managerOptions: { source: "./source", target: "./threads" },
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },

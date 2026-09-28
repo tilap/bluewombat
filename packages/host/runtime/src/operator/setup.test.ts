@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILENAME } from "../config/find-config.js";
 import { runSetup } from "./setup.js";
 
@@ -19,7 +20,7 @@ function sandbox(config: Record<string, unknown>): string {
   mkdirSync(join(root, "source"));
   writeFileSync(
     join(root, CONFIG_FILENAME),
-    JSON.stringify({
+    stringifyYaml({
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",

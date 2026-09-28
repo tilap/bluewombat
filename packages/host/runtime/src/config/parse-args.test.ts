@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILENAME } from "./find-config.js";
 import { parseArgs } from "./parse-args.js";
 
@@ -155,8 +156,8 @@ describe("parseArgs", () => {
 
   it("fills from --config, and a flag option overrides only its own key", () => {
     const dir = dirs();
-    const configPath = join(dir.root, "mason.json");
-    writeFileSync(configPath, JSON.stringify(configOf(dir)));
+    const configPath = join(dir.root, "mason.yaml");
+    writeFileSync(configPath, stringifyYaml(configOf(dir)));
     const parsed = parseArgs(
       [
         "--config",
@@ -180,9 +181,9 @@ describe("parseArgs", () => {
     }
   });
 
-  it("finds the nearest mason.config.json without --config", () => {
+  it("finds the nearest mason.config.yaml without --config", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), JSON.stringify(configOf(dir)));
+    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(configOf(dir)));
     const nested = join(dir.root, "nested");
     mkdirSync(nested);
     const parsed = parseArgs([], { cwd: nested });
@@ -195,10 +196,10 @@ describe("parseArgs", () => {
 
   it("reads observability.streams and resolves its directory against the config", () => {
     const dir = dirs();
-    const configPath = join(dir.root, "mason.json");
+    const configPath = join(dir.root, "mason.yaml");
     const config = configOf(dir) as Record<string, unknown>;
     config.observability = { streams: { enabled: true, dir: "./films", keep: ["stderr"] } };
-    writeFileSync(configPath, JSON.stringify(config));
+    writeFileSync(configPath, stringifyYaml(config));
     const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
@@ -232,10 +233,10 @@ describe("parseArgs", () => {
 
   it("refuses an unknown key under observability.streams", () => {
     const dir = dirs();
-    const configPath = join(dir.root, "mason.json");
+    const configPath = join(dir.root, "mason.yaml");
     const config = configOf(dir) as Record<string, unknown>;
     config.observability = { streams: { enabled: true, rotate: true } };
-    writeFileSync(configPath, JSON.stringify(config));
+    writeFileSync(configPath, stringifyYaml(config));
     const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
@@ -245,10 +246,10 @@ describe("parseArgs", () => {
 
   it("refuses streams without a declared enabled: filming is a decision", () => {
     const dir = dirs();
-    const configPath = join(dir.root, "mason.json");
+    const configPath = join(dir.root, "mason.yaml");
     const config = configOf(dir) as Record<string, unknown>;
     config.observability = { streams: { dir: "./films" } };
-    writeFileSync(configPath, JSON.stringify(config));
+    writeFileSync(configPath, stringifyYaml(config));
     const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
@@ -258,8 +259,8 @@ describe("parseArgs", () => {
 
   it("leaves observability unset when the config says nothing", () => {
     const dir = dirs();
-    const configPath = join(dir.root, "mason.json");
-    writeFileSync(configPath, JSON.stringify(configOf(dir)));
+    const configPath = join(dir.root, "mason.yaml");
+    writeFileSync(configPath, stringifyYaml(configOf(dir)));
     const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
@@ -269,10 +270,10 @@ describe("parseArgs", () => {
 
   it("refuses a tracker field at the top level of the config", () => {
     const dir = dirs();
-    const configPath = join(dir.root, "mason.json");
+    const configPath = join(dir.root, "mason.yaml");
     const config = configOf(dir) as Record<string, unknown>;
     config.repo = "tilap/mason";
-    writeFileSync(configPath, JSON.stringify(config));
+    writeFileSync(configPath, stringifyYaml(config));
     const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
@@ -291,10 +292,10 @@ describe("parseArgs", () => {
 
   it("accepts an empty Gate sequence", () => {
     const dir = dirs();
-    const configPath = join(dir.root, "mason.json");
+    const configPath = join(dir.root, "mason.yaml");
     writeFileSync(
       configPath,
-      JSON.stringify(
+      stringifyYaml(
         configOf(dir, {
           builder: {
             producer: { cmd: [node, builder], timeoutMs: 600_000 },
@@ -340,7 +341,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify(
+      stringifyYaml(
         configOf(dir, {
           builder: {
             producer: {
@@ -368,7 +369,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         workLine: {
           stable: dir.workLineStable,
@@ -397,7 +398,7 @@ describe("parseArgs", () => {
         isolationOptions: { exclude: [".env", "**/*.log"] },
       },
     };
-    writeFileSync(join(dir.root, CONFIG_FILENAME), JSON.stringify(withOptions));
+    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(withOptions));
     const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
@@ -409,19 +410,19 @@ describe("parseArgs", () => {
 
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...withOptions,
         workLine: { ...withOptions.workLine, isolationOptions: [] },
       }),
     );
     const refused = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
     assert.equal(refused.ok, false);
-    assert.match(refused.ok ? "" : refused.reason, /isolationOptions.*JSON object/);
+    assert.match(refused.ok ? "" : refused.reason, /isolationOptions.*YAML mapping/);
   });
 
   it("takes the work line to fold onto from a flag too", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), JSON.stringify(configOf(dir)));
+    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(configOf(dir)));
     const parsed = parseArgs(
       ["--config", join(dir.root, CONFIG_FILENAME), "--work-line-branch", "trunk"],
       { cwd: dir.root },
@@ -435,14 +436,14 @@ describe("parseArgs", () => {
 
   it("names the persistence backend from the config, a flag, or the default", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), JSON.stringify(configOf(dir)));
+    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(configOf(dir)));
     const config = join(dir.root, CONFIG_FILENAME);
 
     const defaulted = parseArgs(["--config", config], { cwd: dir.root });
     assert.ok(defaulted.ok);
     assert.equal(defaulted.invocation.persist, "@bluewombat/persist-fs");
 
-    writeFileSync(config, JSON.stringify(configOf(dir, { persist: "@bluewombat/persist-sqlite" })));
+    writeFileSync(config, stringifyYaml(configOf(dir, { persist: "@bluewombat/persist-sqlite" })));
     const fromConfig = parseArgs(["--config", config], { cwd: dir.root });
     assert.ok(fromConfig.ok);
     assert.equal(fromConfig.invocation.persist, "@bluewombat/persist-sqlite");
@@ -462,7 +463,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         builder: {
           producer: { cmd: [node, builder], timeoutMs: 60_000 },
@@ -486,7 +487,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         builder: {
           producer: { cmd: [node, builder], timeoutMs: 600_000 },
@@ -519,7 +520,7 @@ describe("parseArgs", () => {
     writeFileSync(join(dir.root, "publish.mjs"), "");
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         authority: {
           enabled: true,
@@ -550,7 +551,7 @@ describe("parseArgs", () => {
     };
     writeFileSync(
       config,
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         authority: { ...authority, describe: ["node", "./describe.mjs", "--scope", "api"] },
       }),
@@ -566,7 +567,7 @@ describe("parseArgs", () => {
 
     writeFileSync(
       config,
-      JSON.stringify({ ...configOf(dir), authority: { ...authority, describe: [] } }),
+      stringifyYaml({ ...configOf(dir), authority: { ...authority, describe: [] } }),
     );
     const empty = parseArgs(["--config", config], { cwd: dir.root });
     assert.ok(!empty.ok);
@@ -580,7 +581,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({ ...configOf(dir), authority: { enabled: true } }),
+      stringifyYaml({ ...configOf(dir), authority: { enabled: true } }),
     );
     const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
     assert.equal(parsed.ok, false);
@@ -591,7 +592,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({ ...configOf(dir), authority: { enabled: false } }),
+      stringifyYaml({ ...configOf(dir), authority: { enabled: false } }),
     );
     const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
     assert.equal(parsed.ok, true);
@@ -605,7 +606,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         assembly: {
           fix: { cmd: [node, builder], timeoutMs: 60_000 },
@@ -624,7 +625,7 @@ describe("parseArgs", () => {
 
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         assembly: {
           producer: { cmd: [node, builder], timeoutMs: 60_000 },
@@ -641,7 +642,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({
+      stringifyYaml({
         ...configOf(dir),
         assembly: {
           fix: { cmd: [node, builder], timeoutMs: 60_000 },
@@ -695,7 +696,7 @@ describe("parseArgs", () => {
   it("puts the ledger, the workspaces and home under .mason by the config unless told otherwise", () => {
     const dir = dirs();
     const { workspaceRoot: _w, ledger: _l, ...config } = configOf(dir);
-    writeFileSync(join(dir.root, CONFIG_FILENAME), JSON.stringify(config));
+    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(config));
     const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
@@ -710,7 +711,7 @@ describe("parseArgs", () => {
     const { workspaceRoot: _w, ledger: _l, ...config } = configOf(dir);
     writeFileSync(
       join(dir.root, CONFIG_FILENAME),
-      JSON.stringify({ ...config, home: "./var", ledger: "./elsewhere/ledger" }),
+      stringifyYaml({ ...config, home: "./var", ledger: "./elsewhere/ledger" }),
     );
     const parsed = parseArgs(
       ["--config", join(dir.root, CONFIG_FILENAME), "--workspace-root", "./scratch"],
@@ -721,6 +722,85 @@ describe("parseArgs", () => {
       assert.equal(parsed.invocation.home, join(dir.root, "var"));
       assert.equal(parsed.invocation.workspaceRoot, join(dir.root, "scratch"));
       assert.equal(parsed.invocation.ledgerRoot, join(dir.root, "elsewhere", "ledger"));
+    }
+  });
+
+  it("refuses a config file that is not valid YAML", () => {
+    const dir = dirs();
+    writeFileSync(join(dir.root, CONFIG_FILENAME), "manager: [unterminated\n");
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /not valid YAML/);
+    }
+  });
+
+  it("refuses a config with a repeated key rather than keeping the last one", () => {
+    const dir = dirs();
+    writeFileSync(
+      join(dir.root, CONFIG_FILENAME),
+      "manager: @bluewombat/manager-fake\nmanager: @bluewombat/manager-github\n",
+    );
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /not valid YAML/);
+    }
+  });
+
+  it("refuses an unquoted npm-scoped value: @ is a reserved YAML indicator", () => {
+    const dir = dirs();
+    writeFileSync(join(dir.root, CONFIG_FILENAME), "manager: @bluewombat/manager-github\n");
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /not valid YAML/);
+    }
+  });
+
+  it("refuses a config that is a YAML scalar or sequence, not a mapping", () => {
+    const dir = dirs();
+    writeFileSync(join(dir.root, CONFIG_FILENAME), '- manager\n- "@bluewombat/manager-fake"\n');
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /YAML mapping/);
+    }
+  });
+
+  it("keeps YAML 1.1-looking scalars as plain strings, hand-written and unquoted", () => {
+    const dir = dirs();
+    // Written by hand, not through `stringifyYaml`, so this proves a human
+    // can write `no` / `on` unquoted and still get the string back: the
+    // `yaml` package defaults to the YAML 1.2 core schema, not 1.1's
+    // yes/no/on/off booleans. The `@bluewombat/...` values stay quoted: `@`
+    // is a reserved indicator at the start of a plain YAML scalar.
+    writeFileSync(
+      join(dir.root, CONFIG_FILENAME),
+      [
+        'manager: "@bluewombat/manager-github"',
+        "workLine:",
+        `  stable: ${dir.workLineStable}`,
+        '  isolation: "@bluewombat/isolation-copy"',
+        "managerOptions:",
+        "  repo: tilap/mason",
+        "  defaultProject: no",
+        "  readyLabel: on",
+        `planner: { cmd: [${node}, ${planner}], timeoutMs: 600000 }`,
+        `builder:`,
+        `  producer: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
+        `  repair: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
+        "timeoutMs: 1000",
+      ].join("\n"),
+    );
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      assert.deepEqual(parsed.invocation.managerOptions, {
+        repo: "tilap/mason",
+        defaultProject: "no",
+        readyLabel: "on",
+      });
     }
   });
 });

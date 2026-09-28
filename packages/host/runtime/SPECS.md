@@ -52,7 +52,7 @@ import rule between them are in [README.md](./README.md) § Layers.
 
 ## 3. Configuration
 
-`mason.config.json`, found by walking up from the working directory, or the
+`mason.config.yaml`, found by walking up from the working directory, or the
 file `--config` names. Relative paths in the file resolve against the file;
 relative paths in a flag resolve against the working directory. Flags override
 the file. `--manager-option key=value` merges per key, so overriding one option

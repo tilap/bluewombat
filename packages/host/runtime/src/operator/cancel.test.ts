@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILENAME } from "../config/find-config.js";
 import { openHost } from "../loop/open-host.js";
 import { runCancel } from "./cancel.js";
@@ -22,7 +23,7 @@ function sandbox(): string {
   writeFileSync(join(root, "stable", "seed.txt"), "already good\n");
   writeFileSync(
     join(root, CONFIG_FILENAME),
-    JSON.stringify({
+    stringifyYaml({
       manager: "@bluewombat/manager-fake",
       managerOptions: { source: "./source", target: "./threads" },
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },

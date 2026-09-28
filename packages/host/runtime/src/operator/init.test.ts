@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 import { CONFIG_FILENAME } from "../config/find-config.js";
 import { runInit } from "./init.js";
 
@@ -37,7 +38,7 @@ describe("runInit", () => {
     ]);
     assert.equal(result.ok, true);
 
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.equal(config.manager, "@bluewombat/manager-github");
     assert.equal(config.managerOptions.repo, "tilap/mason");
     assert.deepEqual(config.managerOptions.labels, ["mason"]);
@@ -68,7 +69,7 @@ describe("runInit", () => {
     const cwd = sandbox();
     const { result } = await initIn(cwd, ["--manager", "@bluewombat/manager-fake"]);
     assert.equal(result.ok, true);
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.equal(config.workLine.stable, "./work-line-stable");
     assert.equal(config.workLine.isolation, "@bluewombat/isolation-copy");
   });
@@ -83,7 +84,7 @@ describe("runInit", () => {
 
     await initIn(cwd, ["--manager", "@bluewombat/manager-github"]);
 
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.equal(
       config.planner.cmd[1],
       "./node_modules/@bluewombat/slots/planners/one-subtask.mjs",
@@ -96,7 +97,7 @@ describe("runInit", () => {
     const cwd = sandbox();
     await initIn(cwd, ["--manager", "@bluewombat/manager-fake"]);
     assert.equal(existsSync(join(cwd, "mason-gate.mjs")), false);
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.deepEqual(config.builder.gates.gates, []);
   });
 
@@ -104,7 +105,7 @@ describe("runInit", () => {
     const cwd = sandbox();
     const { result } = await initIn(cwd, ["--manager", "@bluewombat/manager-fake"]);
     assert.equal(result.ok, true);
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.equal(config.managerOptions.source, "./.mason/source");
     assert.equal(existsSync(join(cwd, ".mason/source")), true);
     assert.equal(existsSync(join(cwd, ".mason/threads")), true);
@@ -149,7 +150,7 @@ describe("runInit with flags only", () => {
       "board=app",
     ]);
     assert.equal(result.ok, true);
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     // The question wraps it; the flag must land in the same shape as an answer.
     assert.deepEqual(config.managerOptions.board, ["app"]);
   });
@@ -261,7 +262,7 @@ describe("runInit --clone", () => {
     const { result } = await initIn(cwd, cloneArgs(upstream(), ["--branch", "dev"]));
     assert.equal(result.ok, true);
     assert.equal(branchOf(join(cwd, "stable")), "dev");
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.equal(config.workLine.isolation, "@bluewombat/isolation-git");
   });
 
@@ -358,7 +359,7 @@ describe("runInit as a wizard", () => {
     assert.equal(asked.filter((question) => question.startsWith("Board")).length, 2);
     assert.match(output, /not a board/);
 
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.equal(config.manager, "@acme/manager-demo");
     assert.equal(config.managerOptions.board, "APP");
     assert.equal(config.workLine.stable, "./stable");
@@ -404,7 +405,7 @@ describe("runInit as a wizard", () => {
       asked.some((question) => question.startsWith("Board")),
       true,
     );
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
     assert.equal(config.managerOptions.board, "APP");
     // The scaffold is asked again with the answer, so it stops demanding it.
     assert.equal(output.includes("set board"), false);
