@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
@@ -13,6 +14,7 @@ const parentClean = join(gates, "parent-clean.mjs");
 const sensitivePath = join(gates, "sensitive-path.mjs");
 const workspaceChanged = join(gates, "workspace-changed.mjs");
 const ciGreen = join(gates, "ci-green.mjs");
+const gitignoreLeak = join(gates, "gitignore-leak.mjs");
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "host-gate-"));
@@ -189,6 +191,150 @@ describe("ci-green", () => {
     assert.equal(result.verdict, "fail-blocking");
     assert.match(result.report, /MASON_TEST_TOKEN_UNSET/);
   });
+
+  /**
+   * A GitHub that answers the three reads this Gate makes, for one open pull
+   * request on `feature` at sha `abc`. `statuses` is called on every read, so a
+   * test can move a status from pending to settled between polls; `undefined`
+   * answers 404, as for a token that may not read them.
+   */
+  async function fakeGitHub(
+    checkRuns: unknown[],
+    statuses: () => unknown[] | undefined,
+  ): Promise<{ base: string; close: () => void }> {
+    const server = createServer((request, response) => {
+      const path = request.url ?? "";
+      let body: unknown;
+      if (path.startsWith("/repos/o/r/pulls?")) {
+        body = [{ number: 7, head: { sha: "abc" } }];
+      } else if (path.startsWith("/repos/o/r/commits/abc/check-runs")) {
+        body = { total_count: checkRuns.length, check_runs: checkRuns };
+      } else if (path.startsWith("/repos/o/r/commits/abc/status")) {
+        const listed = statuses();
+        body = listed === undefined ? undefined : { state: "whatever", statuses: listed };
+      }
+      response.writeHead(body === undefined ? 404 : 200, { "content-type": "application/json" });
+      response.end(JSON.stringify(body ?? { message: "Not Found" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address !== null && typeof address === "object");
+    return { base: `http://127.0.0.1:${address.port}`, close: () => server.close() };
+  }
+
+  function onFeatureBranch(): string {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, "a.txt"), "a\n");
+    gitCommit(cwd, "seed");
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "feature"]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:o/r.git"]);
+    return cwd;
+  }
+
+  /** The Gate, spawned without blocking: the fake GitHub lives in this process. */
+  function judge(cwd: string, base: string): Promise<{ verdict: string; report: string }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        node,
+        [
+          ciGreen,
+          "--token-env",
+          "CI_GREEN_TEST_TOKEN",
+          "--api-base",
+          base,
+          "--require-checks",
+          "--poll-ms",
+          "20",
+          "--id",
+          "t",
+          "--attempt",
+          "1",
+          "--gate-id",
+          "g",
+          "--intention",
+          "i",
+          "--definition-of-done",
+          "d",
+        ],
+        { cwd, env: { ...process.env, CI_GREEN_TEST_TOKEN: "t0ken" } },
+      );
+      let stdout = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.on("error", reject);
+      child.on("close", () => resolve(verdictOf({ stdout, stderr: "" })));
+    });
+  }
+
+  it("reads a commit status as a check: a repository whose CI is not Actions still has one", {
+    timeout: 20_000,
+  }, async () => {
+    // Seen on a Vercel-only repository: no check run ever, one status. With
+    // --require-checks the Gate waited out its whole timeout, on every round.
+    const github = await fakeGitHub([], () => [
+      { context: "Vercel", state: "success", description: "Deployment has completed" },
+    ]);
+    try {
+      assert.equal((await judge(onFeatureBranch(), github.base)).verdict, "pass");
+    } finally {
+      github.close();
+    }
+  });
+
+  it("refuses on a failed status, with what the reporter said and where", {
+    timeout: 20_000,
+  }, async () => {
+    const github = await fakeGitHub([], () => [
+      {
+        context: "Vercel",
+        state: "failure",
+        description: "Build failed",
+        target_url: "https://vercel.com/tilap/web-emojis/abc",
+      },
+    ]);
+    try {
+      const result = await judge(onFeatureBranch(), github.base);
+      assert.equal(result.verdict, "fail-retryable");
+      assert.equal(
+        result.report,
+        "Vercel: failure\nBuild failed\nhttps://vercel.com/tilap/web-emojis/abc",
+      );
+    } finally {
+      github.close();
+    }
+  });
+
+  it("waits on a pending status, and answers once it settles", { timeout: 20_000 }, async () => {
+    let reads = 0;
+    const github = await fakeGitHub([], () => {
+      reads += 1;
+      return [{ context: "Vercel", state: reads < 3 ? "pending" : "success" }];
+    });
+    try {
+      assert.equal((await judge(onFeatureBranch(), github.base)).verdict, "pass");
+      assert.ok(reads >= 3, `read ${reads} times`);
+    } finally {
+      github.close();
+    }
+  });
+
+  it("still judges check runs, and a status it cannot read is no status", {
+    timeout: 20_000,
+  }, async () => {
+    const server = await fakeGitHub(
+      [{ id: 1, name: "test", status: "completed", conclusion: "failure" }],
+      () => undefined,
+    );
+    try {
+      const result = await judge(onFeatureBranch(), server.base);
+      assert.equal(result.verdict, "fail-retryable");
+      assert.match(result.report, /^test: failure/);
+    } finally {
+      server.close();
+    }
+  });
 });
 
 describe("sensitive-path", () => {
@@ -253,6 +399,34 @@ describe("sensitive-path", () => {
     assert.match(result.report, /\.env/);
   });
 
+  it("passes on what an install left under an ignored directory", () => {
+    // Seen live: node_modules/iconv-lite/.github/dependabot.yml refused two of
+    // three Attempts that touched nothing sensitive.
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
+    writeFileSync(join(cwd, "src.txt"), "ok\n");
+    gitCommit(cwd, "seed");
+    mkdirSync(join(cwd, "node_modules", "iconv-lite", ".github"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "iconv-lite", ".github", "dependabot.yml"), "x\n");
+    const result = verdictOf(run(sensitivePath, cwd, ["**/.github/**"]));
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("still sees a tracked path under an ignored directory", () => {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "vendor/\n");
+    mkdirSync(join(cwd, "vendor", ".github"), { recursive: true });
+    writeFileSync(join(cwd, "vendor", ".github", "ci.yml"), "one\n");
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "seed"]);
+    writeFileSync(join(cwd, "vendor", ".github", "ci.yml"), "two\n");
+    const result = verdictOf(run(sensitivePath, cwd, ["**/.github/**"]));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /vendor\/\.github\/ci\.yml/);
+  });
+
   it("fail-retryable when a matching file is deleted", () => {
     const cwd = sandbox();
     gitInit(cwd);
@@ -262,6 +436,136 @@ describe("sensitive-path", () => {
     const result = verdictOf(run(sensitivePath, cwd, ["**/.env"]));
     assert.equal(result.verdict, "fail-retryable");
     assert.match(result.report, /\.env/);
+  });
+});
+
+describe("gitignore-leak", () => {
+  const assembly = (...own: string[]) => [...own, "--stage", "assembly"];
+
+  /** A work line on `main` that ignores node_modules/ and dist/, and a feature branch off it. */
+  function featureOff(baseFiles: Record<string, string> = {}): string {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/\ndist/\n");
+    writeFileSync(join(cwd, "src.txt"), "ok\n");
+    for (const [path, content] of Object.entries(baseFiles)) {
+      mkdirSync(dirname(join(cwd, path)), { recursive: true });
+      writeFileSync(join(cwd, path), content);
+    }
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "work line"]);
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "feature"]);
+    return cwd;
+  }
+
+  /** What the leak looked like for real: a fold that force-added a Builder's install. */
+  function commitVendored(cwd: string): void {
+    mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
+    writeFileSync(join(cwd, "src.txt"), "feature\n");
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "feature, with its install"]);
+  }
+
+  it("refuses a workspace that is not git", () => {
+    const cwd = sandbox();
+    writeFileSync(join(cwd, "a.txt"), "a\n");
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /git/);
+  });
+
+  it("refuses an option it does not read", () => {
+    const cwd = featureOff();
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--since", "HEAD")));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /--since/);
+  });
+
+  it("refuses to judge without the work line it is measured against", () => {
+    const cwd = featureOff();
+    const missing = verdictOf(run(gitignoreLeak, cwd, assembly()));
+    assert.equal(missing.verdict, "fail-blocking");
+    assert.match(missing.report, /--base/);
+    const unknown = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "nowhere")));
+    assert.equal(unknown.verdict, "fail-blocking");
+    assert.match(unknown.report, /cannot find --base "nowhere"/);
+  });
+
+  it("says nothing about a unit, whose work no commit holds yet", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, ["--base", "main"])).verdict, "pass");
+    assert.equal(
+      verdictOf(run(gitignoreLeak, cwd, ["--base", "main", "--stage", "unit"])).verdict,
+      "pass",
+    );
+  });
+
+  it("passes a feature that adds only what .gitignore lets in", () => {
+    const cwd = featureOff();
+    writeFileSync(join(cwd, "added.txt"), "new\n");
+    mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "on disk only\n");
+    gitCommit(cwd, "feature");
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
+  });
+
+  it("does not blame a feature for a path the work line tracked on purpose", () => {
+    const cwd = featureOff({ "dist/.gitkeep": "" });
+    writeFileSync(join(cwd, "src.txt"), "feature\n");
+    gitCommit(cwd, "feature");
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
+  });
+
+  it("fail-retryable when the feature's commits add an ignored path", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /^node_modules\/left-pad\/index\.js$/m);
+    assert.match(result.report, /git rm -r --cached/);
+    assert.doesNotMatch(result.report, /src\.txt/);
+  });
+
+  it("judges what is committed, not a removal only staged", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    execFileSync("git", ["-C", cwd, "rm", "-r", "-q", "--cached", "node_modules"]);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+  });
+
+  it("passes once a later commit took the path out again", () => {
+    const cwd = featureOff();
+    commitVendored(cwd);
+    execFileSync("git", ["-C", cwd, "rm", "-r", "-q", "--cached", "node_modules"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "untrack node_modules"]);
+    assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
+  });
+
+  it("sees a tracked file moved under an ignored directory", () => {
+    const cwd = featureOff({ "lib/out.js": "built\n" });
+    mkdirSync(join(cwd, "dist"), { recursive: true });
+    execFileSync("git", ["-C", cwd, "mv", "-f", "lib/out.js", "dist/out.js"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "move the build output"]);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /^dist\/out\.js$/m);
+  });
+
+  it("lists fifty paths and counts the rest", () => {
+    const cwd = featureOff();
+    mkdirSync(join(cwd, "dist"), { recursive: true });
+    for (let i = 0; i < 55; i++) {
+      writeFileSync(join(cwd, "dist", `f${String(i).padStart(2, "0")}.js`), `${i}\n`);
+    }
+    execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "build output"]);
+    const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.equal((result.report.match(/^dist\//gm) ?? []).length, 50);
+    assert.match(result.report, /… and 5 more$/);
   });
 });
 

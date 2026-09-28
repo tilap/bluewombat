@@ -391,7 +391,16 @@ async function writeWorkingTreeCommit(input: {
   });
 
   try {
-    const add = await git(["add", "-A", "-f"], timed());
+    // What `git add -A` records in this directory, and nothing more: a new
+    // path `.gitignore` excludes (a Builder's node_modules/, dist/) stays out,
+    // a path already tracked stays in whatever `.gitignore` says, and a
+    // removal an agent staged without committing counts. That takes the
+    // directory's own index as the start, copied so it is never written to.
+    const seeded = await seedIndex(input, indexFile);
+    if (!seeded.ok) {
+      return seeded;
+    }
+    const add = await git(["add", "-A"], timed());
     if (!add.ok) {
       return add;
     }
@@ -459,6 +468,33 @@ async function writeWorkingTreeCommit(input: {
     await rm(indexFile, { force: true });
     await rm(`${indexFile}.lock`, { force: true });
   }
+}
+
+/**
+ * Start the temporary index from a copy of the directory's own. Asked without
+ * `GIT_INDEX_FILE`, which would answer with the temporary path itself. A
+ * directory with no index yet (nothing ever staged) starts empty, as before.
+ */
+async function seedIndex(
+  input: { cwd: string; deadlineMs: number; now: () => number; shouldInterrupt: () => boolean },
+  indexFile: string,
+): Promise<{ ok: true } | { ok: false; stop: FoldStop } | { ok: false; detail: string }> {
+  const located = await git(["rev-parse", "--git-path", "index"], {
+    cwd: input.cwd,
+    timeoutMs: remainingMs(input.deadlineMs, input.now()),
+    shouldInterrupt: input.shouldInterrupt,
+  });
+  if (!located.ok) {
+    return located;
+  }
+  if (located.exitCode !== 0) {
+    return gitFailed(located);
+  }
+  const own = resolve(input.cwd, located.stdout.trim());
+  if (existsSync(own)) {
+    copyFileSync(own, indexFile);
+  }
+  return { ok: true };
 }
 
 async function ensureIncomingCommit(input: {

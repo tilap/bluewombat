@@ -3,37 +3,35 @@
 The Planner, Builder, and Gate commands that ship with mason. A Project points
 its config at one of these paths; nothing here is imported.
 
-```json
-"planner": ["node", "./node_modules/@bluewombat/slots/planners/one-subtask.mjs"],
-"builder": {
-  "producer": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/producer.mjs",
-      "--prompt-file", "./build.md",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/claude.mjs"
-    ],
-    "timeoutMs": 600000
-  },
-  "repair": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/repair.mjs",
-      "--prompt-file", "./repair.md",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/claude.mjs"
-    ],
-    "timeoutMs": 600000
-  },
-  "gates": {
-    "defaultTimeoutMs": 120000,
-    "gates": [
-      {
-        "id": "workspace-changed",
-        "argv": ["node", "./node_modules/@bluewombat/slots/gates/workspace-changed.mjs"]
-      }
-    ]
-  }
-}
+```yaml
+planner:
+  cmd: [node, ./node_modules/@bluewombat/slots/planners/one-subtask.mjs]
+builder:
+  producer:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/producer.mjs
+      - --prompt-file
+      - ./build.md
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/claude.mjs
+    timeoutMs: 600000
+  repair:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/repair.mjs
+      - --prompt-file
+      - ./repair.md
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/claude.mjs
+    timeoutMs: 600000
+  gates:
+    defaultTimeoutMs: 120000
+    gates:
+      - id: workspace-changed
+        argv: [node, ./node_modules/@bluewombat/slots/gates/workspace-changed.mjs]
 ```
 
 A slot is an opaque command: it reads argv and writes one JSON line on stdout.
@@ -69,6 +67,7 @@ these all use it. How Host wires a slot into a run:
 | `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
 | `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
 | `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
+| `gates/gitignore-leak.mjs`    | Gate      | The feature's commits add nothing its own `.gitignore` excludes                            |
 | `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
 | `planners/one-subtask.mjs`    | Planner   | Bootstrap: one Subtask that is the FeatureStandard itself                                  |
 | `publishers/git.mjs`          | Publisher | Pushes the feature's branch to the work line's own remote                                  |
@@ -85,10 +84,12 @@ and print the serialized run on stdout with `writeContract` (so a large
 stream-json transcript survives `process.exit`). They do not know `--intention`
 or `--report`. A role slot after `--` is what names one:
 
-```json
-"--",
-"node", "./node_modules/@bluewombat/slots/agents/cursor.mjs",
-"--transcript-dir", "./.mason/transcripts"
+```yaml
+- --
+- node
+- ./node_modules/@bluewombat/slots/agents/cursor.mjs
+- --transcript-dir
+- ./.mason/transcripts
 ```
 
 `cursor.mjs` needs `cursor-agent` on PATH (`cursor-agent login`); `claude.mjs`
@@ -156,18 +157,18 @@ in: it names no part of mason, because none of it is visible from there. What
 changes from one Project to the next is that text, not the agent, so it is a
 template file on the role:
 
-```json
-"builder": {
-  "producer": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/producer.mjs",
-      "--prompt-file", "./mason-prompt.md",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/cursor.mjs"
-    ],
-    "timeoutMs": 600000
-  }
-}
+```yaml
+builder:
+  producer:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/producer.mjs
+      - --prompt-file
+      - ./mason-prompt.md
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/cursor.mjs
+    timeoutMs: 600000
 ```
 
 A path that names a file next to the config resolves against the config; any
@@ -253,18 +254,18 @@ them — `skills` and `usage` (`unknown`, `(none)`, or the values). Files are
 filed under the Feature the Task belongs to, named for the Subtask and the
 Attempt. It belongs on the **agent** command, after `--`.
 
-```json
-"builder": {
-  "producer": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/producer.mjs",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/cursor.mjs",
-      "--transcript-dir", "./.mason/transcripts"
-    ],
-    "timeoutMs": 600000
-  }
-}
+```yaml
+builder:
+  producer:
+    cmd:
+      - node
+      - ./node_modules/@bluewombat/slots/builders/producer.mjs
+      - --
+      - node
+      - ./node_modules/@bluewombat/slots/agents/cursor.mjs
+      - --transcript-dir
+      - ./.mason/transcripts
+    timeoutMs: 600000
 ```
 
 ```
@@ -287,29 +288,21 @@ Every Gate answers with one JSON object on stdout — `{"verdict":"pass"}`, or
 in, and what mason appends to its argv, is in
 [`@bluewombat/runtime`](../../host/runtime/README.md).
 
-```json
-"builder": { "gates": {
-  "defaultTimeoutMs": 120000,
-  "gates": [
-    {
-      "id": "workspace-changed",
-      "argv": ["node", "./node_modules/@bluewombat/slots/gates/workspace-changed.mjs"]
-    },
-    {
-      "id": "parent-clean",
-      "argv": ["node", "./node_modules/@bluewombat/slots/gates/parent-clean.mjs"]
-    },
-    {
-      "id": "sensitive-path",
-      "argv": [
-        "node",
-        "./node_modules/@bluewombat/slots/gates/sensitive-path.mjs",
-        "**/.env",
-        "**/secrets/**"
-      ]
-    }
-  ]
-} }
+```yaml
+builder:
+  gates:
+    defaultTimeoutMs: 120000
+    gates:
+      - id: workspace-changed
+        argv: [node, ./node_modules/@bluewombat/slots/gates/workspace-changed.mjs]
+      - id: parent-clean
+        argv: [node, ./node_modules/@bluewombat/slots/gates/parent-clean.mjs]
+      - id: sensitive-path
+        argv:
+          - node
+          - ./node_modules/@bluewombat/slots/gates/sensitive-path.mjs
+          - "**/.env"
+          - "**/secrets/**"
 ```
 
 `workspace-changed` fail-retries when the workspace has no uncommitted change —
@@ -322,31 +315,52 @@ producer to send back.
 (`--parent DIR`, or the other git worktrees of this Child).
 
 `sensitive-path` fail-retries if the workspace changed a path matching a glob.
-`*` is one segment, `**` any depth.
+`*` is one segment, `**` any depth. It looks at what a fold can carry out of
+the workspace — tracked paths, and new ones `.gitignore` does not exclude — so
+what an install left under an ignored directory (a dependency's own `.github/`)
+is not a change to guard.
+
+`gitignore-leak --base REF` fail-retries if the feature's commits add a path the
+workspace's own `.gitignore` excludes — a Builder's `node_modules/`, a build's
+`dist/`, a generated file. `REF` is the work line the feature is offered to
+(`main`): only what the feature adds since it left that line is judged, and
+only what is committed, so a path tracked on purpose before the feature began
+is not blamed on it, and a removal staged but not committed does not pass. The
+report is written for `assembly.fix`: untrack the paths, or change `.gitignore`
+if tracking one is the point. It passes at `--stage unit`, where no commit
+holds a Subtask's work yet.
+
+It is a second line, not the first: the `isolation-git` fold already keeps an
+ignored path out of the commits it makes. It catches a leak that came some
+other way — another isolation strategy, an agent that committed. Like every
+assembly Gate, with an Authority it judges what was published, so it stops the
+fold into the work line, not the push.
+
+```yaml
+assembly:
+  gates:
+    defaultTimeoutMs: 900000
+    gates:
+      - id: gitignore-leak
+        argv: [node, ./node_modules/@bluewombat/slots/gates/gitignore-leak.mjs, --base, main]
+      - id: ci-green
+        argv:
+          - node
+          - ./node_modules/@bluewombat/slots/gates/ci-green.mjs
+          - --token-env
+          - MASON_GITHUB_TOKEN
+          - --require-checks
+```
 
 `ci-green` reads the work line's own checks on what this workspace published,
-and answers on them. It reads and nothing else — it does not push, does not open
-a pull request, does not merge. Whoever put the work in front of the checks did
-that before the Gate ran; a workspace with nothing published is `fail-blocking`,
-because no Attempt of that Task can change it.
-
-```json
-"assembly": { "gates": {
-  "defaultTimeoutMs": 900000,
-  "gates": [
-    {
-      "id": "ci-green",
-      "argv": [
-        "node",
-        "./node_modules/@bluewombat/slots/gates/ci-green.mjs",
-        "--token-env",
-        "MASON_GITHUB_TOKEN",
-        "--require-checks"
-      ]
-    }
-  ]
-} }
-```
+and answers on them: GitHub Actions' check runs and the commit statuses a CI
+outside Actions reports (Vercel, Netlify, Jenkins…) — the two lists GitHub
+shows on a pull request. A pending status is still running; a failed one's
+report is its context, what it said, and its link. It reads and nothing else —
+it does not push, does not open a pull request, does not merge. Whoever put
+the work in front of the checks did that before the Gate ran; a workspace
+with nothing published is `fail-blocking`, because no Attempt of that Task
+can change it.
 
 It waits while checks are running, so give it a ceiling of its own. On a red
 check the report carries the failing job's log, cut at the error the runner
@@ -358,11 +372,11 @@ the variable holding a token that can read the checks — the same one the
 manager's `tokenEnv` names. It has no default on purpose: `GITHUB_TOKEN` is
 what `gh` reads ahead of its own login, so an operator must not export it,
 and a Gate that fell back to it refused only at the first assembly of a real
-run. `--remote` and `--poll-ms` are there too. It talks to GitHub, and knows
+run. `--remote`, `--poll-ms` and `--api-base` (GitHub Enterprise) are there too. It talks to GitHub, and knows
 nothing about `@bluewombat/manager-github`: a Project may run either one
 without the other.
 
-`sensitive-path`, `workspace-changed` and `ci-green` need a git workspace, which
+`sensitive-path`, `workspace-changed`, `gitignore-leak` and `ci-green` need a git workspace, which
 is what Isolator makes when WorkLineStable is a git tree. They fail-block on a
 workspace Isolator had to copy.
 
@@ -376,16 +390,17 @@ it takes no option.
 before answering and writes nothing into it. `--prompt-file` and `--read` belong
 on the role; the vendor is named after `--`, the same way a Builder names it.
 
-```json
-"planner": {
-  "cmd": [
-    "node", "./node_modules/@bluewombat/slots/planners/producer.mjs",
-    "--read", "./work-line-stable",
-    "--",
-    "node", "./node_modules/@bluewombat/slots/agents/cursor.mjs"
-  ],
-  "timeoutMs": 600000
-}
+```yaml
+planner:
+  cmd:
+    - node
+    - ./node_modules/@bluewombat/slots/planners/producer.mjs
+    - --read
+    - ./work-line-stable
+    - --
+    - node
+    - ./node_modules/@bluewombat/slots/agents/cursor.mjs
+  timeoutMs: 600000
 ```
 
 | Option               | Meaning                                                       |
@@ -430,6 +445,9 @@ that places its work some other way writes its own Publisher and changes nothing
 else. A refusal stops the Submission and travels back to the tracker; a slot that
 could not run at all exits non-zero and says why on stderr.
 
+`git.mjs` runs git with `LC_ALL=C`: the refusal quotes git, and it is posted on a
+tracker a team reads, whatever language the machine that ran it speaks.
+
 ## Refreshers
 
 The other half of the Publisher's seam: what the Authority accepted has moved the
@@ -450,7 +468,8 @@ else, so it answers `ok` with nothing to do.
 A refusal stops the pass: nothing starts, and the next one tries again. The
 reason is written for the person who reads `mason run`'s trace: the copy is the
 system's, nothing in it is worth keeping, and the reason says the one command
-that puts it back.
+that puts it back. Git runs with `LC_ALL=C` here too, for the same reason as the
+Publisher.
 
 ## Stack
 

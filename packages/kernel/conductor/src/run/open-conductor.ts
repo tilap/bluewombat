@@ -747,7 +747,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       return { outcome: "paused", key };
     }
     if (submitted.outcome === "refused") {
-      return await freeze(key, { kind: "submitted" });
+      return await freeze(key, { kind: "submitted", report: submitted.reason });
     }
     const marked = await ledger.markSubmitted({ key, reference: submitted.reference });
     const failure = fromLedger(marked);

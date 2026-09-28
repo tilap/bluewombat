@@ -130,6 +130,29 @@ describe("gitReference copy", () => {
     }
   });
 
+  it("says why a remote cannot be reached in git's English, whatever the machine speaks", async () => {
+    const root = sandbox();
+    const reference = parsedOrFail({ remote: join(root, "missing.git"), branch: "main" });
+    const saved = { LC_ALL: process.env.LC_ALL, LANG: process.env.LANG };
+    process.env.LC_ALL = "fr_FR.UTF-8";
+    process.env.LANG = "fr_FR.UTF-8";
+    try {
+      const made = await reference.materialize(join(root, "copy"));
+      assert.ok(!made.ok);
+      // git leaves some lines untranslated; this one it translates.
+      assert.match(made.reason, /Could not read from remote repository/);
+      assert.doesNotMatch(made.reason, /Impossible de lire/);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = value;
+        }
+      }
+    }
+  });
+
   it("reports a directory that is not a git tree as a mismatch", () => {
     const { remote, root } = remoteWith();
     const reference = parsedOrFail({ remote, branch: "main" });

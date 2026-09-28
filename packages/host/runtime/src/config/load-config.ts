@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { GateSpec } from "@bluewombat/implementer";
+import { parse as parseYaml } from "yaml";
 import type {
   AssemblySpec,
   AuthoritySpec,
@@ -43,7 +44,7 @@ export type LoadedConfig =
   | { ok: false; reason: string };
 
 /**
- * Read one JSON object and resolve relative paths against the file's directory.
+ * Read one YAML document and resolve relative paths against the file's directory.
  */
 export function loadConfig(path: string): LoadedConfig {
   const file = resolve(path);
@@ -55,12 +56,14 @@ export function loadConfig(path: string): LoadedConfig {
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    // `uniqueKeys` (default) refuses a repeated key rather than silently
+    // keeping the last one, the way `JSON.parse` used to.
+    parsed = parseYaml(raw);
   } catch {
-    return { ok: false, reason: `Config is not valid JSON: ${file}` };
+    return { ok: false, reason: `Config is not valid YAML: ${file}` };
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { ok: false, reason: `Config must be a JSON object: ${file}` };
+    return { ok: false, reason: `Config must be a YAML mapping: ${file}` };
   }
   const object = parsed as Record<string, unknown>;
   for (const key of Object.keys(object)) {
@@ -83,7 +86,7 @@ export function loadConfig(path: string): LoadedConfig {
   if (object.managerOptions !== undefined) {
     const options = object.managerOptions;
     if (options === null || typeof options !== "object" || Array.isArray(options)) {
-      return { ok: false, reason: 'Config "managerOptions" must be a JSON object.' };
+      return { ok: false, reason: 'Config "managerOptions" must be a YAML mapping.' };
     }
     invocation.managerOptions = { ...(options as Record<string, unknown>) };
   }
@@ -266,7 +269,7 @@ function readWorkLine(
     }
   | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { ok: false, reason: 'Config "workLine" must be a JSON object.' };
+    return { ok: false, reason: 'Config "workLine" must be a YAML mapping.' };
   }
   const object = value as Record<string, unknown>;
   for (const key of Object.keys(object)) {
@@ -296,7 +299,7 @@ function readWorkLine(
       typeof isolationOptions !== "object" ||
       Array.isArray(isolationOptions))
   ) {
-    return { ok: false, reason: 'Config "workLine.isolationOptions" must be a JSON object.' };
+    return { ok: false, reason: 'Config "workLine.isolationOptions" must be a YAML mapping.' };
   }
   return {
     ok: true,
@@ -330,7 +333,7 @@ function readAuthority(
   configDir: string,
 ): { ok: true; value: AuthoritySpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { ok: false, reason: 'Config "authority" must be a JSON object.' };
+    return { ok: false, reason: 'Config "authority" must be a YAML mapping.' };
   }
   const object = value as Record<string, unknown>;
   for (const name of Object.keys(object)) {
@@ -405,7 +408,7 @@ function readObservability(
   configDir: string,
 ): { ok: true; value: ObservabilitySpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { ok: false, reason: 'Config "observability" must be a JSON object.' };
+    return { ok: false, reason: 'Config "observability" must be a YAML mapping.' };
   }
   const object = value as Record<string, unknown>;
   for (const name of Object.keys(object)) {
@@ -418,7 +421,7 @@ function readObservability(
   }
   const streams = object.streams;
   if (streams === null || typeof streams !== "object" || Array.isArray(streams)) {
-    return { ok: false, reason: 'Config "observability.streams" must be a JSON object.' };
+    return { ok: false, reason: 'Config "observability.streams" must be a YAML mapping.' };
   }
   const fields = streams as Record<string, unknown>;
   for (const name of Object.keys(fields)) {
@@ -465,7 +468,7 @@ function readGates(
   key: string,
 ): { ok: true; value: GateSpec[] } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { ok: false, reason: `Config "${key}" must be a JSON object with "gates".` };
+    return { ok: false, reason: `Config "${key}" must be a YAML mapping with "gates".` };
   }
   const object = value as Record<string, unknown>;
   for (const name of Object.keys(object)) {
@@ -539,7 +542,7 @@ function readPass(
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {
       ok: false,
-      reason: `Config "${key}" must be a JSON object with "cmd" and "timeoutMs".`,
+      reason: `Config "${key}" must be a YAML mapping with "cmd" and "timeoutMs".`,
     };
   }
   const object = value as Record<string, unknown>;
@@ -573,7 +576,7 @@ function readBuilder(
   configDir: string,
 ): { ok: true; value: StageSpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { ok: false, reason: 'Config "builder" must be a JSON object.' };
+    return { ok: false, reason: 'Config "builder" must be a YAML mapping.' };
   }
   const object = value as Record<string, unknown>;
   for (const name of Object.keys(object)) {
@@ -626,7 +629,7 @@ function readAssembly(
   configDir: string,
 ): { ok: true; value: AssemblySpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { ok: false, reason: 'Config "assembly" must be a JSON object.' };
+    return { ok: false, reason: 'Config "assembly" must be a YAML mapping.' };
   }
   const object = value as Record<string, unknown>;
   for (const name of Object.keys(object)) {

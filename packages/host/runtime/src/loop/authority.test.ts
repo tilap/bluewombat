@@ -174,6 +174,63 @@ describe("the Authority against a real remote", () => {
     assert.equal(seen.length, 0);
   });
 
+  it("journals a refused offer: who refused, and in their words", async () => {
+    // The reason also reaches the escalation, but `mason log` and a watcher
+    // read the journal: without this line the film showed a run that simply
+    // stopped at "escalated".
+    const { copy } = remoteAndCopy();
+    const dir = mkdtempSync(join(tmpdir(), "publisher-"));
+    const refusing = join(dir, "no.mjs");
+    writeFileSync(
+      refusing,
+      'console.log(JSON.stringify({ outcome: "refused", reason: "the shelf is full" }));',
+    );
+    const placing = join(dir, "yes.mjs");
+    writeFileSync(placing, 'console.log(JSON.stringify({ ref: "issue/fake-42" }));');
+    const offerWith = (publisher: string, manager: ManagerPort) => {
+      const lines: Record<string, unknown>[] = [];
+      const authority = openAuthority({
+        manager,
+        workLineStable: copy,
+        workLineTarget: TARGET,
+        publishArgv: ["node", publisher],
+        timeoutMs: 60_000,
+        refOf: strategy.refOf,
+        journal: { append: (line) => lines.push(line) },
+      });
+      assert.ok(authority !== undefined);
+      return { lines, submit: () => authority.submit(offer()) };
+    };
+
+    const byPublisher = offerWith(refusing, stubManager([]));
+    await byPublisher.submit();
+    assert.deepEqual(byPublisher.lines, [
+      { event: "submit-refused", key: "fake:42", by: "publisher", reason: "the shelf is full" },
+    ]);
+
+    const closing: ManagerPort = {
+      ...stubManager([]),
+      async submit() {
+        return { outcome: "refused", reason: "Validation Failed: no commits between dev and it" };
+      },
+    };
+    const byAuthority = offerWith(placing, closing);
+    const result = await byAuthority.submit();
+    assert.equal(result.outcome, "refused");
+    assert.deepEqual(byAuthority.lines, [
+      {
+        event: "submit-refused",
+        key: "fake:42",
+        by: "authority",
+        reason: "Validation Failed: no commits between dev and it",
+      },
+    ]);
+
+    const accepted = offerWith(placing, stubManager([]));
+    await accepted.submit();
+    assert.deepEqual(accepted.lines, [], "a Submission that happened is not a refusal");
+  });
+
   it("hands the Publisher the work line's environment, and nothing else does", async () => {
     // The identity and credentials the reference named reach the slot that
     // pushes — and only through this call: Host's own environment stays clean,
@@ -300,6 +357,22 @@ describe("the Authority against a real remote", () => {
     assert.doesNotMatch(git(remote, ["log", "--oneline", "issue/fake-42"]), /ours\.txt/);
   });
 
+  it("says git's refusal in English whatever the machine speaks", async () => {
+    // The reason is posted on the tracker; seen live in French on a French
+    // machine. On a machine with no French locale git speaks English anyway,
+    // and this passes without proving anything there.
+    const { copy } = remoteAndCopy();
+    const seen: SubmissionRequest[] = [];
+    const french = { LC_ALL: "fr_FR.UTF-8", LANG: "fr_FR.UTF-8", LANGUAGE: "fr" };
+
+    // No branch by the Child's name: git refuses the refspec.
+    const result = await authorityOn(copy, seen, undefined, french).submit(offer());
+
+    assert.ok(result.outcome === "refused", JSON.stringify(result));
+    assert.match(result.reason, /does not match any/);
+    assert.doesNotMatch(result.reason, /ne correspond|erreur/);
+  });
+
   it("refuses a work line that is not a git repository", async () => {
     const copy = mkdtempSync(join(tmpdir(), "authority-plain-"));
     const seen: SubmissionRequest[] = [];
@@ -340,6 +413,20 @@ describe("bringing the work line copy up to date", () => {
     assert.match(refreshed.detail ?? "", new RegExp(`git -C \\S+ reset --hard origin/${TARGET}`));
     assert.match(refreshed.detail ?? "", /delete the directory/);
     assert.match(git(copy, ["log", "--oneline", TARGET]), /ours\.txt/);
+  });
+
+  it("says git's words in English whatever the machine speaks", () => {
+    const { copy } = remoteAndCopy();
+    const refreshed = refreshWorkLine({
+      workLineStable: copy,
+      workLineTarget: "nowhere",
+      refreshArgv: ["node", GIT_REFRESHER],
+      timeoutMs: 60_000,
+      env: { LC_ALL: "fr_FR.UTF-8", LANG: "fr_FR.UTF-8", LANGUAGE: "fr" },
+    });
+    assert.equal(refreshed.ok, false);
+    assert.match(refreshed.detail ?? "", /couldn't find remote ref nowhere/);
+    assert.doesNotMatch(refreshed.detail ?? "", /impossible|distante/);
   });
 
   it("has nothing to do when the work line is a plain directory", () => {

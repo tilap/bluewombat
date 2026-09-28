@@ -111,31 +111,44 @@ crash — the ledger is. The file can grow; there is no rotation yet.
 
 ## Config
 
-`mason.config.json`, found by walking up from the working directory. `--config
+`mason.config.yaml`, found by walking up from the working directory. `--config
 FILE` names another one. Relative paths resolve against the file; relative
 flag paths resolve against the working directory. Flags override the file, and
 `--manager-option` overrides one manager option without dropping the others.
+Parsed with the `yaml` package (YAML 1.2 core schema), so a repeated key is
+refused rather than silently keeping the last one, and `no` / `on` / `off`
+stay plain strings — never coerced to a boolean the way YAML 1.1 would. A
+value that starts with `@`, like every `@bluewombat/...` package name, needs
+quotes: `@` is a reserved YAML indicator at the start of a plain scalar.
 
-```json
-{
-  "manager": "@bluewombat/manager-fake",
-  "managerOptions": { "source": "./.mason/source", "target": "./.mason/threads" },
-  "workLine": { "stable": "./work-line-stable", "isolation": "@bluewombat/isolation-copy" },
-  "planner": {
-    "cmd": ["node", "./node_modules/@bluewombat/slots/planners/one-subtask.mjs"],
-    "timeoutMs": 600000
-  },
-  "builder": {
-    "producer": { "cmd": ["node", "./mason-builder.mjs"], "timeoutMs": 600000 },
-    "repair": { "cmd": ["node", "./mason-repair.mjs"], "timeoutMs": 600000 },
-    "maxAttempts": 3,
-    "gates": { "defaultTimeoutMs": 120000, "gates": [] }
-  },
-  "assembly": { "gates": { "defaultTimeoutMs": 900000, "gates": [] } },
-  "authority": { "enabled": false },
-  "timeoutMs": 600000,
-  "pollIntervalMs": 30000
-}
+```yaml
+manager: "@bluewombat/manager-fake"
+managerOptions:
+  source: ./.mason/source
+  target: ./.mason/threads
+workLine:
+  stable: ./work-line-stable
+  isolation: "@bluewombat/isolation-copy"
+planner:
+  cmd:
+    - node
+    - ./node_modules/@bluewombat/slots/planners/one-subtask.mjs
+  timeoutMs: 600000
+builder:
+  producer:
+    cmd: [node, ./mason-builder.mjs]
+    timeoutMs: 600000
+  repair:
+    cmd: [node, ./mason-repair.mjs]
+    timeoutMs: 600000
+  maxAttempts: 3
+  gates: { defaultTimeoutMs: 120000, gates: [] }
+assembly:
+  gates: { defaultTimeoutMs: 900000, gates: [] }
+authority:
+  enabled: false
+timeoutMs: 600000
+pollIntervalMs: 30000
 ```
 
 | Field                       | Meaning                                                                                                                                                                                                                  |
@@ -446,7 +459,7 @@ change that breaks it does not merge.
 
 | Layer                | Holds                                                                                                                                                     | Does not hold                                                    | May import                                    |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------- |
-| `config/`            | What a Project wrote: argv, `mason.config.json`, discovery, `HostOptions`. Pure: JSON in, options out                                                     | A runtime value (a Journal, a Port, a process handle)            | Node, `manager-kit` types                     |
+| `config/`            | What a Project wrote: argv, `mason.config.yaml`, discovery, `HostOptions`. Pure: YAML in, options out                                                     | A runtime value (a Journal, a Port, a process handle)            | Node, `manager-kit` types                     |
 | `plugins/`           | Load a package by name and check its shape: a manager, an isolation strategy                                                                              | What to do with the loaded thing                                 | `config`                                      |
 | `loop/`              | The process: listen → probe → adapt → admit → run → report; composition (`open-host`, `transformers`, Authority, work line, lock, Cursor, journal, trace) | A command a human types; a string a human reads about the config | `plugins`, `config`, the kernel, Transformers |
 | `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `cancel`, `board`, the terminal prompt                                           | Anything the loop needs — the loop cannot see this layer         | everything below                              |

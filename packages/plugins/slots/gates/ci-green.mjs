@@ -2,13 +2,16 @@
 import { spawnSync } from "node:child_process";
 import { emitVerdict, GATE_FLAGS, ownArgv } from "@bluewombat/slot-kit";
 
-// The work line's own checks, on the work this workspace published.
+// The work line's own checks, on the work this workspace published: GitHub
+// Actions' check runs, and the commit statuses CI outside Actions reports
+// (Vercel, Netlify, Jenkins…), the two lists GitHub itself shows on a PR.
 //
 // It reads and nothing else: it does not push, does not open anything, does not
 // merge. Whoever put the work in front of the checks did that before this Gate
 // ran; this Gate only says whether the answer came back green.
 //
 //   --remote NAME        default: origin
+//   --api-base URL       default: https://api.github.com (GitHub Enterprise)
 //   --poll-ms N          how often to ask again while checks are running
 //   --token-env NAME     required: the variable holding a token that can read
 //                        the checks. No default on purpose — GITHUB_TOKEN is the
@@ -18,7 +21,6 @@ import { emitVerdict, GATE_FLAGS, ownArgv } from "@bluewombat/slot-kit";
 //   --require-checks     wait for a check to appear; without it, a commit with no
 //                        check at all passes
 
-const API = "https://api.github.com";
 // What the runner writes at the top of every step it runs.
 const STEP_OPEN = "##[group]Run ";
 const COLOUR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
@@ -29,6 +31,7 @@ if (!options.ok) {
   emitVerdict("fail-blocking", options.reason);
   process.exit(0);
 }
+const apiBase = options.apiBase;
 
 if (git(["rev-parse", "--is-inside-work-tree"]).stdout.trim() !== "true") {
   emitVerdict("fail-blocking", "ci-green needs a git workspace.");
@@ -88,10 +91,11 @@ for (;;) {
 
 /**
  * @param {readonly string[]} tokens
- * @returns {{ ok: true; remote: string; pollMs: number; tokenEnv: string; requireChecks: boolean } | { ok: false; reason: string }}
+ * @returns {{ ok: true; remote: string; apiBase: string; pollMs: number; tokenEnv: string; requireChecks: boolean } | { ok: false; reason: string }}
  */
 function parseOwnArgv(tokens) {
   let remote = "origin";
+  let apiBase = "https://api.github.com";
   let pollMs = 15_000;
   let tokenEnv;
   let requireChecks = false;
@@ -108,6 +112,8 @@ function parseOwnArgv(tokens) {
     i += 1;
     if (token === "--remote") {
       remote = value;
+    } else if (token === "--api-base") {
+      apiBase = value.replace(/\/+$/, "");
     } else if (token === "--token-env") {
       tokenEnv = value;
     } else if (token === "--poll-ms") {
@@ -127,7 +133,7 @@ function parseOwnArgv(tokens) {
         "ci-green needs --token-env NAME: the environment variable holding a token that can read the checks (the same one @bluewombat/manager-github's tokenEnv names, never GITHUB_TOKEN).",
     };
   }
-  return { ok: true, remote, pollMs, tokenEnv, requireChecks };
+  return { ok: true, remote, apiBase, pollMs, tokenEnv, requireChecks };
 }
 
 /**
@@ -187,6 +193,12 @@ async function readChecks(sha) {
   if (!Array.isArray(checkRuns)) {
     return undefined;
   }
+  // A token that may read check runs but not statuses reads as no status at
+  // all: what this Gate did before it read them.
+  const combined = record(
+    await api(`/repos/${repo.owner}/${repo.name}/commits/${sha}/status?per_page=100`),
+  );
+  const statuses = Array.isArray(combined?.statuses) ? combined.statuses : [];
   /** @type {string[]} */
   const failed = [];
   // One workflow can run the same job for two events (push, pull_request)
@@ -213,7 +225,28 @@ async function readChecks(sha) {
     seen.add(heading);
     failed.push(`${heading}${typeof run.id === "number" ? await logOf(run.id) : ""}`);
   }
-  return { total: checkRuns.length, running, failed };
+  // The latest status per context. No log to cut here: what the reporter said
+  // and where it said more is all there is.
+  for (const entry of statuses) {
+    const status = record(entry) ?? {};
+    if (status.state === "pending") {
+      running += 1;
+      continue;
+    }
+    if (status.state === "success") {
+      continue;
+    }
+    const heading = `${status.context}: ${status.state ?? "failed"}`;
+    if (seen.has(heading)) {
+      continue;
+    }
+    seen.add(heading);
+    const more = [status.description, status.target_url].filter(
+      (text) => typeof text === "string" && text.length > 0,
+    );
+    failed.push([heading, ...more].join("\n"));
+  }
+  return { total: checkRuns.length + statuses.length, running, failed };
 }
 
 /**
@@ -279,7 +312,7 @@ async function logOf(jobId) {
  */
 async function api(path, as = "json") {
   try {
-    const response = await fetch(`${API}${path}`, {
+    const response = await fetch(`${apiBase}${path}`, {
       headers: {
         authorization: `Bearer ${token}`,
         accept: "application/vnd.github+json",

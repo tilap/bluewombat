@@ -99,7 +99,8 @@ export function renderEvent(invocation: Invocation): Rendered {
       section = renderPlanned(bounded.fields);
       break;
     case "escalated":
-      section = renderEscalated(bounded.fields);
+    case "escalation_reminder":
+      section = renderEscalated(invocation.event, bounded.fields, invocation.readyLabel);
       break;
     case "resumed":
       section = renderResumed(bounded.fields);
@@ -167,26 +168,59 @@ ${fields.plan ?? ""}
 `;
 }
 
-function renderEscalated(fields: EventFields): string {
-  const where = escalatedWhere(fields);
+/**
+ * An escalation and its reminder say the same thing: the reminder is the same
+ * diagnosis, still waiting, so a reader who only sees the later comment still
+ * learns what stopped and what they can do about it.
+ */
+function renderEscalated(
+  event: "escalated" | "escalation_reminder",
+  fields: EventFields,
+  readyLabel: string | undefined,
+): string {
+  const lead =
+    event === "escalated"
+      ? "🙋 A human action is required to continue."
+      : "🙋 Still waiting for a human — this is a repeat of an earlier escalation.";
   const trace =
     fields.trace === undefined || fields.trace.length === 0
       ? ""
-      : `
+      : `\n\n${traceLines(fields.trace).join("\n")}`;
+  return `## ${TITLES[event]}
 
-### Trace
+${lead}
 
-\`\`\`text
-${foldFence(fields.trace)}
-\`\`\``;
-  return `## Escalated
+${fields.reason ?? ""}${escalatedWhere(fields)}
 
-🙋 A human action is required to continue.
-
-${fields.reason ?? ""}${where}
-
-No further work starts until a human answers.${trace}
+No further work starts until a human answers.${answers(fields.stage, readyLabel)}${trace}
 `;
+}
+
+/**
+ * What a human can do from the issue, in this tracker's own gestures. An
+ * escalation born while folding is past the point of no return: closing the
+ * issue would be refused, so it is not offered.
+ */
+function answers(stage: Stage | undefined, readyLabel: string | undefined): string {
+  if (readyLabel === undefined) {
+    return "";
+  }
+  if (stage === "merging") {
+    return ` To resume, add the \`${readyLabel}\` label. It can no longer be abandoned: the fold had started.`;
+  }
+  return ` To resume, add the \`${readyLabel}\` label; to abandon, close the issue.`;
+}
+
+/**
+ * A Trace is what the step that stopped the work said, and it is often written
+ * for the agent that repairs it ("untrack X, then re-validate"). Said once,
+ * the same way under every Event that carries one.
+ */
+const TRACE_NOTE =
+  "Verbatim from the step that stopped the work, written for the agent that repairs it: read it as the diagnosis, not as steps for you.";
+
+function traceLines(trace: string): string[] {
+  return [`### ${title("trace")}`, "", TRACE_NOTE, "", "```text", foldFence(trace), "```"];
 }
 
 /** A fold with no Authority: there is nothing a reader could open, so say where it went in words. */
@@ -210,7 +244,8 @@ const STAGE_PHRASE: Record<Stage, string> = {
   plan: "while planning",
   unit: "on a Subtask",
   integrating: "while assembling the feature",
-  submitting: "while the Submission was under review",
+  // A refused offer stops here too, before any Submission exists to review.
+  submitting: "while submitting the work",
   merging: "while folding into the work line",
 };
 
@@ -298,7 +333,7 @@ function renderSection(invocation: Invocation, fields: EventFields): string {
     if (typeof value !== "string") {
       continue;
     }
-    lines.push("", `### ${title(field)}`, "", "```text", foldFence(value), "```");
+    lines.push("", ...traceLines(value));
   }
 
   lines.push("");
@@ -321,10 +356,6 @@ export function priorityInWords(priority: number, fallback: number | undefined):
 /** What a reader must be told about this Event beyond its fields. */
 function standingNote(invocation: Invocation): string | undefined {
   switch (invocation.event) {
-    case "escalated":
-      return "frozen: no further work starts until a human answers";
-    case "escalation_reminder":
-      return "frozen: still waiting, this is a repeat of an earlier escalation";
     case "reject_late":
       return "too late: this arrived after the point of no return";
     default:

@@ -56,6 +56,12 @@ export function openAuthority(input: {
         env: input.env,
       });
       if (!published.ok) {
+        input.journal?.append({
+          event: "submit-refused",
+          key: offer.key,
+          by: "publisher",
+          reason: published.reason,
+        });
         return { outcome: "refused", reason: published.reason };
       }
       // The Project's own words for what it submits, when it has a slot for
@@ -76,7 +82,7 @@ export function openAuthority(input: {
           input.journal?.append({ event: "describe-skipped", id: offer.key, detail: asked.detail });
         }
       }
-      return await submit({
+      const submitted = await submit({
         ...offer,
         ref: published.ref,
         target: workLineTarget,
@@ -85,6 +91,15 @@ export function openAuthority(input: {
         ...(offer.steps === undefined ? {} : { steps: offer.steps.map(subjectOf) }),
         ...(description === undefined ? {} : { description }),
       });
+      if (submitted.outcome === "refused") {
+        input.journal?.append({
+          event: "submit-refused",
+          key: offer.key,
+          by: "authority",
+          reason: submitted.reason,
+        });
+      }
+      return submitted;
     },
     async fold(asked) {
       return await fold(asked);

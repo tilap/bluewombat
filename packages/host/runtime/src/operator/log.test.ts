@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILENAME } from "../config/find-config.js";
 import { openJournalFile } from "../loop/journal.js";
 import { runLog } from "./log.js";
@@ -21,7 +22,7 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
   mkdirSync(ledgerRoot);
   writeFileSync(
     join(root, CONFIG_FILENAME),
-    JSON.stringify({
+    stringifyYaml({
       manager: "@bluewombat/manager-fake",
       managerOptions: { source: "./source", target: "./threads" },
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },
@@ -100,6 +101,24 @@ describe("runLog", () => {
     assert.match(text, /unavailable/);
     assert.match(text, /The Planner exited without answering/);
     assert.doesNotMatch(text, /deliveries|listen {2}/);
+  });
+
+  it("--problems keeps a refused offer, with who refused it and why", async () => {
+    const { cwd, ledgerRoot } = sandbox();
+    const journal = openJournalFile(ledgerRoot, () => new Date("2026-09-26T17:13:42.000Z"));
+    journal.append({ event: "listen", outcome: "completed", deliveries: 0 });
+    journal.append({
+      event: "submit-refused",
+      key: "github:acme/app#3",
+      by: "publisher",
+      reason: "Could not publish issue/3: error: RPC failed; HTTP 400",
+    });
+    journal.append({ event: "ran", key: "github:acme/app#3", outcome: "escalated" });
+    const lines: string[] = [];
+    await runLog({ cwd, argv: ["--problems"], write: (line) => lines.push(line) });
+    const text = lines.join("");
+    assert.match(text, /submit-refused {2}github:acme\/app#3/);
+    assert.match(text, /Could not publish issue\/3: error: RPC failed; HTTP 400/);
   });
 
   it("--all keeps idle", async () => {
@@ -225,11 +244,11 @@ describe("runLog", () => {
       join(transcripts, "breakdown-attempt-1.md"),
       "# breakdown · attempt 1\n\n- exit: 0\n- duration: 12.0s\n",
     );
-    const config = JSON.parse(readFileSync(join(cwd, CONFIG_FILENAME), "utf8")) as {
+    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8")) as {
       planner: { cmd: string[] };
     };
     config.planner.cmd.push("--transcript-dir", transcripts);
-    writeFileSync(join(cwd, CONFIG_FILENAME), JSON.stringify(config));
+    writeFileSync(join(cwd, CONFIG_FILENAME), stringifyYaml(config));
     const lines: string[] = [];
     const code = await runLog({ cwd, argv: ["--problems"], write: (line) => lines.push(line) });
     assert.equal(code, 0);

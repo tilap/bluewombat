@@ -52,7 +52,7 @@ import rule between them are in [README.md](./README.md) § Layers.
 
 ## 3. Configuration
 
-`mason.config.json`, found by walking up from the working directory, or the
+`mason.config.yaml`, found by walking up from the working directory, or the
 file `--config` names. Relative paths in the file resolve against the file;
 relative paths in a flag resolve against the working directory. Flags override
 the file. `--manager-option key=value` merges per key, so overriding one option
@@ -146,6 +146,13 @@ Transformer progress, admitted, reported, queued, idle, a heartbeat while
 `submitted`). That file is a film, not truth: a crash may drop the last lines;
 the ledger is still right. `mason run` still writes a human Trace on stdout.
 The journal is how another process attaches.
+
+An offer the work could not get past is journaled `submit-refused`, with the
+Feature's `key`, `by` (`publisher` when the work could not be placed,
+`authority` when the Authority would not open a Submission) and the refuser's
+own `reason`. The same reason becomes the escalation's Trace; the line is so
+`mason log --problems` and a watcher see why a run stopped, not only that it
+did.
 
 After listen, if the manager declares `probe` and the listen reached the source
 (`completed`, `listened` — not `source-lost` / `interrupted` / `invalid-invocation`),
