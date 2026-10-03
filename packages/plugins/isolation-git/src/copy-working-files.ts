@@ -1,11 +1,50 @@
+import { execFile } from "node:child_process";
 import { copyFile, lstat, mkdir, readdir, readlink, rm, symlink } from "node:fs/promises";
 import { platform } from "node:os";
 import { basename, join, relative, sep } from "node:path";
+import { promisify } from "node:util";
 import { type IsolationStop, IsolationStoppedError, throwIfStopped } from "@bluewombat/isolator";
 import { runChild } from "./child/run-child.js";
 
 /** How long one `cp` of one root entry may take before the walk takes over. */
 const CLONE_TIMEOUT_MS = 120_000;
+const LS_FILES_TIMEOUT_MS = 60_000;
+const LS_FILES_MAX_BUFFER = 256 * 1024 * 1024;
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * What git tracks in `directory`, as `/`-separated paths from its root; empty
+ * where it is not a repository. An exclusion is about what exists only on the
+ * disk: a tracked path is in the history already, and leaving it out of a Child
+ * would make it a deletion there.
+ */
+export async function trackedPaths(directory: string): Promise<ReadonlySet<string>> {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", directory, "ls-files", "-z"], {
+      timeout: LS_FILES_TIMEOUT_MS,
+      maxBuffer: LS_FILES_MAX_BUFFER,
+      encoding: "utf8",
+    });
+    return new Set(stdout.split("\0").filter((path) => path.length > 0));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Whether `path` or anything below it is tracked. */
+function holdsTracked(path: string, tracked: ReadonlySet<string>): boolean {
+  if (tracked.has(path)) {
+    return true;
+  }
+  const prefix = `${path}/`;
+  for (const candidate of tracked) {
+    if (candidate.startsWith(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * What never leaves the Parent for a Child, unless a Project says otherwise:
@@ -24,6 +63,10 @@ export const DEFAULT_EXCLUDES: readonly string[] = [".env", ".env.*"];
  * cannot. Excluded paths are then removed from the Child; a clone shares
  * blocks that were already on the disk, so nothing was written in the clear
  * that was not there before.
+ *
+ * A path git tracks is never left out, whatever `exclude` says (see
+ * `trackedPaths`): it is in the history, so hiding it hides nothing, and its
+ * absence would read as a deletion in every check and in the fold.
  */
 export async function copyWorkingFiles(input: {
   from: string;
@@ -33,6 +76,7 @@ export async function copyWorkingFiles(input: {
   shouldStop: () => IsolationStop | undefined;
 }): Promise<void> {
   const exclude = input.exclude ?? DEFAULT_EXCLUDES;
+  const tracked = await trackedPaths(input.from);
   await throwIfStopped(input.shouldStop);
   const entries = await readdir(input.from, { withFileTypes: true });
   for (const entry of entries) {
@@ -40,7 +84,7 @@ export async function copyWorkingFiles(input: {
     if (input.skipGitAtRoot && entry.name === ".git") {
       continue;
     }
-    if (isExcluded(entry.name, exclude)) {
+    if (isExcluded(entry.name, exclude) && !holdsTracked(entry.name, tracked)) {
       continue;
     }
     const src = join(input.from, entry.name);
@@ -51,7 +95,7 @@ export async function copyWorkingFiles(input: {
       await copyEntry(src, dest, entry, input.shouldStop);
     }
   }
-  await pruneExcluded(input.to, input.to, exclude, input.shouldStop);
+  await pruneExcluded(input.to, input.to, exclude, tracked, input.shouldStop);
 }
 
 export async function wipeWorkingFiles(
@@ -150,12 +194,17 @@ async function copyEntry(
   throw new Error(`Cannot isolate "${src}": unsupported file type.`);
 }
 
-/** Remove from `directory` every path below `root` that `patterns` name. Never follows a link. */
+/**
+ * Remove from `directory` every path below `root` that `patterns` name, unless
+ * git tracks it or something under it. Never follows a link.
+ */
 async function pruneExcluded(
   root: string,
   directory: string,
   patterns: readonly string[],
+  tracked: ReadonlySet<string>,
   shouldStop: () => IsolationStop | undefined,
+  underExcluded = false,
 ): Promise<void> {
   if (patterns.length === 0) {
     return;
@@ -167,12 +216,15 @@ async function pruneExcluded(
     if (directory === root && entry.name === ".git") {
       continue;
     }
-    if (isExcluded(relative(root, path), patterns)) {
+    const shown = relative(root, path).split(sep).join("/");
+    // A directory kept for the tracked files in it still loses what git does not track.
+    const left = underExcluded || isExcluded(shown, patterns);
+    if (left && !holdsTracked(shown, tracked)) {
       await rm(path, { recursive: true, force: true });
       continue;
     }
     if (entry.isDirectory() && !(await lstat(path)).isSymbolicLink()) {
-      await pruneExcluded(root, path, patterns, shouldStop);
+      await pruneExcluded(root, path, patterns, tracked, shouldStop, left);
     }
   }
 }
