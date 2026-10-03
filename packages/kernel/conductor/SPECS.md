@@ -151,12 +151,18 @@ must not be `workLineStable`. Conductor does not create `workLineStable`.
 Physical layout is this package's private choice:
 
 ```
-<workspaceRoot>/<encoded-key>/feature
-<workspaceRoot>/<encoded-key>/subtask-<encoded-id>
+<workspaceRoot>/<key-segment>/feature
+<workspaceRoot>/<key-segment>/subtask-<id-segment>
 ```
 
-`<encoded-key>` and `<encoded-id>` are `encodeURIComponent` so `fake:42` is one
-path segment. Conductor never uses the raw key as a directory name.
+`<key-segment>` and `<id-segment>` are one safe path segment each: a name made
+of letters, digits, `.`, `_` and `-` is kept as it is; anything else becomes a
+readable slug plus the first 8 hex digits of the SHA-256 of the original, so
+`github:tilap/site#1` is `github-tilap-site-1-<hash>` and two keys never share a
+directory. There is no `%`: a workspace is where the Builder runs the
+project's own tools, and several (Vitest among them) refuse a path that looks
+URL-encoded. Conductor never uses the raw key as a directory name. A directory
+already declared on the WorkLedger keeps the path it was declared with.
 
 It **declares** that path on the WorkLedger, **then** calls `isolate`. After
 `integrate` of a Subtask returns `integrated`, it deletes the Subtask directory
