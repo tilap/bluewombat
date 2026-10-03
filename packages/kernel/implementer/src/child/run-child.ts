@@ -59,12 +59,54 @@ function keepEnd(text: string): string {
   return `[…${text.length - REPORT_KEEP_CHARS} characters cut]${text.slice(-REPORT_KEEP_CHARS)}`;
 }
 
+// A child leads its own process group, so one signal reaches everything it
+// started: a producer is `node producer` → `node agent` → the vendor CLI → its
+// shells, and killing only the first leaves the rest running, holding the pipes
+// open, until they end on their own. Windows has no groups; it keeps the plain kill.
+const OWN_GROUP = process.platform !== "win32";
+// A grandchild that left the group (setsid) can still hold a pipe. After a kill
+// the pipes are cut this long afterwards so the outcome is never waited for.
+const PIPE_GRACE_MS = 2_000;
+
+const liveChildren = new Set<ChildProcess>();
+let exitHookInstalled = false;
+
 function killProcessTree(child: ChildProcess): void {
+  if (OWN_GROUP && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+      return;
+    } catch {
+      // no such group: fall through to the child itself
+    }
+  }
   try {
     child.kill("SIGKILL");
   } catch {
     // already gone
   }
+}
+
+function killAndCut(child: ChildProcess): void {
+  killProcessTree(child);
+  setTimeout(() => {
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+  }, PIPE_GRACE_MS).unref();
+}
+
+// Own groups no longer share the terminal's Ctrl-C, nor die with this process by
+// accident: on the way out, nothing is left running.
+function installExitHook(): void {
+  if (exitHookInstalled || !OWN_GROUP) {
+    return;
+  }
+  exitHookInstalled = true;
+  process.on("exit", () => {
+    for (const child of liveChildren) {
+      killProcessTree(child);
+    }
+  });
 }
 
 /**
@@ -110,12 +152,16 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
         cwd: request.cwd,
         env: request.env,
         stdio: ["ignore", "pipe", "pipe"],
+        detached: OWN_GROUP,
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       finish({ kind: "spawn_error", detail });
       return;
     }
+
+    installExitHook();
+    liveChildren.add(child);
 
     if (!child.stdout || !child.stderr) {
       finish({ kind: "spawn_error", detail: "Child stdout/stderr pipes unavailable." });
@@ -135,7 +181,7 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
       }
       if (stdout.length + stderr.length + chunk.length > OUTPUT_LIMIT_CHARS) {
         overflowed = true;
-        killProcessTree(child);
+        killAndCut(child);
         return false;
       }
       return true;
@@ -158,13 +204,14 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     });
 
     child.on("error", (error) => {
+      liveChildren.delete(child);
       finish({ kind: "spawn_error", detail: error.message });
     });
 
     timer = setTimeout(
       () => {
         timedOut = true;
-        killProcessTree(child);
+        killAndCut(child);
       },
       Math.max(1, request.timeoutMs),
     );
@@ -172,16 +219,17 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     interruptPoll = setInterval(() => {
       if (request.shouldInterrupt()) {
         interrupted = true;
-        killProcessTree(child);
+        killAndCut(child);
       }
     }, 20);
 
     if (request.shouldInterrupt()) {
       interrupted = true;
-      killProcessTree(child);
+      killAndCut(child);
     }
 
     child.on("close", (exitCode, signal) => {
+      liveChildren.delete(child);
       const out = stdout;
       const err = stderr;
       if (overflowed) {
