@@ -486,6 +486,21 @@ is loud, but untried.
 
 ---
 
+### U15 · A report held the work for five minutes, cause unproved
+
+`packages/plugins/manager-github/src/github/client.ts` — `boundedFetch`; `packages/host/runtime/src/loop/report.ts` — `pushReport`
+
+On `tilap/orangemonkey-site#5` the "In progress" comment was posted five
+minutes after the Subtask it reports on landed; nothing else ran meanwhile,
+and the report is awaited where the work is. A silent connection is the
+likely cause (a plain request to the same API hung over two minutes that
+evening), a secondary rate-limit wait the other one; the journal could not
+tell. Each attempt now has a 30-second clock and is retried, and every report
+is filmed with its duration, so the next one shows. 30 seconds is a guess no
+measurement backs. **Instead**: reports off the critical path — queued and
+sent beside the work — would make any wait harmless, at the cost of ordering
+the tracker's comments by hand.
+
 ## I — Working, and worse than it could be
 
 ### I4 · `ci-green` polling has no backoff

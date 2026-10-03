@@ -14,6 +14,14 @@ import { throttling } from "@octokit/plugin-throttling";
 
 const GithubOctokit = Octokit.plugin(retry, throttling);
 
+/**
+ * How long one attempt may wait for GitHub to answer. Past it the attempt is a
+ * transport failure, which the retry plugin tries again. Without it, the only
+ * bound was the whole invocation's: a connection that went silent held a
+ * report — and the work waiting on it — for minutes.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 /** The authenticated channel. Injected, so a run is testable with no network. */
 export type GithubClient = InstanceType<typeof GithubOctokit>;
 
@@ -32,6 +40,8 @@ export type ClientOptions = {
   shouldInterrupt?: () => boolean;
   /** Replaces the network in tests. */
   fetch?: typeof globalThis.fetch;
+  /** One attempt's wait for an answer. Default {@link REQUEST_TIMEOUT_MS}. */
+  requestTimeoutMs?: number;
   /**
    * Space writes out the way GitHub asks, and wait out a rate limit. On by
    * default. Turning it off is a test seam: it also gives up the waiting, so a
@@ -67,8 +77,38 @@ export function createClient(options: ClientOptions): GithubClient {
       onSecondaryRateLimit: (retryAfter, _options, _octokit, retryCount) =>
         mayWait(retryAfter, retryCount),
     },
-    ...(options.fetch !== undefined ? { request: { fetch: options.fetch } } : {}),
+    request: {
+      fetch: boundedFetch(
+        options.fetch ?? globalThis.fetch,
+        options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+      ),
+    },
   });
+}
+
+/**
+ * Each attempt gets its own clock, on top of whatever bound the caller set.
+ *
+ * Run out, it fails the way a dropped connection does: the request layer
+ * passes an abort through untouched and the retry plugin only retries what that
+ * layer wrapped. A caller's own abort — the deadline, an interrupt — stays an
+ * abort, and is not retried.
+ */
+function boundedFetch(base: typeof globalThis.fetch, timeoutMs: number): typeof globalThis.fetch {
+  return async (input, init = {}) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    try {
+      return await base(input, { ...init, signal });
+    } catch (error) {
+      if (timeout.aborted && init.signal?.aborted !== true) {
+        throw new TypeError("fetch failed", {
+          cause: new Error(`GitHub did not answer within ${timeoutMs} ms`),
+        });
+      }
+      throw error;
+    }
+  };
 }
 
 export function trimBase(apiBase: string): string {

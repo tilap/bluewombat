@@ -102,6 +102,15 @@ account; commits are `commitAuthor`; pushes and fetches use the token. A copy
 made before `remote` changed (SSH to HTTPS, say) no longer matches: delete it
 and the next run clones again.
 
+## Talking to GitHub
+
+Every call goes through `src/github/client.ts`: `@octokit/core` with its retry
+and throttling plugins, under the invocation's own duration. Each attempt also
+has a clock of its own, 30 seconds (`REQUEST_TIMEOUT_MS`): a connection that
+goes silent fails as a transport error and is tried again, rather than holding
+the call — and the work waiting on it — until the invocation runs out. A stop
+or the invocation's deadline aborts the call and is not retried.
+
 ## Prepare the repository
 
 `mason setup` reads the config and says what the repository still needs;

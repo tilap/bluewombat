@@ -143,7 +143,9 @@ current Delivery.
 
 Each pass appends JSON lines to `<ledgerRoot>/events.jsonl` (listen, probed,
 Transformer progress, admitted, reported, queued, idle, a heartbeat while
-`submitted`). That file is a film, not truth: a crash may drop the last lines;
+`submitted`). Every report to the tracker is filmed with how long it took
+(`ms`): `reported` when the manager took it, `report-declined` when it did not
+(already said, or it failed). That file is a film, not truth: a crash may drop the last lines;
 the ledger is still right. `mason run` still writes a human Trace on stdout.
 The journal is how another process attaches.
 

@@ -244,9 +244,13 @@ describe("reporting after a pass", () => {
     assert.equal(reports[0]?.eventId, `${KEY}:planned:2026-09-06T10:00:00Z`);
     assert.equal(reports[0]?.eventId, reports[1]?.eventId);
     assert.equal(reports[0]?.fields.plan, "1. first\n2. second (after A)");
-    // A manager that declined is the one that decides: nothing is recorded.
+    // A manager that declined is the one that decides: nothing counts as said,
+    // only the attempt is filmed.
     assert.deepEqual(input.reported, []);
-    assert.deepEqual(journal, []);
+    assert.deepEqual(
+      journal.map((line) => line.event),
+      ["report-declined", "report-declined"],
+    );
   });
 
   it("says what landed in the Plan's own headline, and how far along that is", async () => {
@@ -559,17 +563,35 @@ describe("where a resumed feature picks up", () => {
   });
 });
 
+/** The journal lines with the measured duration left out: it is a clock, not a fact. */
+function withoutMs(lines: Record<string, unknown>[]): Record<string, unknown>[] {
+  return lines.map(({ ms: _ms, ...rest }) => rest);
+}
+
 describe("pushReport", () => {
   it("records an Event only once the manager took it", async () => {
     const taken = harness(true);
     await pushReport(taken.input, { event: "accepted", key: KEY, project: "proj", fields: {} });
     assert.deepEqual(taken.input.reported, ["accepted"]);
-    assert.deepEqual(taken.journal, [{ event: "reported", key: KEY, reported: "accepted" }]);
+    assert.deepEqual(withoutMs(taken.journal), [
+      { event: "reported", key: KEY, reported: "accepted" },
+    ]);
 
     const declined = harness(false);
     await pushReport(declined.input, { event: "accepted", key: KEY, project: "proj", fields: {} });
     assert.deepEqual(declined.input.reported, []);
-    assert.deepEqual(declined.journal, []);
+    assert.deepEqual(withoutMs(declined.journal), [
+      { event: "report-declined", key: KEY, reported: "accepted" },
+    ]);
+  });
+
+  it("says how long the tracker took, taken or not", async () => {
+    // A report once held the work for five minutes and the journal said nothing.
+    for (const took of [true, false]) {
+      const { input, journal } = harness(took);
+      await pushReport(input, { event: "accepted", key: KEY, project: "proj", fields: {} });
+      assert.equal(typeof journal[0]?.ms, "number");
+    }
   });
 });
 
