@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
 import type { PassSpec } from "../config/types.js";
+import { runSlot } from "./run-slot.js";
 
 /**
  * How a delivered feature describes itself is the Project's decision, not
@@ -32,14 +32,14 @@ export type Description = { subject: string; body?: string };
 
 export type DescribeAnswer = { ok: true; description: Description } | { ok: false; detail: string };
 
-export function describe(slot: PassSpec, input: DescribeInput): DescribeAnswer {
+export async function describe(slot: PassSpec, input: DescribeInput): Promise<DescribeAnswer> {
   const [command, ...rest] = slot.cmd;
   if (command === undefined) {
     return { ok: false, detail: "the Describer has no command" };
   }
-  const run = spawnSync(
+  const run = await runSlot({
     command,
-    [
+    args: [
       ...rest,
       "--id",
       input.id,
@@ -55,14 +55,15 @@ export function describe(slot: PassSpec, input: DescribeInput): DescribeAnswer {
       "--target",
       input.target,
     ],
-    { cwd: input.cwd, encoding: "utf8", timeout: slot.timeoutMs },
-  );
+    cwd: input.cwd,
+    timeoutMs: slot.timeoutMs,
+  });
   if (run.error !== undefined) {
     return { ok: false, detail: `Describer could not run: ${run.error.message}` };
   }
-  const answer = lastJsonLine(run.stdout ?? "");
+  const answer = lastJsonLine(run.stdout);
   if (answer === undefined) {
-    const detail = `${run.stderr ?? ""}`.trim().slice(-500);
+    const detail = run.stderr.trim().slice(-500);
     return { ok: false, detail: `Describer stdout is not a JSON object. ${detail}`.trim() };
   }
   const subject = typeof answer.subject === "string" ? answer.subject.trim() : "";

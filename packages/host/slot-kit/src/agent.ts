@@ -67,6 +67,8 @@ export type AgentInvocation = {
 export function runAgent({ file, args, cwd }: AgentInvocation): Promise<AgentRun> {
   return new Promise((resolve) => {
     const startedAt = new Date();
+    // process-tree:layer — started in this process's own group, never a group of
+    // its own: whoever supervises this slot ends the whole chain with one signal.
     const child = spawn(file, [...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
@@ -92,6 +94,8 @@ export function runAgent({ file, args, cwd }: AgentInvocation): Promise<AgentRun
       });
     };
     const stop = (): void => {
+      // process-tree:allow — a layer, in the supervisor's group: its signal
+      // reaches the shells below the agent. This is for a human's Ctrl-C.
       child.kill("SIGKILL");
     };
     process.on("SIGTERM", stop);

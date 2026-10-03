@@ -15,6 +15,12 @@ payload larger than the pipe buffer — a finished Cursor/Claude stream-json run
 used to reach the role as "The agent command wrote no result." Diagnostics on
 stderr use `writeDiagnostic` for the same reason.
 
+A slot is a **layer** in a chain it does not own: Implementer ends the chain
+(`node producer` → `node agent` → the vendor CLI → its shells) by killing the
+process group it started it in. The kit therefore starts nothing in a group of
+its own — a child that left it would outlive its ceiling. The rule and its
+check are in [`packages/README.md`](../../README.md).
+
 The behaviour a slot must have is specified where its caller is:
 [Implementer](../../kernel/implementer/SPECS.md) for Builders and Gates,
 [FeatureBreakdown](../../kernel/feature-breakdown/SPECS.md) for Planners.

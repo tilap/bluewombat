@@ -163,6 +163,7 @@ function collectStdout(
   cwd: string,
 ): Promise<{ ok: true; value: string } | { ok: false; reason: string }> {
   return new Promise((resolve) => {
+    // process-tree:layer — see agent.ts: no group of its own.
     const child = spawn(file, [...args], { cwd, stdio: ["ignore", "pipe", "inherit"] });
     let stdout = "";
     child.stdout?.setEncoding("utf8");

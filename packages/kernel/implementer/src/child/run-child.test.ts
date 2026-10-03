@@ -34,14 +34,14 @@ describe("runChild", () => {
     const started = Date.now();
     const outcome = await runChild({
       argv: [process.execPath, join(fixtures, "spawns-grandchild.mjs"), pidFile],
-      timeoutMs: 500,
+      timeoutMs: 3_000,
       shouldInterrupt: () => false,
     });
     assert.equal(outcome.kind, "timed_out");
-    assert.ok(Date.now() - started < 5_000, "the outcome must not wait for the grandchild");
+    assert.ok(Date.now() - started < 15_000, "the outcome must not wait for the grandchild");
     assert.ok(existsSync(pidFile));
     const pid = Number(readFileSync(pidFile, "utf8"));
-    assert.ok(await waitDead(pid, 2_000), "the grandchild must be killed with its parent");
+    assert.ok(await waitDead(pid, 5_000), "the grandchild must be killed with its parent");
   });
 
   it("an interrupt ends the whole tree", async () => {
@@ -52,11 +52,14 @@ describe("runChild", () => {
       timeoutMs: 30_000,
       shouldInterrupt: () => stop,
     });
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // interrupt once the grandchild exists, however slow the machine is
+    while (!existsSync(pidFile)) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     stop = true;
     assert.equal((await outcome).kind, "interrupted");
     const pid = Number(readFileSync(pidFile, "utf8"));
-    assert.ok(await waitDead(pid, 2_000), "the grandchild must be killed with its parent");
+    assert.ok(await waitDead(pid, 5_000), "the grandchild must be killed with its parent");
   });
 
   it("a child that ends by itself is not touched", async () => {

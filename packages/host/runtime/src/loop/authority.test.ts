@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { featureWorkspacePath } from "@bluewombat/conductor";
 import { strategy } from "@bluewombat/isolation-git";
 import type { ManagerPort, SubmissionRequest } from "@bluewombat/manager-kit";
 import { openAuthority, refreshWorkLine } from "./authority.js";
@@ -101,8 +102,8 @@ const GIT_REFRESHER = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../../../../plugins/slots/refreshers/git.mjs",
 );
-function refreshOn(copy: string) {
-  return refreshWorkLine({
+async function refreshOn(copy: string) {
+  return await refreshWorkLine({
     workLineStable: copy,
     workLineTarget: TARGET,
     refreshArgv: ["node", GIT_REFRESHER],
@@ -251,14 +252,14 @@ describe("the Authority against a real remote", () => {
     assert.equal(process.env.GIT_AUTHOR_NAME, undefined);
   });
 
-  it("hands the Refresher the same environment", () => {
+  it("hands the Refresher the same environment", async () => {
     const { copy } = remoteAndCopy();
     const echoing = join(mkdtempSync(join(tmpdir(), "refresher-")), "echo.mjs");
     writeFileSync(
       echoing,
       'console.log(JSON.stringify(process.env.GIT_AUTHOR_NAME === "mason" ? { ok: true } : { ok: false, reason: "no identity" }));',
     );
-    const refreshed = refreshWorkLine({
+    const refreshed = await refreshWorkLine({
       workLineStable: copy,
       workLineTarget: TARGET,
       refreshArgv: ["node", echoing],
@@ -271,7 +272,7 @@ describe("the Authority against a real remote", () => {
   it("asks the Describer for the work's own words, in the feature workspace, and offers them", async () => {
     const { copy } = remoteAndCopy();
     const root = mkdtempSync(join(tmpdir(), "workspaces-"));
-    const featureDir = join(root, encodeURIComponent("fake:42"), "feature");
+    const featureDir = featureWorkspacePath(root, "fake:42");
     mkdirSync(featureDir, { recursive: true });
     writeFileSync(join(featureDir, "marker.txt"), "");
     const slot = join(root, "describer.mjs");
@@ -383,13 +384,13 @@ describe("the Authority against a real remote", () => {
 });
 
 describe("bringing the work line copy up to date", () => {
-  it("fast-forwards to what the Authority holds", () => {
+  it("fast-forwards to what the Authority holds", async () => {
     const { remote, copy } = remoteAndCopy();
     const other = otherWorkingCopy(remote, TARGET);
     commit(other, "merged.txt", "folded\n");
     git(other, ["push", "-q", "origin", TARGET]);
 
-    const refreshed = refreshOn(copy);
+    const refreshed = await refreshOn(copy);
 
     assert.equal(refreshed.ok, true, refreshed.detail);
     // Left behind, the next Isolation starts from a version of the work line
@@ -397,14 +398,14 @@ describe("bringing the work line copy up to date", () => {
     assert.match(git(copy, ["log", "--oneline", TARGET]), /merged\.txt/);
   });
 
-  it("says so rather than rewrite a work line that diverged", () => {
+  it("says so rather than rewrite a work line that diverged", async () => {
     const { remote, copy } = remoteAndCopy();
     const other = otherWorkingCopy(remote, TARGET);
     commit(other, "theirs.txt", "theirs\n");
     git(other, ["push", "-q", "origin", TARGET]);
     commit(copy, "ours.txt", "ours\n");
 
-    const refreshed = refreshOn(copy);
+    const refreshed = await refreshOn(copy);
 
     assert.equal(refreshed.ok, false);
     // A person reading this needs the way out, not git's words alone.
@@ -415,9 +416,9 @@ describe("bringing the work line copy up to date", () => {
     assert.match(git(copy, ["log", "--oneline", TARGET]), /ours\.txt/);
   });
 
-  it("says git's words in English whatever the machine speaks", () => {
+  it("says git's words in English whatever the machine speaks", async () => {
     const { copy } = remoteAndCopy();
-    const refreshed = refreshWorkLine({
+    const refreshed = await refreshWorkLine({
       workLineStable: copy,
       workLineTarget: "nowhere",
       refreshArgv: ["node", GIT_REFRESHER],
@@ -429,9 +430,9 @@ describe("bringing the work line copy up to date", () => {
     assert.doesNotMatch(refreshed.detail ?? "", /impossible|distante/);
   });
 
-  it("has nothing to do when the work line is a plain directory", () => {
+  it("has nothing to do when the work line is a plain directory", async () => {
     const copy = mkdtempSync(join(tmpdir(), "authority-plain-"));
-    assert.deepEqual(refreshOn(copy), {
+    assert.deepEqual(await refreshOn(copy), {
       ok: true,
     });
   });

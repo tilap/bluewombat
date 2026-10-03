@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { ChildSink, ClockName } from "../types.js";
+import { killAndCut, ownGroup, track } from "./process-tree.js";
 
 const OUTPUT_TRUNCATE = 8_192;
 const OUTPUT_LIMIT_CHARS = 8 * 1024 * 1024;
@@ -57,14 +58,6 @@ function truncate(text: string): string {
   return `[…${text.length - OUTPUT_TRUNCATE} characters cut]${text.slice(-OUTPUT_TRUNCATE)}`;
 }
 
-function killProcessTree(child: ChildProcess): void {
-  try {
-    child.kill("SIGKILL");
-  } catch {
-    // already gone
-  }
-}
-
 /**
  * Run one child with a wall-clock timeout. Does not inherit FeatureBreakdown stdin.
  */
@@ -108,12 +101,15 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
         cwd: request.cwd,
         env: request.env,
         stdio: ["ignore", "pipe", "pipe"],
+        ...ownGroup(),
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       finish({ kind: "spawn_error", detail });
       return;
     }
+
+    track(child);
 
     if (!child.stdout || !child.stderr) {
       finish({ kind: "spawn_error", detail: "Child stdout/stderr pipes unavailable." });
@@ -133,7 +129,7 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
       }
       if (stdout.length + stderr.length + chunk.length > OUTPUT_LIMIT_CHARS) {
         overflowed = true;
-        killProcessTree(child);
+        killAndCut(child);
         return false;
       }
       return true;
@@ -162,7 +158,7 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     timer = setTimeout(
       () => {
         timedOut = true;
-        killProcessTree(child);
+        killAndCut(child);
       },
       Math.max(1, request.timeoutMs),
     );
@@ -170,13 +166,13 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     interruptPoll = setInterval(() => {
       if (request.shouldInterrupt()) {
         interrupted = true;
-        killProcessTree(child);
+        killAndCut(child);
       }
     }, 20);
 
     if (request.shouldInterrupt()) {
       interrupted = true;
-      killProcessTree(child);
+      killAndCut(child);
     }
 
     child.on("close", (exitCode, signal) => {
