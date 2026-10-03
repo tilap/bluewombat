@@ -123,6 +123,20 @@ async function destroy(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
+/**
+ * Where a feature's workspace is: the path the ledger declared when it was
+ * made, else the one the current layout gives. The declared path wins because a
+ * feature in flight — escalated, resumed — keeps its work and its git branch
+ * where they were; a layout that changed since must not strand them.
+ */
+function declaredFeaturePath(
+  workspaceRoot: string,
+  key: string,
+  aggregate: FeatureAggregate | undefined,
+): string {
+  return aggregate?.workspaces?.feature ?? featureWorkspacePath(workspaceRoot, key);
+}
+
 async function destroyOrphans(workspaceRoot: string, allowed: Set<string>): Promise<void> {
   if (!(await isDirectory(workspaceRoot))) {
     return;
@@ -331,11 +345,11 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   }
 
   async function ensureFeatureIsolated(key: string): Promise<ProjectRunResult | undefined> {
-    const child = featureWorkspacePath(workspaceRoot, key);
     const got = await ledger.get(key);
     if (!got.ok) {
       return refused("not-found");
     }
+    const child = declaredFeaturePath(workspaceRoot, key, got.aggregate);
     if (got.aggregate.workspaces?.feature === undefined) {
       const declared = await ledger.declareWorkspace({ key, feature: child });
       const failure = fromLedger(declared);
@@ -419,22 +433,32 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   }
 
   async function runOneSubtask(key: string, subtaskId: string): Promise<DriveResult> {
+    const before = await ledger.get(key);
     const started = await ledger.startSubtask({ key, subtaskId });
     const startFail = fromLedger(started);
     if (startFail !== undefined) {
       return startFail;
     }
     const child = subtaskWorkspacePath(workspaceRoot, key, subtaskId);
-    if (existsSync(child)) {
-      // Resume from zero: Isolator refuses an existing Child.
-      await destroy(child);
+    // Resume from zero: Isolator refuses an existing Child. A kept one may sit
+    // where an earlier layout put it; it goes too, or its branch stays taken.
+    const kept = before.ok ? before.aggregate.workspaces?.subtask : undefined;
+    for (const path of new Set([child, ...(kept === undefined ? [] : [kept])])) {
+      if (existsSync(path)) {
+        await destroy(path);
+      }
     }
     const declared = await ledger.declareWorkspace({ key, subtask: child });
     const declareFail = fromLedger(declared);
     if (declareFail !== undefined) {
       return declareFail;
     }
-    const parent = featureWorkspacePath(workspaceRoot, key);
+    const featureNow = await ledger.get(key);
+    const parent = declaredFeaturePath(
+      workspaceRoot,
+      key,
+      featureNow.ok ? featureNow.aggregate : undefined,
+    );
     const isolated = await transformers.isolate({
       // Scoped to the feature: a Subtask id is unique inside its plan and
       // nowhere else, so "A" alone would name every feature's first Subtask.
@@ -576,11 +600,11 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (pending !== undefined) {
       return pending;
     }
-    const featurePath = featureWorkspacePath(workspaceRoot, key);
     const got = await ledger.get(key);
     if (!got.ok) {
       return refused("not-found");
     }
+    const featurePath = declaredFeaturePath(workspaceRoot, key, got.aggregate);
     // A parked refusal is this round's; a Submission's is carried forward on
     // purpose and may already be repaired. The fresher one wins.
     const parked = got.aggregate.parked_refusal;
@@ -737,6 +761,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       project: aggregate.intention.project,
       ref: key,
       target: workLineTarget,
+      workspace: declaredFeaturePath(workspaceRoot, key, aggregate),
       ...(title === undefined ? {} : { title }),
       ...(intention === undefined ? {} : { intention }),
       ...(steps.length === 0 ? {} : { steps }),
@@ -772,7 +797,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       stage: "assembly",
       produce: false,
       intention: aggregate.intention.intention,
-      workspace: featureWorkspacePath(workspaceRoot, key),
+      workspace: declaredFeaturePath(workspaceRoot, key, aggregate),
     });
   }
 
@@ -785,7 +810,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (authority === undefined || submission === undefined) {
       return refused("transformer-invalid");
     }
-    const featurePath = featureWorkspacePath(workspaceRoot, key);
+    const featurePath = declaredFeaturePath(workspaceRoot, key, got.aggregate);
     const judged = await judge(key, got.aggregate);
     if (judged.outcome === "interrupted") {
       return refused("interrupted");
@@ -846,8 +871,8 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   }
 
   async function doMerging(key: string): Promise<ProjectRunResult> {
-    const featurePath = featureWorkspacePath(workspaceRoot, key);
     const got = await ledger.get(key);
+    const featurePath = declaredFeaturePath(workspaceRoot, key, got.ok ? got.aggregate : undefined);
     const title = got.ok
       ? (got.aggregate.intention.title ?? got.aggregate.intention.intention)
       : key;

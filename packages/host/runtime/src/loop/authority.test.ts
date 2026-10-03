@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { featureWorkspacePath } from "@bluewombat/conductor";
+import type { SubmitInput } from "@bluewombat/conductor";
 import { strategy } from "@bluewombat/isolation-git";
 import type { ManagerPort, SubmissionRequest } from "@bluewombat/manager-kit";
 import { openAuthority, refreshWorkLine } from "./authority.js";
@@ -116,7 +116,7 @@ function authorityOn(
   seen: SubmissionRequest[],
   publishArgv?: string[],
   env?: Record<string, string>,
-  describer?: { cmd: string[]; timeoutMs: number; workspaceRoot: string },
+  describer?: { cmd: string[]; timeoutMs: number },
 ) {
   const authority = openAuthority({
     manager: stubManager(seen),
@@ -130,15 +130,14 @@ function authorityOn(
       ? {}
       : {
           describe: { cmd: describer.cmd, timeoutMs: describer.timeoutMs },
-          workspaceRoot: describer.workspaceRoot,
         }),
   });
   assert.ok(authority !== undefined, "a manager with submit and fold is an Authority");
   return authority;
 }
 
-function offer(): SubmissionRequest {
-  return { key: "fake:42", project: "proj", ref: "fake:42", target: TARGET };
+function offer(workspace = "/not/read"): SubmitInput {
+  return { key: "fake:42", project: "proj", ref: "fake:42", target: TARGET, workspace };
 }
 
 describe("the Authority against a real remote", () => {
@@ -272,7 +271,8 @@ describe("the Authority against a real remote", () => {
   it("asks the Describer for the work's own words, in the feature workspace, and offers them", async () => {
     const { copy } = remoteAndCopy();
     const root = mkdtempSync(join(tmpdir(), "workspaces-"));
-    const featureDir = featureWorkspacePath(root, "fake:42");
+    // wherever the ledger declared it, not a path Host works out
+    const featureDir = join(root, "declared-elsewhere", "feature");
     mkdirSync(featureDir, { recursive: true });
     writeFileSync(join(featureDir, "marker.txt"), "");
     const slot = join(root, "describer.mjs");
@@ -291,8 +291,7 @@ describe("the Authority against a real remote", () => {
     const result = await authorityOn(copy, seen, undefined, undefined, {
       cmd: ["node", slot],
       timeoutMs: 60_000,
-      workspaceRoot: root,
-    }).submit(offer());
+    }).submit(offer(featureDir));
 
     assert.equal(result.outcome, "submitted");
     assert.deepEqual(seen[0]?.description, {

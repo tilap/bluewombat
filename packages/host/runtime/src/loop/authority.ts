@@ -1,5 +1,5 @@
 import type { AuthorityPort } from "@bluewombat/conductor";
-import { featureWorkspacePath, subjectOf } from "@bluewombat/conductor";
+import { subjectOf } from "@bluewombat/conductor";
 import type { ManagerPort, SubmissionRequest } from "@bluewombat/manager-kit";
 import type { PassSpec } from "../config/types.js";
 import { describe } from "./describe.js";
@@ -31,7 +31,6 @@ export function openAuthority(input: {
   env?: Record<string, string> | undefined;
   /** How the work describes itself, when the Project has a slot for it. */
   describe?: PassSpec | undefined;
-  workspaceRoot?: string | undefined;
   journal?: Journal | undefined;
 }): AuthorityPort | undefined {
   const { manager, workLineStable, workLineTarget, publishArgv, timeoutMs, refOf } = input;
@@ -68,13 +67,13 @@ export function openAuthority(input: {
       // them; the Authority puts them where its kind of Submission is read.
       // Asked in the feature workspace, where the whole change is.
       let description: SubmissionRequest["description"];
-      if (input.describe !== undefined && input.workspaceRoot !== undefined) {
+      if (input.describe !== undefined) {
         const asked = await describe(input.describe, {
           id: offer.key,
           title: offer.title ?? offer.key,
           intention: offer.intention ?? "",
           target: workLineTarget,
-          cwd: featureWorkspacePath(input.workspaceRoot, offer.key),
+          cwd: offer.workspace,
         });
         if (asked.ok) {
           description = asked.description;
@@ -82,8 +81,11 @@ export function openAuthority(input: {
           input.journal?.append({ event: "describe-skipped", id: offer.key, detail: asked.detail });
         }
       }
+      // The workspace is Host's own business: the manager is told what it
+      // can use — the published name — and never a path on this machine.
+      const { workspace: _local, ...request } = offer;
       const submitted = await submit({
-        ...offer,
+        ...request,
         ref: published.ref,
         target: workLineTarget,
         // What the Submission lists as its work: one line per Subtask, the way

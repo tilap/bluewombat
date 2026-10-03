@@ -209,7 +209,6 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
             options.authority.describeArgv === undefined
               ? undefined
               : { cmd: options.authority.describeArgv, timeoutMs: options.timeoutMs },
-          workspaceRoot: options.workspaceRoot,
           journal,
         })
       : undefined;

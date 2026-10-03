@@ -161,8 +161,15 @@ readable slug plus the first 8 hex digits of the SHA-256 of the original, so
 `github:tilap/site#1` is `github-tilap-site-1-<hash>` and two keys never share a
 directory. There is no `%`: a workspace is where the Builder runs the
 project's own tools, and several (Vitest among them) refuse a path that looks
-URL-encoded. Conductor never uses the raw key as a directory name. A directory
-already declared on the WorkLedger keeps the path it was declared with.
+URL-encoded. Conductor never uses the raw key as a directory name.
+
+**A declared path is the path.** Every step that needs the feature's workspace
+reads the one the WorkLedger declared for it and computes the layout's own only
+when none is declared, so a feature made under an earlier layout — escalated,
+then resumed — keeps its work and its branch where they are. A kept Subtask at
+an older path is destroyed with the one at the current path when it starts
+over, so its branch is free to be taken again. The Authority is handed the
+feature's workspace in `submit` (`workspace`), and works out nothing itself.
 
 It **declares** that path on the WorkLedger, **then** calls `isolate`. After
 `integrate` of a Subtask returns `integrated`, it deletes the Subtask directory
