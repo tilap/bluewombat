@@ -22,7 +22,7 @@ export type RunResult = {
 export type RunOptions = {
   invocation: Invocation;
   write?: ProgressWriter;
-  /** When set, polled for interrupt; otherwise process signals are used. */
+  /** Polled for interrupt; absent, never interrupted. Its owner — the CLI or a Host — flips it. */
   interruptFlag?: { interrupted: boolean };
   /** Working directory for spawned children. Undefined lets them inherit. */
   cwd?: string;

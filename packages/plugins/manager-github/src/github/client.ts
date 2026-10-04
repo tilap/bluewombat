@@ -4,15 +4,25 @@
  *
  * The transport is `@octokit/core` with its retry and throttling plugins — not
  * a hand-written HTTP client. What lives here is only what this package owes on
- * top of it: a token in one place, the wait budget of one invocation, and the
- * mapping from a failure to this package's own vocabulary.
+ * top of it: a token in one place, the wait budget of one invocation, the
+ * mapping from a failure to this package's own vocabulary, and — given a cache —
+ * reads that cost nothing when nothing changed.
  */
 
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
+import type { EtagCache } from "./etag-cache.js";
 
 const GithubOctokit = Octokit.plugin(retry, throttling);
+
+/**
+ * How long one attempt may wait for GitHub to answer. Past it the attempt is a
+ * transport failure, which the retry plugin tries again. Without it, the only
+ * bound was the whole invocation's: a connection that went silent held a
+ * report — and the work waiting on it — for minutes.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
 
 /** The authenticated channel. Injected, so a run is testable with no network. */
 export type GithubClient = InstanceType<typeof GithubOctokit>;
@@ -32,12 +42,20 @@ export type ClientOptions = {
   shouldInterrupt?: () => boolean;
   /** Replaces the network in tests. */
   fetch?: typeof globalThis.fetch;
+  /** One attempt's wait for an answer. Default {@link REQUEST_TIMEOUT_MS}. */
+  requestTimeoutMs?: number;
   /**
    * Space writes out the way GitHub asks, and wait out a rate limit. On by
    * default. Turning it off is a test seam: it also gives up the waiting, so a
    * real run must leave it alone.
    */
   throttle?: boolean;
+  /**
+   * Where the last answer to each GET is kept. Given, a read is sent with its
+   * `If-None-Match` and a 304 hands the kept answer back. Absent: every read
+   * is a full one.
+   */
+  etags?: EtagCache;
 };
 
 /**
@@ -56,7 +74,7 @@ export function createClient(options: ClientOptions): GithubClient {
     return now() + retryAfterSeconds * 1_000 < options.deadlineMs;
   };
 
-  return new GithubOctokit({
+  const client = new GithubOctokit({
     auth: options.token,
     baseUrl: trimBase(options.apiBase),
     userAgent: USER_AGENT,
@@ -67,8 +85,77 @@ export function createClient(options: ClientOptions): GithubClient {
       onSecondaryRateLimit: (retryAfter, _options, _octokit, retryCount) =>
         mayWait(retryAfter, retryCount),
     },
-    ...(options.fetch !== undefined ? { request: { fetch: options.fetch } } : {}),
+    request: {
+      fetch: boundedFetch(
+        options.fetch ?? globalThis.fetch,
+        options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+      ),
+    },
   });
+  if (options.etags !== undefined) {
+    readConditionally(client, options.etags);
+  }
+  return client;
+}
+
+/**
+ * Every GET asks GitHub whether its last answer still holds.
+ *
+ * A 304 with an Authorization header does not count against the token's
+ * budget (GitHub's REST best practices; measured on 2026-10-04: three 304s in a
+ * row left `x-ratelimit-used` where it was). The kept answer is returned whole,
+ * as the full read would have been: what a caller has not consumed yet is
+ * there again.
+ */
+function readConditionally(client: GithubClient, cache: EtagCache): void {
+  client.hook.wrap("request", async (request, options) => {
+    if (String(options.method).toUpperCase() !== "GET") {
+      return await request(options);
+    }
+    const url = client.request.endpoint(options).url;
+    const kept = cache.get(url);
+    if (kept !== undefined) {
+      options.headers = { ...options.headers, "if-none-match": kept.etag };
+    }
+    try {
+      const response = await request(options);
+      const etag = response.headers.etag;
+      if (typeof etag === "string" && etag.length > 0) {
+        cache.set(url, { etag, response });
+      }
+      return response;
+    } catch (error) {
+      if (kept !== undefined && statusOf(error) === 304) {
+        return kept.response as Awaited<ReturnType<typeof request>>;
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Each attempt gets its own clock, on top of whatever bound the caller set.
+ *
+ * Run out, it fails the way a dropped connection does: the request layer
+ * passes an abort through untouched and the retry plugin only retries what that
+ * layer wrapped. A caller's own abort — the deadline, an interrupt — stays an
+ * abort, and is not retried.
+ */
+function boundedFetch(base: typeof globalThis.fetch, timeoutMs: number): typeof globalThis.fetch {
+  return async (input, init = {}) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    try {
+      return await base(input, { ...init, signal });
+    } catch (error) {
+      if (timeout.aborted && init.signal?.aborted !== true) {
+        throw new TypeError("fetch failed", {
+          cause: new Error(`GitHub did not answer within ${timeoutMs} ms`),
+        });
+      }
+      throw error;
+    }
+  };
 }
 
 export function trimBase(apiBase: string): string {

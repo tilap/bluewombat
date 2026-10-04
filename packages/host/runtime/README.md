@@ -148,7 +148,7 @@ assembly:
 authority:
   enabled: false
 timeoutMs: 600000
-pollIntervalMs: 30000
+pollIntervalMs: 10000
 ```
 
 | Field                       | Meaning                                                                                                                                                                                                                  |
@@ -175,7 +175,7 @@ pollIntervalMs: 30000
 | `assembly.gates`            | Ordered checks on the assembled feature. Empty: the Authority judges alone                                                                                                                                               |
 | `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                         |
 | `maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `assembly.validate`, or by both — one shared budget. Default 3                                                                                 |
-| `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick                                                                                                                                                     |
+| `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick. Pick it with § Choosing `pollIntervalMs` — 10000 is the floor worth having                                                                       |
 | `observability.streams`     | `enabled`, `dir`, `keep`. Films what every child says, as it says it — one file per child under `<dir>/<feature>/`, named in the journal by a `stream-opened` line. `dir` resolves against the config file; default `<home>/streams`. `keep` is `stdout` / `stderr`, default both. Off unless `enabled` is true: a stream is the Project's own code and prompts in the clear |
 
 Every `cmd` is named where it is used, and nothing falls back to a neighbour: a
@@ -188,6 +188,69 @@ fold, with none). Its refusal is repaired by `assembly.fix` exactly as an
 Authority's is, and shares the same `maxRefusals` budget.
 
 Every tracker field lives in `managerOptions`. Host does not read them.
+
+### Choosing `pollIntervalMs`
+
+The sleep between two ticks, and nothing else. While a tick drives work — a
+Planner, a Builder, a validate — it runs to the end; the interval does not
+touch it. It only sets how long `mason run` takes to notice:
+
+- a new issue, or an edit to one;
+- that a Submission is ready to be judged: Host does not judge in the tick
+  that submitted (`docs/DECISIONS.md`, the Authority re-drive row), so on a
+  work line without CI the whole interval is waited for a Gate that answers in
+  two seconds;
+- a `ready`, or an issue closed to cancel.
+
+**What one tick costs**, with `@bluewombat/manager-github` (read in
+`src/loop/tick.ts` `runOnce`, `src/loop/probe.ts` `abandonGone`, the manager's
+`listen`). The manager reads conditionally (its README, § Talking to GitHub):
+a read whose answer did not change comes back 304, which does not count
+against the token's budget.
+
+| The tick                     | GitHub REST calls                                                   | Counted when nothing moved | Besides                     |
+| ---------------------------- | ------------------------------------------------------------------- | -------------------------- | --------------------------- |
+| Nothing to do                | 1: the issues updated since the Cursor, 100 per page                | 0 (304)                    | none: no fetch              |
+| A Feature in flight          | + 1 per Feature that can still be abandoned: is its issue still there | 0 (304)                  | a `git fetch` of the work line copy (not REST) |
+| A Feature `submitted`        | + the judgement: `ci-green` asks for the pull request, its check runs and its statuses (about 3) | about 3: `ci-green` is its own process and keeps no `etag` | |
+
+Reports to the tracker (a comment, a label move: 2 to 4 calls each) happen
+when the work moves, not per tick, and each changes the listing: the read
+after a report is a full one.
+
+**The budget.** A personal access token has 5,000 REST calls an hour
+(GitHub's primary rate limit). It is shared by every caller using that token:
+the reports, `ci-green`, `gh`, and every other Mason home pointed at it.
+
+| `pollIntervalMs` | Idle, nothing moved | A Feature `submitted` (about 3 counted a tick) | Worst case, every read changed (about 5) |
+| ---------------- | ------------------- | ---------------------------------------------- | ---------------------------------------- |
+| 30000            | ~0 /h               | 360 /h (7 %)                                   | 600 /h (12 %)                            |
+| 15000            | ~0 /h               | 720 /h (14 %)                                  | 1,200 /h (24 %)                          |
+| **10000**        | **~0 /h**           | **1,080 /h (22 %)**                            | **1,800 /h (36 %)**                      |
+| 5000             | ~0 /h               | 2,160 /h (43 %)                                | 3,600 /h (72 %): too close               |
+
+Measured idle: about 12 ticks at 10 s cost one counted call, the first full
+listing. Without conditional reads an idle tick counted one call (360 /h at
+10 s).
+
+**The floor.** An idle tick takes 1 to 1.5 s, almost all of it the `listen`
+call (measured on `tilap/orangemonkey-site`, October 2026). Below 2 to 3 s
+the loop never sleeps. Below 10 s nothing a person notices is gained: a
+Feature takes minutes, and 10 s against 30 s saves about 20 s per Feature,
+mostly the post-Submission wait (30 s of a 5 min 40 s run, measured). Going
+lower spends the token while a Feature is submitted, for seconds nobody
+notices.
+
+**So:** 10000 for one Mason home on a token. Idle no longer spends the
+budget, so the quota is not what holds the floor: usefulness is, and a
+submitted Feature still is (its judgement counts). Several homes on the same
+token add up: multiply the `submitted` and worst-case columns by their count
+and stay under half the budget. The journal is not a reason either way: quiet
+ticks are folded into one `idle` line a minute (`src/loop/journal.ts`).
+
+A work line with CI is not waited for by this interval: `ci-green` polls the
+checks inside its own Gate, every `--poll-ms` (15 s by default), until they
+settle or its timeout ends the attempt.
 
 ## Slots
 

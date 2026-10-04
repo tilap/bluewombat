@@ -41,6 +41,13 @@ run` before it isolates anything. The copy reads no `.gitignore`: what git
 ignores is very often exactly what a Builder needs (its dependencies, the
 Project's own agent configuration).
 
+**A path git tracks is never left out**, whatever the list says. An exclusion is
+about what exists only on the disk: a tracked path is in the history already, so
+hiding it hides nothing, and its absence from the Child would read as a deletion
+— to the checks on the Parent and to the fold. A tracked `.env.example` stays;
+an untracked `.env` goes. Under a directory the list names, the tracked files
+stay and the rest goes.
+
 Each root entry is copied by `cp` — `-c` on macOS, `--reflink=auto` elsewhere
 — so on a file system that clones (APFS, btrfs, XFS) the Child shares its
 bytes with the Parent instead of doubling them; where `cp` cannot, the entry

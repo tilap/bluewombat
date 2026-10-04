@@ -176,6 +176,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     isolation: resolved.strategy.isolation,
     fold: resolved.strategy.fold,
     timeoutMs: options.timeoutMs,
+    interruptFlag,
     maxUnits: DEFAULT_MAX_UNITS,
     maxFeatureBytes: DEFAULT_MAX_FEATURE_BYTES,
   });
@@ -209,7 +210,6 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
             options.authority.describeArgv === undefined
               ? undefined
               : { cmd: options.authority.describeArgv, timeoutMs: options.timeoutMs },
-          workspaceRoot: options.workspaceRoot,
           journal,
         })
       : undefined;

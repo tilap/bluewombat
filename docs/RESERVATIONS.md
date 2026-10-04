@@ -277,7 +277,9 @@ though the tracker already says `mason:done` on it and the work is merged.
 were already merged, and would have opened a pull request for each.
 
 *Mitigated:* the GitHub listener no longer delivers an issue that
-already carries the `done` state label, unless the resume signal is on it too.
+already carries the `done` or `cancelled` state label, unless the resume signal
+is on it too (`settled.ts`). `cancelled` was added after a fresh Mason home took
+up an abandoned issue and started planning it.
 The WorkLedger stays the source of truth; the tracker's own memory is now read
 as a guard against rebuilding what is already merged. It only works when
 `stateLabelPrefix` is set, and a tracker with no state of its own has no such
@@ -375,6 +377,39 @@ history (DECISIONS), which closes the way this happened, not the class.
 **Instead:** publish one commit per Submission — the feature's tree on the
 work line's head — rather than the workspace's history; or refuse, before the
 push, a branch whose history holds what its tip does not.
+
+### F28 · A SIGKILL on `mason run` leaves its children running
+
+`scripts/templates/process-tree.ts` — `track`
+
+Every supervised child leads a group of its own, so it no longer shares the
+terminal's Ctrl-C. Their only reaper is the `exit` hook of the process that
+started them, and a SIGKILL runs no hook: an agent at work, and what it
+started, run on until they end by themselves. SIGINT / SIGTERM end them (seen
+for real: an assembly fix and its `pnpm test`, gone within a second). Nothing
+in a process can survive its own SIGKILL; only an outside reaper — a
+supervisor around `mason run`, or a sweep of `.mason/` at start-up — could.
+
+### F29 · A killed Attempt leaves no transcript
+
+`packages/host/slot-kit/src/transcript.ts` — `openTranscript`
+
+The page is written once, when the agent returns. An agent killed at its
+ceiling or by an interrupt never returns, so the Attempt worth reading most
+has no transcript. With `observability.streams` on, its raw output is filmed
+as it arrives and covers the gap; off — the default — nothing is kept.
+
+### F30 · The walk down the tree has two ways out
+
+`scripts/templates/process-tree.ts` — `descendants`, `killTree`
+
+A kill reads the descendants from `ps -A -o pid=,ppid=` before signalling and
+kills each one as well as the group: cursor-agent starts each shell command in
+a group of its own, out of the group kill's reach (seen: `pnpm test` → vitest,
+ended with the agent on an interrupt). Two escapes remain by construction: a
+process started between the `ps` read and the kill, and one that daemonised —
+re-parented to init — before it. **Instead**: a per-run cgroup (Linux) or a
+job object (Windows) would hold every descendant; neither is portable.
 
 ## U — Never run against the real thing
 
@@ -486,6 +521,21 @@ is loud, but untried.
 
 ---
 
+### U15 · A report held the work for five minutes, cause unproved
+
+`packages/plugins/manager-github/src/github/client.ts` — `boundedFetch`; `packages/host/runtime/src/loop/report.ts` — `pushReport`
+
+On `tilap/orangemonkey-site#5` the "In progress" comment was posted five
+minutes after the Subtask it reports on landed; nothing else ran meanwhile,
+and the report is awaited where the work is. A silent connection is the
+likely cause (a plain request to the same API hung over two minutes that
+evening), a secondary rate-limit wait the other one; the journal could not
+tell. Each attempt now has a 30-second clock and is retried, and every report
+is filmed with its duration, so the next one shows. 30 seconds is a guess no
+measurement backs. **Instead**: reports off the critical path — queued and
+sent beside the work — would make any wait harmless, at the cost of ordering
+the tracker's comments by hand.
+
 ## I — Working, and worse than it could be
 
 ### I4 · `ci-green` polling has no backoff
@@ -514,12 +564,11 @@ repositories duplicates them.
 
 `packages/kernel/*/src/child/run-child.ts`, `packages/kernel/work-ledger/src/ledger/open-work-ledger.ts` (`listDeclaredWorkspaces`)
 
-The four Transformer `run-child` copies now share Implementer's 8 MiB flood
-kill. They still poll `shouldInterrupt` every 20 ms and `kill("SIGKILL")` the
-direct child only — not a process group. Changing `IsolationBackend` /
-`FoldBackend` to take `AbortSignal`, or spawning `detached` to kill a tree,
-would change packages that implement those backends (`packages/plugins/isolation-*`).
-Not done from `packages/kernel/` alone.
+The four Transformer `run-child` copies share Implementer's 8 MiB flood kill
+and end the child's whole tree through `process-tree.ts`. They still poll
+`shouldInterrupt` every 20 ms. Changing `IsolationBackend` / `FoldBackend` to
+take an `AbortSignal` would change packages that implement those backends
+(`packages/plugins/isolation-*`). Not done from `packages/kernel/` alone.
 
 `listDeclaredWorkspaces` still `load`s every Feature after `listSummaries`.
 Putting workspace paths on `FeatureSummary` would require both persistence

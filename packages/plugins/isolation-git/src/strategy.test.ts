@@ -156,16 +156,22 @@ describe("isolation-git strategy", () => {
 });
 
 describe("what a Child does not get", () => {
-  it("leaves .env and .env.* behind by default, at any depth, and keeps the rest", async () => {
+  it("leaves untracked .env and .env.* behind by default, at any depth, and keeps the rest", async () => {
     const { parent, root } = gitParent({
       "a.txt": "tracked",
+      "env.txt": "not a secret",
+      "packages/api/index.js": "export {}",
+    });
+    // On disk only: what a Builder must not read.
+    for (const [path, text] of Object.entries({
       ".env": "SECRET=1",
       ".env.local": "SECRET=2",
-      "env.txt": "not a secret",
       "packages/api/.env": "SECRET=3",
-      "packages/api/index.js": "export {}",
       "docs/.env.example": "SECRET=",
-    });
+    })) {
+      mkdirSync(dirname(join(parent, path)), { recursive: true });
+      writeFileSync(join(parent, path), text);
+    }
     const child = join(root, "child");
     const result = await runIsolator({
       backend: strategy.isolation,
@@ -183,17 +189,51 @@ describe("what a Child does not get", () => {
     assert.equal(readFileSync(join(parent, ".env"), "utf8"), "SECRET=1");
   });
 
+  it("never leaves out a path git tracks: it would read as a deletion", async () => {
+    const { parent, root } = gitParent({
+      "a.txt": "tracked",
+      ".env.example": "SECRET=",
+      "packages/api/.env.example": "SECRET=",
+      "vendor/lib.js": "tracked inside an excluded directory",
+    });
+    writeFileSync(join(parent, ".env"), "SECRET=1");
+    writeFileSync(join(parent, "vendor/stray.js"), "untracked inside it");
+    const made = createStrategy({ exclude: [".env", ".env.*", "vendor"] });
+    assert.ok(made.ok, made.ok ? "" : made.reason);
+    const child = join(root, "child");
+    const result = await runIsolator({
+      backend: made.strategy.isolation,
+      invocation: { id: "feat-5", parent, child, durationMs: 30_000 },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "isolated");
+    assert.equal(existsSync(join(child, ".env")), false);
+    assert.equal(existsSync(join(child, "vendor/stray.js")), false);
+    for (const kept of [".env.example", "packages/api/.env.example", "vendor/lib.js"]) {
+      assert.equal(existsSync(join(child, kept)), true, kept);
+    }
+    // The Child is clean: nothing it was given reads as a change to the history.
+    const status = execFileSync("git", ["status", "--porcelain"], { cwd: child, encoding: "utf8" });
+    assert.equal(status.trim(), "");
+  });
+
   it("takes the Project's own list in place of the default", async () => {
     const made = createStrategy({ exclude: ["node_modules", "**/*.log", "build/out"] });
     assert.ok(made.ok, made.ok ? "" : made.reason);
     const { parent, root } = gitParent({
       "a.txt": "tracked",
       ".env": "kept now",
+      "build/keep": "source",
+    });
+    // What a build leaves on disk, untracked.
+    for (const [path, text] of Object.entries({
       "node_modules/dep/index.js": "x",
       "deep/er/run.log": "log",
       "build/out": "artefact",
-      "build/keep": "source",
-    });
+    })) {
+      mkdirSync(dirname(join(parent, path)), { recursive: true });
+      writeFileSync(join(parent, path), text);
+    }
     const child = join(root, "child");
     const result = await runIsolator({
       backend: made.strategy.isolation,

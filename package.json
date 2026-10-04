@@ -17,7 +17,7 @@
     "dev:link": "npm run build && npm link --workspace @bluewombat/runtime --workspace @bluewombat/manager-fake --workspace @bluewombat/manager-github --workspace @bluewombat/slots",
     "dev:unlink": "npm unlink --global @bluewombat/runtime @bluewombat/manager-fake @bluewombat/manager-github @bluewombat/slots",
     "test": "turbo run test",
-    "lint": "biome check scripts && node scripts/check-kernel.mjs && node scripts/check-host.mjs && node scripts/check-plugins.mjs && node scripts/check-name.mjs && turbo run lint",
+    "lint": "biome check scripts && node scripts/check-kernel.mjs && node scripts/check-host.mjs && node scripts/check-plugins.mjs && node scripts/check-name.mjs && node scripts/check-process-tree.mjs && turbo run lint",
     "format": "biome check --write scripts && turbo run format",
     "tsc": "turbo run tsc",
     "version:set": "node scripts/release.mjs set",

@@ -369,6 +369,9 @@ export async function pushReport(
   if (report.eventId !== undefined && input.said?.has(report.eventId)) {
     return;
   }
+  // How long the tracker took, kept either way: a report is awaited where the
+  // work is, and one that hung for minutes looked like nothing at all.
+  const started = Date.now();
   const ok = await input.manager.report({
     event: report.event,
     key: report.key,
@@ -376,12 +379,15 @@ export async function pushReport(
     fields: report.fields,
     ...(report.eventId === undefined ? {} : { eventId: report.eventId }),
   });
-  if (ok) {
-    input.reported.push(report.event);
-    input.journal.append({ event: "reported", key: report.key, reported: report.event });
-    if (report.eventId !== undefined) {
-      input.said?.add(report.eventId);
-    }
+  const ms = Date.now() - started;
+  if (!ok) {
+    input.journal.append({ event: "report-declined", key: report.key, reported: report.event, ms });
+    return;
+  }
+  input.reported.push(report.event);
+  input.journal.append({ event: "reported", key: report.key, reported: report.event, ms });
+  if (report.eventId !== undefined) {
+    input.said?.add(report.eventId);
   }
 }
 

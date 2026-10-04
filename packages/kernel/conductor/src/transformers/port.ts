@@ -150,6 +150,8 @@ export type SubmitInput = {
   ref: string;
   /** The work line it is offered to. */
   target: string;
+  /** The feature's workspace, where the whole change is: absolute. */
+  workspace: string;
   title?: string;
   intention?: string;
   /** The Plan's Subtasks, in order — what the Submission is made of. */

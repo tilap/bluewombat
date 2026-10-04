@@ -102,6 +102,34 @@ account; commits are `commitAuthor`; pushes and fetches use the token. A copy
 made before `remote` changed (SSH to HTTPS, say) no longer matches: delete it
 and the next run clones again.
 
+## Talking to GitHub
+
+Every call goes through `src/github/client.ts`: `@octokit/core` with its retry
+and throttling plugins, under the invocation's own duration. Each attempt also
+has a clock of its own, 30 seconds (`REQUEST_TIMEOUT_MS`): a connection that
+goes silent fails as a transport error and is tried again, rather than holding
+the call — and the work waiting on it — until the invocation runs out. A stop
+or the invocation's deadline aborts the call and is not retried.
+
+Reads are conditional. The manager keeps, for its whole life — one `mason
+run` — the last answer to each GET URL with its `etag`
+(`src/github/etag-cache.ts`, the 64 most recently used). The next read of that
+URL sends `If-None-Match`; when GitHub answers 304, the kept answer is handed
+back whole, as the full read would have been. A 304 sent with an
+Authorization header does not count against the token's hourly budget
+(GitHub's [REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api);
+measured: three 304s in a row left `x-ratelimit-used` unchanged). So a tick
+where nothing moved on the watched issues — the listing, a probe of a Feature
+in flight — costs a round trip and no budget. Handing the answer back rather
+than reading a 304 as "nothing" matters: when Host did not commit its Cursor,
+the same listing is asked again and the issues not consumed yet must come back.
+
+What it does not change: the latency of a read (a 304 is still a round trip),
+and anything outside this manager — `ci-green` is its own process, run once
+per judgement, with nothing to remember an `etag` in. Anything this manager
+writes on an issue (a comment, a label) changes the listing, so the next read
+after a report is a full one.
+
 ## Prepare the repository
 
 `mason setup` reads the config and says what the repository still needs;

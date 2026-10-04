@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -320,6 +320,56 @@ describe("openConductor", () => {
     assert.equal(afterDone.ok && afterDone.aggregate.state, "done");
     const tooLate = await conductor2.cancel("fake:merge");
     assert.deepEqual(tooLate, { ok: false, code: "point-of-no-return" });
+  });
+
+  it("7b. a feature declared under an earlier layout keeps its workspace, and its kept Subtask is replaced", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
+    await ledger.admit(feature());
+    // How workspaces were named before: encodeURIComponent of the key.
+    const legacyFeature = join(root, "fake%3A42", "feature");
+    const legacySubtask = join(root, "fake%3A42", "subtask-A");
+    for (const dir of [legacyFeature, legacySubtask]) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(join(legacyFeature, "work.txt"), "kept");
+    writeFileSync(join(legacySubtask, "stale.txt"), "gone");
+    await ledger.declareWorkspace({
+      key: "fake:42",
+      feature: legacyFeature,
+      subtask: legacySubtask,
+    });
+    const { transformers, calls } = recordingTransformers();
+    const offered: string[] = [];
+    const authority: AuthorityPort = {
+      async submit(input) {
+        offered.push(input.workspace);
+        return { outcome: "submitted", reference: "r" };
+      },
+      async fold() {
+        return { outcome: "folded" };
+      },
+    };
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority,
+    });
+    await conductor.runProject("proj");
+
+    const featureAsked = featureWorkspacePath(root, "fake:42");
+    assert.notEqual(featureAsked, legacyFeature);
+    assert.equal(existsSync(featureAsked), false, "no second feature workspace is made");
+    assert.equal(readFileSync(join(legacyFeature, "work.txt"), "utf8"), "kept");
+    const isolations = calls.filter((c) => c.op === "isolate");
+    assert.ok(isolations.every((c) => c.child !== featureAsked));
+    const subtaskIsolation = isolations.find((c) => c.id === "fake:42:A");
+    assert.equal(subtaskIsolation?.parent, legacyFeature);
+    assert.equal(subtaskIsolation?.child, subtaskWorkspacePath(root, "fake:42", "A"));
+    assert.equal(existsSync(legacySubtask), false, "the kept Subtask at the old path is replaced");
+    assert.deepEqual(offered, [legacyFeature], "the Authority is told where the work is");
   });
 
   it("8. reconcile destroys undeclared directories under workspaceRoot, never WorkLineStable", async () => {

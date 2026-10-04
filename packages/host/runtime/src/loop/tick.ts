@@ -77,7 +77,7 @@ export async function runOnce(input: HostRunInput): Promise<HostTickResult> {
   const pendingBefore = await pendingWork(ledger);
   const somethingToDrive = listened.deliveries.length > 0 || pendingBefore.length > 0;
   if (somethingToDrive && authority !== undefined && workLine.target !== undefined) {
-    const refreshed = refreshWorkLine({
+    const refreshed = await refreshWorkLine({
       workLineStable: workLine.stable,
       workLineTarget: workLine.target,
       refreshArgv: options.authority?.refreshArgv ?? [],

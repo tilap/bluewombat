@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { killAndCut, ownGroup, track } from "../../process-tree.js";
 
 export type FetchResult =
   | { kind: "merged"; object: Record<string, unknown> }
@@ -57,7 +58,8 @@ export function runFetch(request: FetchRequest): Promise<FetchResult> {
 
     let child: ChildProcess;
     try {
-      child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], ...ownGroup() });
+      track(child);
     } catch (error) {
       finish({
         kind: "unavailable",
@@ -82,7 +84,7 @@ export function runFetch(request: FetchRequest): Promise<FetchResult> {
     timer = setTimeout(
       () => {
         timedOut = true;
-        kill(child);
+        killAndCut(child);
       },
       Math.max(1, request.timeoutMs),
     );
@@ -90,7 +92,7 @@ export function runFetch(request: FetchRequest): Promise<FetchResult> {
     interruptPoll = setInterval(() => {
       if (request.shouldInterrupt()) {
         interrupted = true;
-        kill(child);
+        killAndCut(child);
       }
     }, 20);
 
@@ -149,12 +151,4 @@ function tailOf(text: string): string {
     return flat;
   }
   return flat.slice(-200);
-}
-
-function kill(child: ChildProcess): void {
-  try {
-    child.kill("SIGKILL");
-  } catch {
-    // already gone
-  }
 }

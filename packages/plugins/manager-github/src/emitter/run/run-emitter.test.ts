@@ -143,6 +143,41 @@ describe("runEmitter", () => {
     );
   });
 
+  it("puts the state label back on a duplicate, without saying it twice", async () => {
+    // A fresh ledger re-admitted a cancelled issue: `accepted` moved the label,
+    // and the cancel that followed was already in the Thread.
+    const marker = renderMarker({ event_id: "github:tilap/mason#42:cancelled" });
+    const { github, calls } = targetOf((call) => {
+      if (call.method === "GET" && call.url.includes("/comments")) {
+        return { status: 200, body: [{ body: `x ${marker}` }] };
+      }
+      if (call.method === "GET" && call.url.includes("/labels")) {
+        return { status: 200, body: [{ name: "mason:accepted" }] };
+      }
+      return undefined;
+    });
+    const { write } = collect();
+
+    const result = await runEmitter({
+      invocation: invocation({
+        event: "cancelled",
+        fields: { state: "planning" },
+        eventId: "github:tilap/mason#42:cancelled",
+        labelPrefix: "mason:",
+      }),
+      github,
+      write,
+    });
+
+    assert.equal(result.outcome, "duplicate");
+    assert.equal(
+      calls.some((call) => call.method === "POST" && call.url.endsWith("/comments")),
+      false,
+    );
+    const added = calls.find((call) => call.method === "POST" && call.url.endsWith("/labels"));
+    assert.deepEqual(added?.body, { labels: ["mason:cancelled"] });
+  });
+
   it("appends when --event-id is new", async () => {
     const { github, calls } = targetOf();
     const { write } = collect();

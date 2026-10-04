@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { killAndCut, ownGroup, track } from "./process-tree.js";
 
 const OUTPUT_TRUNCATE = 8_192;
 
@@ -68,14 +69,6 @@ function truncate(text: string): string {
   return `[…${text.length - OUTPUT_TRUNCATE} characters cut]${text.slice(-OUTPUT_TRUNCATE)}`;
 }
 
-function killProcessTree(child: ChildProcess): void {
-  try {
-    child.kill("SIGKILL");
-  } catch {
-    // already gone
-  }
-}
-
 /**
  * Run one child with a wall-clock timeout. Does not inherit the caller's stdin.
  */
@@ -115,12 +108,15 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
         cwd: request.cwd,
         env: childEnv(request),
         stdio: ["ignore", "pipe", "pipe"],
+        ...ownGroup(),
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       finish({ kind: "spawn_error", detail });
       return;
     }
+
+    track(child);
 
     if (!child.stdout || !child.stderr) {
       finish({ kind: "spawn_error", detail: "Child stdout/stderr pipes unavailable." });
@@ -143,7 +139,7 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     timer = setTimeout(
       () => {
         timedOut = true;
-        killProcessTree(child);
+        killAndCut(child);
       },
       Math.max(1, request.timeoutMs),
     );
@@ -151,13 +147,13 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     interruptPoll = setInterval(() => {
       if (request.shouldInterrupt()) {
         interrupted = true;
-        killProcessTree(child);
+        killAndCut(child);
       }
     }, 20);
 
     if (request.shouldInterrupt()) {
       interrupted = true;
-      killProcessTree(child);
+      killAndCut(child);
     }
 
     child.on("close", (exitCode, signal) => {

@@ -1,10 +1,10 @@
-import { spawnSync } from "node:child_process";
 import type { AuthorityPort } from "@bluewombat/conductor";
-import { featureWorkspacePath, subjectOf } from "@bluewombat/conductor";
+import { subjectOf } from "@bluewombat/conductor";
 import type { ManagerPort, SubmissionRequest } from "@bluewombat/manager-kit";
 import type { PassSpec } from "../config/types.js";
 import { describe } from "./describe.js";
 import type { Journal } from "./journal.js";
+import { runSlot } from "./run-slot.js";
 
 /**
  * The Authority, as Host wires it.
@@ -31,7 +31,6 @@ export function openAuthority(input: {
   env?: Record<string, string> | undefined;
   /** How the work describes itself, when the Project has a slot for it. */
   describe?: PassSpec | undefined;
-  workspaceRoot?: string | undefined;
   journal?: Journal | undefined;
 }): AuthorityPort | undefined {
   const { manager, workLineStable, workLineTarget, publishArgv, timeoutMs, refOf } = input;
@@ -46,7 +45,7 @@ export function openAuthority(input: {
       // The name the strategy gave this feature's Child. What the Publisher
       // does with it — push it, copy it, upload it — is the Publisher's business.
       const ref = refOf(offer.ref);
-      const published = publish({
+      const published = await publish({
         argv: publishArgv,
         cwd: workLineStable,
         id: offer.key,
@@ -68,13 +67,13 @@ export function openAuthority(input: {
       // them; the Authority puts them where its kind of Submission is read.
       // Asked in the feature workspace, where the whole change is.
       let description: SubmissionRequest["description"];
-      if (input.describe !== undefined && input.workspaceRoot !== undefined) {
-        const asked = describe(input.describe, {
+      if (input.describe !== undefined) {
+        const asked = await describe(input.describe, {
           id: offer.key,
           title: offer.title ?? offer.key,
           intention: offer.intention ?? "",
           target: workLineTarget,
-          cwd: featureWorkspacePath(input.workspaceRoot, offer.key),
+          cwd: offer.workspace,
         });
         if (asked.ok) {
           description = asked.description;
@@ -82,8 +81,11 @@ export function openAuthority(input: {
           input.journal?.append({ event: "describe-skipped", id: offer.key, detail: asked.detail });
         }
       }
+      // The workspace is Host's own business: the manager is told what it
+      // can use — the published name — and never a path on this machine.
+      const { workspace: _local, ...request } = offer;
       const submitted = await submit({
-        ...offer,
+        ...request,
         ref: published.ref,
         target: workLineTarget,
         // What the Submission lists as its work: one line per Subtask, the way
@@ -116,7 +118,7 @@ type Published = { ok: true; ref: string } | { ok: false; reason: string };
  * that cannot run at all is a refusal like any other here — the Submission does
  * not happen, the reason reaches the tracker, and the next pass tries again.
  */
-function publish(input: {
+async function publish(input: {
   argv: string[];
   cwd: string;
   id: string;
@@ -124,27 +126,24 @@ function publish(input: {
   target: string;
   timeoutMs: number;
   env?: Record<string, string> | undefined;
-}): Published {
+}): Promise<Published> {
   const [command, ...rest] = input.argv;
   if (command === undefined) {
     return { ok: false, reason: "No Publisher is configured, so nothing can be submitted." };
   }
-  const run = spawnSync(
+  const run = await runSlot({
     command,
-    [...rest, "--id", input.id, "--ref", input.ref, "--target", input.target],
-    {
-      cwd: input.cwd,
-      encoding: "utf8",
-      timeout: input.timeoutMs,
-      env: { ...process.env, ...input.env },
-    },
-  );
+    args: [...rest, "--id", input.id, "--ref", input.ref, "--target", input.target],
+    cwd: input.cwd,
+    timeoutMs: input.timeoutMs,
+    env: { ...process.env, ...input.env },
+  });
   if (run.error !== undefined) {
     return { ok: false, reason: `Publisher could not run: ${run.error.message}` };
   }
-  const answer = lastJsonLine(run.stdout ?? "");
+  const answer = lastJsonLine(run.stdout);
   if (answer === undefined) {
-    const detail = `${run.stderr ?? ""}`.trim().slice(-1000);
+    const detail = run.stderr.trim().slice(-1000);
     return {
       ok: false,
       reason: `Publisher stdout is not a JSON object.${detail.length > 0 ? ` ${detail}` : ""}`,
@@ -188,29 +187,30 @@ function lastJsonLine(stdout: string): Record<string, unknown> | undefined {
  * judge reads, the other reads back what the judge accepted. `git fetch` is one
  * way to do that, not the only one, so neither belongs in Host.
  */
-export function refreshWorkLine(input: {
+export async function refreshWorkLine(input: {
   workLineStable: string;
   workLineTarget: string;
   refreshArgv: string[];
   timeoutMs: number;
   env?: Record<string, string> | undefined;
-}): { ok: boolean; detail?: string } {
+}): Promise<{ ok: boolean; detail?: string }> {
   const [command, ...rest] = input.refreshArgv;
   if (command === undefined) {
     return { ok: false, detail: "No Refresher is configured." };
   }
-  const run = spawnSync(command, [...rest, "--target", input.workLineTarget], {
+  const run = await runSlot({
+    command,
+    args: [...rest, "--target", input.workLineTarget],
     cwd: input.workLineStable,
-    encoding: "utf8",
-    timeout: input.timeoutMs,
+    timeoutMs: input.timeoutMs,
     env: { ...process.env, ...input.env },
   });
   if (run.error !== undefined) {
     return { ok: false, detail: `Refresher could not run: ${run.error.message}` };
   }
-  const answer = lastJsonLine(run.stdout ?? "");
+  const answer = lastJsonLine(run.stdout);
   if (answer === undefined) {
-    const detail = `${run.stderr ?? ""}`.trim().slice(-500);
+    const detail = run.stderr.trim().slice(-500);
     return { ok: false, detail: `Refresher stdout is not a JSON object. ${detail}`.trim() };
   }
   if (answer.ok === true) {

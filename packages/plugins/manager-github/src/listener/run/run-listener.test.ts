@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type ClientOptions, createClient, type GithubClient } from "../../github/client.js";
+import { createEtagCache } from "../../github/etag-cache.js";
 import type { Invocation } from "../types.js";
 import { runListener } from "./run-listener.js";
 
@@ -327,5 +328,44 @@ describe("runListener", () => {
     assert.equal(result.stopReason, "max-events");
     assert.equal(ofEvent(lines, "intention").length, 1);
     assert.ok(result.scans >= 2);
+  });
+});
+
+describe("runListener with conditional reads", () => {
+  it("delivers a page again after a 304 when the Cursor did not move", async () => {
+    // Host did not commit the Cursor (a tick stopped midway): the same listing
+    // is asked again, GitHub says nothing changed, and the issues not consumed
+    // yet must come back, not vanish behind the 304.
+    const statuses: number[] = [];
+    const fetch = (async (_input: unknown, init: { headers?: unknown } = {}) => {
+      const named = new Headers(init.headers as ConstructorParameters<typeof Headers>[0]).get(
+        "if-none-match",
+      );
+      const status = named === '"v1"' ? 304 : 200;
+      statuses.push(status);
+      return status === 304
+        ? new Response(null, { status, headers: { etag: '"v1"' } })
+        : new Response(JSON.stringify([issue(7, "2026-10-04T10:00:00Z")]), {
+            status,
+            headers: { "content-type": "application/json", etag: '"v1"' },
+          });
+    }) as unknown as typeof globalThis.fetch;
+    const github = createClient({
+      token: "t",
+      apiBase: "https://api.github.com",
+      requestRetries: 0,
+      deadlineMs: Date.now() + 10_000,
+      fetch,
+      throttle: false,
+      etags: createEtagCache(),
+    });
+
+    const first = await runListener({ invocation: invocation(), github, write: () => {} });
+    const again = await runListener({ invocation: invocation(), github, write: () => {} });
+
+    assert.deepEqual(statuses, [200, 304]);
+    assert.equal(first.delivered, 1);
+    assert.equal(again.outcome, "completed");
+    assert.equal(again.delivered, 1);
   });
 });

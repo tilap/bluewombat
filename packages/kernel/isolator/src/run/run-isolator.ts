@@ -19,7 +19,7 @@ export type RunOptions = {
   write?: ProgressWriter;
   /** Injectable clock for tests. */
   now?: () => number;
-  /** When set, polled for interrupt; otherwise process signals are used. */
+  /** Polled for interrupt; absent, never interrupted. Its owner — the CLI or a Host — flips it. */
   interruptFlag?: { interrupted: boolean };
   /** Working directory for the --on-status child. Undefined lets it inherit. */
   cwd?: string;

@@ -255,4 +255,36 @@ describe("createTransformers", () => {
     // judge, so it validates trivially rather than failing on a missing slot.
     assert.equal(result.outcome, "validated");
   });
+
+  it("stops an assembly fix on Host's interrupt instead of waiting for the agent", async () => {
+    const interruptFlag = { interrupted: false };
+    const sleeper = [node, join(fixtures, "sleep.mjs"), "60000"];
+    const transformers = createTransformers({
+      planner: { cmd: [node, "-e", ""], timeoutMs: 20_000 },
+      builder: { ...builderStage([]), maxAttempts: 1 },
+      assembly: { fix: { cmd: sleeper, timeoutMs: 60_000 }, gates: [], maxAttempts: 1 },
+      isolation: copyStrategy.isolation,
+      fold: copyStrategy.fold,
+      timeoutMs: 20_000,
+      interruptFlag,
+      maxUnits: 10,
+      maxFeatureBytes: 100_000,
+    });
+    const started = Date.now();
+    const pending = transformers.implement({
+      id: "t:assembly",
+      stage: "assembly",
+      intention: "i",
+      report: "ci-green refused",
+      workspace: workspace(),
+    });
+    setTimeout(() => {
+      interruptFlag.interrupted = true;
+    }, 100);
+    const result = await pending;
+    // SIGINT only flips Host's flag. Not handed on, a fix agent keeps the run
+    // alive for as long as it likes, and only a SIGKILL ends it.
+    assert.equal(result.outcome, "interrupted");
+    assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
+  });
 });

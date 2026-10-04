@@ -129,6 +129,17 @@ runs); each Gate takes the `--gate-timeout-ms` written before it. Reaching one
 kills that child and ends the Attempt as `fail-retryable`, which the loop then
 decides on like any other retryable failure.
 
+**"Kills that child" means everything it started.** A producer is a chain — a
+script, an agent, the vendor CLI, its shells — and a ceiling that stopped only
+the first would let the rest run on, holding the pipes open, until the agent
+ended by itself: an Attempt would outlive its ceiling and be judged lost while
+its work was done. Every child runs as the leader of its own process group and
+is ended by signalling the group and every descendant `ps` lists under it — a
+vendor CLI may start its shells in groups of their own. After a kill the pipes
+are cut two seconds later, so a process that still escaped cannot hold the
+outcome back. What is
+still running when the invocation itself exits is killed.
+
 **Nothing is derived from what another child left behind.** There is no Attempt
 clock and no Task clock. A budget computed from a deadline is how a producer
 that overran left its Gates a millisecond to answer in — they were killed on

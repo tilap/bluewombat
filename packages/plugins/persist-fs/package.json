@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/persist-fs",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "WorkLedger persistence: one JSON file per key on the filesystem.",
   "keywords": [
@@ -41,6 +41,6 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/work-ledger": "^0.3.0"
+    "@bluewombat/work-ledger": "^0.4.0"
   }
 }

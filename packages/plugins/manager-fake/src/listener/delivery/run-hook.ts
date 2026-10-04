@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { killTree, ownGroup, track } from "../../process-tree.js";
 
 /** Soft cap: --on-intention must not hold the subscription open forever. */
 const HOOK_TIMEOUT_MS = 5_000;
@@ -32,18 +33,15 @@ export function runHook(argv: string[], cwd: string | undefined): Promise<void> 
 
     let child: ChildProcess;
     try {
-      child = spawn(file, args, { cwd, stdio: ["ignore", "ignore", "ignore"] });
+      child = spawn(file, args, { cwd, stdio: ["ignore", "ignore", "ignore"], ...ownGroup() });
+      track(child);
     } catch {
       finish();
       return;
     }
 
     timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // already gone
-      }
+      killTree(child);
       finish();
     }, HOOK_TIMEOUT_MS);
 

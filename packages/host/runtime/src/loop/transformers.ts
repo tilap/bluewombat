@@ -33,6 +33,12 @@ export type TransformerSlots = {
   fold: FoldBackend;
   /** How long any one child outside a Task may run: manager, isolations. */
   timeoutMs: number;
+  /**
+   * Host's own interrupt flag, flipped by SIGINT / SIGTERM. A Transformer owns
+   * no signal handler, so without this an interrupt waits for the child at
+   * work — an agent, minutes — to end on its own. Absent: never interrupted.
+   */
+  interruptFlag?: { interrupted: boolean };
   maxUnits: number;
   maxFeatureBytes: number;
 };
@@ -197,6 +203,7 @@ function producersFor(
 export function createTransformers(slots: TransformerSlots): TransformerPort {
   const write = progressWriter(slots);
   const streams = slots.streams;
+  const interrupt = slots.interruptFlag === undefined ? {} : { interruptFlag: slots.interruptFlag };
   return {
     async isolate(input) {
       const result = await runIsolator({
@@ -209,6 +216,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
         },
         backend: slots.isolation,
         write,
+        ...interrupt,
       });
       return { outcome: result.outcome };
     },
@@ -223,6 +231,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
         },
         featureJson: input.featureJson,
         write,
+        ...interrupt,
         // `breakdown` is the name a Planner slot files its transcript under, so
         // the stream and the prompt behind it land side by side.
         ...(streams === undefined
@@ -278,6 +287,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           builderTimeoutMs: commandTimeoutMs(input, slots),
         },
         write,
+        ...interrupt,
         ...(streams === undefined
           ? {}
           : {
@@ -319,6 +329,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
         },
         backend: slots.fold,
         write,
+        ...interrupt,
       });
       return { outcome: result.outcome };
     },

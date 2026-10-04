@@ -139,11 +139,17 @@ count both times, and only the round tells the two escalations apart.
 interrupt.
 
 SIGINT / SIGTERM: set the interrupt flag, `conductor.pause()`, stop after the
-current Delivery.
+current Delivery. The same flag is handed to every Transformer Host runs, so a
+child at work — a producer, an assembly fix — is killed with its tree rather
+than waited for; the Transformer then answers `interrupted`. `mason run` exits
+130 on an interrupt, wherever it landed; else 1 when the last run was refused,
+0 otherwise.
 
 Each pass appends JSON lines to `<ledgerRoot>/events.jsonl` (listen, probed,
 Transformer progress, admitted, reported, queued, idle, a heartbeat while
-`submitted`). That file is a film, not truth: a crash may drop the last lines;
+`submitted`). Every report to the tracker is filmed with how long it took
+(`ms`): `reported` when the manager took it, `report-declined` when it did not
+(already said, or it failed). That file is a film, not truth: a crash may drop the last lines;
 the ledger is still right. `mason run` still writes a human Trace on stdout.
 The journal is how another process attaches.
 
