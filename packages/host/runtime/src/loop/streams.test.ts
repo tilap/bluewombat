@@ -32,6 +32,30 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 50));
 }
 
+/**
+ * The one file a sink opened, once it holds `lines` whole lines. A fixed pause
+ * read a half-written line on a busy machine; the write lands when it lands.
+ */
+async function fileWith(dir: string, lines: number): Promise<{ path: string; body: string }> {
+  const until = Date.now() + 5_000;
+  for (;;) {
+    let file: { path: string; body: string } | undefined;
+    try {
+      file = onlyFile(dir);
+    } catch {
+      // not opened yet
+    }
+    const whole = file?.body.endsWith("\n") === true ? file.body.trim().split("\n").length : 0;
+    if (file !== undefined && whole >= lines) {
+      return file;
+    }
+    if (Date.now() >= until) {
+      assert.fail(`no file with ${lines} lines under ${dir}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /** The one file a sink opened, read back. */
 function onlyFile(dir: string): { path: string; body: string } {
   const featureDirs = readdirSync(dir);
@@ -54,10 +78,9 @@ describe("streams", () => {
     sink.write("stderr", "thinking\n");
     sink.write("stdout", '{"ok":true}\n');
     sink.close();
-    await settle();
 
-    const lines = onlyFile(dir)
-      .body.trim()
+    const lines = (await fileWith(dir, 2)).body
+      .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     assert.equal(lines.length, 2);
