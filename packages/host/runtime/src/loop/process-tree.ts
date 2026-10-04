@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 
 // Canonical source of every `process-tree.ts` in this repository. Edit it here,
 // then run `node scripts/check-process-tree.mjs --write`; `npm run lint` fails
@@ -14,6 +14,11 @@ import type { ChildProcess } from "node:child_process";
 // A layer in the middle of such a chain (a producer, an agent runner) is not a
 // supervisor: it starts its child in its own group, so the supervisor's signal
 // reaches it too.
+//
+// The group is not the whole tree. A vendor CLI may start each shell command
+// in a group of its own (cursor-agent does), out of the group's reach. So the
+// descendants are read from `ps` first — once their parent dies they are
+// re-parented and the link is lost — and each is killed too.
 
 /** Windows has no process groups: there a child is killed alone. */
 const OWN_GROUP = process.platform !== "win32";
@@ -25,6 +30,8 @@ const OWN_GROUP = process.platform !== "win32";
 const PIPE_GRACE_MS = 2_000;
 
 const live = new Set<ChildProcess>();
+/** Already killed: a supervisor polling its interrupt asks again every tick. */
+const ended = new WeakSet<ChildProcess>();
 let exitHookInstalled = false;
 
 /** Spread into the options of `spawn`: the child leads its own group. */
@@ -54,14 +61,64 @@ export function track(child: ChildProcess): void {
   child.once("error", forget);
 }
 
-/** SIGKILL to the child's whole group; to the child alone where there is none. */
+/**
+ * Every process below `pid`, as `ps` lists them now. Empty where `ps` cannot be
+ * read: the group kill still stands.
+ */
+function descendants(pid: number): number[] {
+  let table: string;
+  try {
+    table = execFileSync("ps", ["-A", "-o", "pid=,ppid="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return [];
+  }
+  const childrenOf = new Map<number, number[]>();
+  for (const line of table.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    if (match !== null) {
+      const parent = Number(match[2]);
+      childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), Number(match[1])]);
+    }
+  }
+  const found: number[] = [];
+  let frontier = [pid];
+  while (frontier.length > 0) {
+    frontier = frontier.flatMap((each) => childrenOf.get(each) ?? []);
+    found.push(...frontier);
+  }
+  return found;
+}
+
+/**
+ * SIGKILL to the child's whole group and to every descendant, wherever its
+ * group; to the child alone where there are no groups. Once per child.
+ */
 export function killTree(child: ChildProcess): void {
+  if (ended.has(child)) {
+    return;
+  }
+  ended.add(child);
   if (OWN_GROUP && child.pid !== undefined) {
+    const below = descendants(child.pid);
+    let grouped = true;
     try {
       process.kill(-child.pid, "SIGKILL");
-      return;
     } catch {
-      // no such group: fall through to the child itself
+      // no such group: the child itself, below
+      grouped = false;
+    }
+    for (const pid of below) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone, with the group
+      }
+    }
+    if (grouped) {
+      return;
     }
   }
   try {
@@ -71,8 +128,11 @@ export function killTree(child: ChildProcess): void {
   }
 }
 
-/** `killTree`, then the pipes are cut after the grace period. */
+/** `killTree`, then the pipes are cut after the grace period. Once per child. */
 export function killAndCut(child: ChildProcess): void {
+  if (ended.has(child)) {
+    return;
+  }
   killTree(child);
   setTimeout(() => {
     child.stdout?.destroy();

@@ -62,6 +62,24 @@ describe("runChild", () => {
     assert.ok(await waitDead(pid, 5_000), "the grandchild must be killed with its parent");
   });
 
+  it("ends a descendant that left the group, as an agent's shell command does", async () => {
+    const pidFile = join(mkdtempSync(join(tmpdir(), "run-child-")), "grandchild.pid");
+    let stop = false;
+    const outcome = runChild({
+      argv: [process.execPath, join(fixtures, "spawns-own-group-grandchild.mjs"), pidFile],
+      timeoutMs: 30_000,
+      shouldInterrupt: () => stop,
+    });
+    while (!existsSync(pidFile)) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    stop = true;
+    assert.equal((await outcome).kind, "interrupted");
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    // Out of the group's reach: only the walk down the tree finds it.
+    assert.ok(await waitDead(pid, 5_000), "the grandchild must not outlive its parent");
+  });
+
   it("a child that ends by itself is not touched", async () => {
     const outcome = await runChild({
       argv: [process.execPath, "-e", "console.log('ok')"],

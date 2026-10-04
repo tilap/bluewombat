@@ -134,8 +134,10 @@ script, an agent, the vendor CLI, its shells — and a ceiling that stopped only
 the first would let the rest run on, holding the pipes open, until the agent
 ended by itself: an Attempt would outlive its ceiling and be judged lost while
 its work was done. Every child runs as the leader of its own process group and
-is ended by signalling the group; after a kill the pipes are cut two seconds
-later, so a process that left the group cannot hold the outcome back. What is
+is ended by signalling the group and every descendant `ps` lists under it — a
+vendor CLI may start its shells in groups of their own. After a kill the pipes
+are cut two seconds later, so a process that still escaped cannot hold the
+outcome back. What is
 still running when the invocation itself exits is killed.
 
 **Nothing is derived from what another child left behind.** There is no Attempt
