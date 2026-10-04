@@ -82,10 +82,11 @@ async function run(argv: string[]): Promise<number> {
   try {
     host = await openHost(options);
     const result = await host.run();
-    if (result.lastRun?.outcome === "refused") {
-      return 1;
+    // An interrupt mid-Delivery leaves that run `refused` too: it is still an interrupt.
+    if (interruptFlag.interrupted) {
+      return 130;
     }
-    return interruptFlag.interrupted ? 130 : 0;
+    return result.lastRun?.outcome === "refused" ? 1 : 0;
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;

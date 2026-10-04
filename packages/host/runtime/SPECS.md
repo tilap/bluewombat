@@ -139,7 +139,11 @@ count both times, and only the round tells the two escalations apart.
 interrupt.
 
 SIGINT / SIGTERM: set the interrupt flag, `conductor.pause()`, stop after the
-current Delivery.
+current Delivery. The same flag is handed to every Transformer Host runs, so a
+child at work — a producer, an assembly fix — is killed with its tree rather
+than waited for; the Transformer then answers `interrupted`. `mason run` exits
+130 on an interrupt, wherever it landed; else 1 when the last run was refused,
+0 otherwise.
 
 Each pass appends JSON lines to `<ledgerRoot>/events.jsonl` (listen, probed,
 Transformer progress, admitted, reported, queued, idle, a heartbeat while
