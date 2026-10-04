@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/isolation-git",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Isolation strategy: git worktree attach, three-way merge fold.",
   "keywords": [
@@ -42,7 +42,7 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/integrator": "^0.3.0",
-    "@bluewombat/isolator": "^0.3.0"
+    "@bluewombat/integrator": "^0.4.0",
+    "@bluewombat/isolator": "^0.4.0"
   }
 }
