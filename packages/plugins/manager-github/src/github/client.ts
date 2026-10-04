@@ -4,13 +4,15 @@
  *
  * The transport is `@octokit/core` with its retry and throttling plugins — not
  * a hand-written HTTP client. What lives here is only what this package owes on
- * top of it: a token in one place, the wait budget of one invocation, and the
- * mapping from a failure to this package's own vocabulary.
+ * top of it: a token in one place, the wait budget of one invocation, the
+ * mapping from a failure to this package's own vocabulary, and — given a cache —
+ * reads that cost nothing when nothing changed.
  */
 
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
+import type { EtagCache } from "./etag-cache.js";
 
 const GithubOctokit = Octokit.plugin(retry, throttling);
 
@@ -48,6 +50,12 @@ export type ClientOptions = {
    * real run must leave it alone.
    */
   throttle?: boolean;
+  /**
+   * Where the last answer to each GET is kept. Given, a read is sent with its
+   * `If-None-Match` and a 304 hands the kept answer back. Absent: every read
+   * is a full one.
+   */
+  etags?: EtagCache;
 };
 
 /**
@@ -66,7 +74,7 @@ export function createClient(options: ClientOptions): GithubClient {
     return now() + retryAfterSeconds * 1_000 < options.deadlineMs;
   };
 
-  return new GithubOctokit({
+  const client = new GithubOctokit({
     auth: options.token,
     baseUrl: trimBase(options.apiBase),
     userAgent: USER_AGENT,
@@ -83,6 +91,45 @@ export function createClient(options: ClientOptions): GithubClient {
         options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
       ),
     },
+  });
+  if (options.etags !== undefined) {
+    readConditionally(client, options.etags);
+  }
+  return client;
+}
+
+/**
+ * Every GET asks GitHub whether its last answer still holds.
+ *
+ * A 304 with an Authorization header does not count against the token's
+ * budget (GitHub's REST best practices; measured on 2026-10-04: three 304s in a
+ * row left `x-ratelimit-used` where it was). The kept answer is returned whole,
+ * as the full read would have been: what a caller has not consumed yet is
+ * there again.
+ */
+function readConditionally(client: GithubClient, cache: EtagCache): void {
+  client.hook.wrap("request", async (request, options) => {
+    if (String(options.method).toUpperCase() !== "GET") {
+      return await request(options);
+    }
+    const url = client.request.endpoint(options).url;
+    const kept = cache.get(url);
+    if (kept !== undefined) {
+      options.headers = { ...options.headers, "if-none-match": kept.etag };
+    }
+    try {
+      const response = await request(options);
+      const etag = response.headers.etag;
+      if (typeof etag === "string" && etag.length > 0) {
+        cache.set(url, { etag, response });
+      }
+      return response;
+    } catch (error) {
+      if (kept !== undefined && statusOf(error) === 304) {
+        return kept.response as Awaited<ReturnType<typeof request>>;
+      }
+      throw error;
+    }
   });
 }
 

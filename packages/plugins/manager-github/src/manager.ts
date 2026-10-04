@@ -12,6 +12,7 @@ import { runAdapter } from "./adapter/run/run-adapter.js";
 import { runEmitter } from "./emitter/run/run-emitter.js";
 import type { EventName as GithubEventName } from "./emitter/types.js";
 import { createClient } from "./github/client.js";
+import { createEtagCache } from "./github/etag-cache.js";
 import { issueNumberFromExternalId, issueNumberFromPayload } from "./issue-number.js";
 import { payloadHasLabel } from "./labels.js";
 import { runListener } from "./listener/run/run-listener.js";
@@ -66,6 +67,9 @@ export function createGithubManager(options: GithubManagerOptions): ManagerPort 
   const defaultPriority = options.defaultPriority ?? DEFAULT_PRIORITY;
   const labels = options.labels ?? [];
   const testNetwork = options.githubFetch !== undefined;
+  // One for the life of this manager — one `mason run` — shared by every call,
+  // so a tick that finds nothing changed costs no budget.
+  const etags = createEtagCache();
 
   function channelOptions() {
     const now = (): number => Date.now();
@@ -77,6 +81,7 @@ export function createGithubManager(options: GithubManagerOptions): ManagerPort 
       now,
       shouldInterrupt: () => options.interruptFlag.interrupted,
       throttle: !testNetwork,
+      etags,
       ...(options.githubFetch !== undefined ? { fetch: options.githubFetch } : {}),
     };
   }
