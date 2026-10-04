@@ -3,11 +3,17 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { extrasFromClaude, skillsFromClaude, usageFromClaude } from "../agents/claude-extras.mjs";
+import {
+  extrasFromClaude,
+  skillsFromClaude,
+  toolsFromClaude,
+  usageFromClaude,
+} from "../agents/claude-extras.mjs";
 import {
   extrasFromCursor,
   skillNameFromPath,
   skillsFromCursor,
+  toolsFromCursor,
   usageFromCursor,
 } from "../agents/cursor-extras.mjs";
 
@@ -33,7 +39,7 @@ describe("skillsFromCursor", () => {
 
   it("does not count skills when output format is not stream-json", () => {
     const stdout = readFileSync(join(fixtures, "cursor-stream-skills.jsonl"), "utf8");
-    assert.equal(extrasFromCursor(stdout, "json").skills, null);
+    assert.equal(extrasFromCursor(stdout, "json", "/work").skills, null);
   });
 });
 
@@ -81,7 +87,7 @@ describe("skillsFromClaude", () => {
 
   it("does not count skills when output format is not stream-json", () => {
     const stdout = readFileSync(join(fixtures, "claude-stream-skills.jsonl"), "utf8");
-    assert.equal(extrasFromClaude(stdout, "json").skills, null);
+    assert.equal(extrasFromClaude(stdout, "json", "/work").skills, null);
   });
 });
 
@@ -95,5 +101,80 @@ describe("usageFromClaude", () => {
       cacheWrite: 51140,
       costUsd: 0.30841699999999994,
     });
+  });
+});
+
+describe("toolsFromCursor", () => {
+  // Shapes taken from real cursor-agent streams: a WebFetch probe and issue
+  // #11 of tilap/orangemonkey-site (MCP reads, three subagents).
+  const stdout = readFileSync(join(fixtures, "cursor-stream-tools.jsonl"), "utf8");
+  const tools = toolsFromCursor(stdout, "/work/feature");
+
+  it("counts every call once, under the tool's own name", () => {
+    assert.equal(tools?.calls.webFetch, 2);
+    assert.equal(tools?.calls.mcp, 2);
+    assert.equal(tools?.calls.task, 3);
+    assert.equal(tools?.calls.shell, 2);
+    assert.equal(typeof tools?.busyMs, "number");
+  });
+
+  it("names the pages fetched, including through a shell", () => {
+    assert.deepEqual(tools?.web, [
+      "https://example.com",
+      "https://example.com (shell)",
+      "https://example.com (shell)",
+      "https://example.com",
+    ]);
+  });
+
+  it("names MCP calls, subagents, and reads outside the workspace", () => {
+    assert.deepEqual(tools?.mcp, ["github/issue_read", "github/issue_read"]);
+    assert.deepEqual(tools?.subagents, [
+      "RSS XSLT human-readable",
+      "Vitest RSS XSLT proofs",
+      "Slice review RSS XSLT",
+    ]);
+    // A skill read from Mason's plugin directory is expected, not reported.
+    assert.deepEqual(tools?.outside, ["/home/someone/.config/notes.md"]);
+  });
+
+  it("is unknown when nothing is JSON, or not a stream", () => {
+    assert.equal(toolsFromCursor("not json", "/work"), null);
+    assert.equal(extrasFromCursor(stdout, "json", "/work/feature").tools, null);
+  });
+});
+
+describe("toolsFromClaude", () => {
+  const stdout = readFileSync(join(fixtures, "claude-stream-tools.jsonl"), "utf8");
+  const tools = toolsFromClaude(stdout, "/work/feature");
+
+  it("counts tool_use blocks once each, by name", () => {
+    assert.deepEqual(tools?.calls, {
+      Skill: 1,
+      Read: 2,
+      WebFetch: 1,
+      WebSearch: 1,
+      Bash: 1,
+      mcp__github__issue_read: 1,
+      Task: 1,
+    });
+    // Claude's stream carries no times.
+    assert.equal(tools?.busyMs, null);
+  });
+
+  it("names pages, searches, MCP calls, subagents, and reads outside", () => {
+    assert.deepEqual(tools?.web, [
+      "https://example.com/xslt",
+      "search: rss xslt stylesheet",
+      "https://example.com/feed.xml (shell)",
+    ]);
+    assert.deepEqual(tools?.mcp, ["github/issue_read"]);
+    assert.deepEqual(tools?.subagents, ["Slice review RSS XSLT"]);
+    assert.deepEqual(tools?.outside, ["/home/someone/.config/notes.md"]);
+  });
+
+  it("is unknown when nothing is JSON, or not a stream", () => {
+    assert.equal(toolsFromClaude("plain text", "/work"), null);
+    assert.equal(extrasFromClaude(stdout, "json", "/work/feature").tools, null);
   });
 });

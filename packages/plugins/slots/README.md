@@ -109,22 +109,29 @@ needs `claude`, signed in once.
 | `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                 |
 
 The agent CLI prints **one JSON line** — a `SerializedRun` from
-`@bluewombat/slot-kit` — with the vendor's raw streams plus two extras the
+`@bluewombat/slot-kit` — with the vendor's raw streams plus three extras the
 wrapper fills when it can:
 
 | Field    | Meaning                                                                                                                                              |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `skills` | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                         |
 | `usage`  | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost) |
+| `tools`  | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
 
 Cursor extracts skills from `stream-json` `readToolCall` paths ending in
 `/skills/<name>/SKILL.md`. Claude extracts them from `tool_use` blocks named
 `Skill` (`input.skill`), and adds `--verbose` whenever the format is
-`stream-json`. A future vendor agent (`codex.mjs`, …) uses the same fields:
-leave them `null` when it cannot tell.
+`stream-json`. Tools come from Cursor's `<name>ToolCall` events (`webFetch`,
+`mcp`, `task`, `shell`, … — names seen on cursor-agent 2026.10.01) and from
+Claude's `tool_use` blocks (`WebFetch`, `WebSearch`, `Bash`, `Task`,
+`mcp__<server>__<tool>`); the vendor-free part is `agents/tool-facts.mjs`. A
+future vendor agent (`codex.mjs`, …) uses the same fields: leave them `null`
+when it cannot tell.
 
-When `--transcript-dir` is set, the transcript header repeats `skills` and
-`usage` (`unknown`, `(none)`, or the values).
+When `--transcript-dir` is set, the transcript header repeats `skills`,
+`usage` and the tools — `tools`, `web`, `mcp`, `subagents`, `outside the
+workspace` — each `unknown`, `(none)`, or the values. "Did it read the page I
+linked?" is answered there, without reading the stream.
 
 A global npm install belongs to one Node version: after `nvm use`, a `claude`
 installed under another version is off PATH. Give `--bin` the absolute path, or
@@ -250,7 +257,8 @@ loop that misbehaves cannot be read back, only guessed at.
 
 `--transcript-dir` writes one Markdown file per turn: the invocation, the prompt
 as sent, stdout, stderr, how long it took, and — when the agent wrapper passed
-them — `skills` and `usage` (`unknown`, `(none)`, or the values). Files are
+them — `skills`, `usage` and what the tools did (`unknown`, `(none)`, or the
+values). Files are
 filed under the Feature the Task belongs to, named for the Subtask and the
 Attempt. It belongs on the **agent** command, after `--`.
 

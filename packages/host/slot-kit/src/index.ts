@@ -12,6 +12,7 @@ export type {
   AgentExtras,
   AgentInvocation,
   AgentRun,
+  AgentTools,
   AgentUsage,
   SerializeAbout,
   SerializedRun,
@@ -77,4 +78,10 @@ export {
   transcriptArgs,
 } from "./role.js";
 export type { Transcript, TranscriptPart, TranscriptSpec } from "./transcript.js";
-export { openTranscript, skillsLabel, TRANSCRIPT_PARTS, usageLabel } from "./transcript.js";
+export {
+  openTranscript,
+  skillsLabel,
+  TRANSCRIPT_PARTS,
+  toolsFacts,
+  usageLabel,
+} from "./transcript.js";

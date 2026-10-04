@@ -9,22 +9,94 @@
  * Usage: terminal `result` documents `usage` (`input_tokens`, …) and
  * `total_cost_usd`.
  *
- * `skills` is `null` when stdout is not NDJSON we can parse; `[]` when parsed
- * with no Skill tool_use.
+ * Tools: every `tool_use` block of an assistant message, counted under its
+ * `name`, as Claude Code's tools reference names them: `WebFetch` (`input.url`),
+ * `WebSearch` (`input.query`), `Bash` (`input.command`), `Task` / `Agent`
+ * (`input.description`), an MCP tool as `mcp__<server>__<tool>`, and
+ * `file_path` / `path` on the file tools. The stream carries no times:
+ * `busyMs` stays null.
+ *
+ * `skills` and `tools` are `null` when stdout is not NDJSON we can parse;
+ * `skills` is `[]` when parsed with no Skill tool_use.
  */
 
 import { readResult } from "@bluewombat/slot-kit";
+import { count, emptyTools, isOutside, urlsIn } from "./tool-facts.mjs";
 
 /**
  * @param {string} stdout
  * @param {string} outputFormat
- * @returns {{ skills: string[] | null, usage: import("@bluewombat/slot-kit").AgentUsage | null }}
+ * @param {string} cwd the directory the agent worked in
+ * @returns {import("@bluewombat/slot-kit").AgentExtras}
  */
-export function extrasFromClaude(stdout, outputFormat) {
+export function extrasFromClaude(stdout, outputFormat, cwd) {
+  const streamed = outputFormat === "stream-json";
   return {
-    skills: outputFormat === "stream-json" ? skillsFromClaude(stdout) : null,
+    skills: streamed ? skillsFromClaude(stdout) : null,
     usage: usageFromClaude(stdout),
+    tools: streamed ? toolsFromClaude(stdout, cwd) : null,
   };
+}
+
+/**
+ * @param {string} stdout
+ * @param {string} cwd the directory the agent worked in
+ * @returns {import("@bluewombat/slot-kit").AgentTools | null}
+ */
+export function toolsFromClaude(stdout, cwd) {
+  const tools = emptyTools();
+  /** @type {Set<string>} */
+  const seen = new Set();
+  let parsedAny = false;
+  for (const line of stdout.split("\n")) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event === null || typeof event !== "object" || Array.isArray(event)) {
+      continue;
+    }
+    parsedAny = true;
+    const content = event.type === "assistant" ? event.message?.content : undefined;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+    for (const block of content) {
+      if (block?.type !== "tool_use" || typeof block.name !== "string") {
+        continue;
+      }
+      // A partial-message stream repeats a block; its id says it once.
+      if (typeof block.id === "string") {
+        if (seen.has(block.id)) {
+          continue;
+        }
+        seen.add(block.id);
+      }
+      const name = block.name;
+      const input = block.input ?? {};
+      count(tools, name);
+      const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+      if (mcp !== null) {
+        tools.mcp.push(`${mcp[1]}/${mcp[2]}`);
+      } else if (name === "WebFetch" && typeof input.url === "string") {
+        tools.web.push(input.url);
+      } else if (name === "WebSearch" && typeof input.query === "string") {
+        tools.web.push(`search: ${input.query}`);
+      } else if (name === "Bash") {
+        tools.web.push(...urlsIn(input.command).map((url) => `${url} (shell)`));
+      } else if ((name === "Task" || name === "Agent") && typeof input.description === "string") {
+        tools.subagents.push(input.description);
+      }
+      for (const path of [input.file_path, input.path, input.notebook_path]) {
+        if (isOutside(path, cwd)) {
+          tools.outside.push(path);
+        }
+      }
+    }
+  }
+  return parsedAny ? tools : null;
 }
 
 /**

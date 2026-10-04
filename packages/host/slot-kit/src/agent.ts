@@ -137,6 +137,27 @@ export type AgentUsage = {
 };
 
 /**
+ * What the agent did with its tools, as its vendor's stream told it. The
+ * question a reader of a run asks first — did it read that page, did it go
+ * outside its directory, did it hand work off — answered without reading the
+ * stream.
+ */
+export type AgentTools = {
+  /** Calls per tool, under the vendor's own name for it. */
+  calls: Record<string, number>;
+  /** Wall time with at least one tool running; `null` when the stream carries no times. */
+  busyMs: number | null;
+  /** Pages fetched, searches, and URLs a shell command named. */
+  web: string[];
+  /** MCP calls, as `server/tool`, one entry per call. */
+  mcp: string[];
+  /** Subagents handed work, by the description they were given. */
+  subagents: string[];
+  /** Paths a tool named outside the working directory; skill files excepted. */
+  outside: string[];
+};
+
+/**
  * Optional facts a vendor wrapper extracted from the run. Always present on
  * the serialized line: `null` means the wrapper did not learn them (unknown),
  * an empty `skills` array means it looked and found none.
@@ -144,6 +165,7 @@ export type AgentUsage = {
 export type AgentExtras = {
   skills: string[] | null;
   usage: AgentUsage | null;
+  tools: AgentTools | null;
 };
 
 /**
@@ -165,6 +187,7 @@ export type SerializedRun = {
   durationMs: number;
   skills: string[] | null;
   usage: AgentUsage | null;
+  tools: AgentTools | null;
 };
 
 export type SerializeAbout = {
@@ -172,6 +195,7 @@ export type SerializeAbout = {
   bin: string;
   skills?: string[] | null;
   usage?: AgentUsage | null;
+  tools?: AgentTools | null;
 };
 
 /** The JSON an agent CLI writes after a vendor run. */
@@ -190,6 +214,7 @@ export function serializeRun(run: AgentRun, about: SerializeAbout): SerializedRu
     durationMs: run.durationMs,
     skills: about.skills === undefined ? null : about.skills,
     usage: about.usage === undefined ? null : about.usage,
+    tools: about.tools === undefined ? null : about.tools,
   };
 }
 
@@ -215,11 +240,39 @@ export function deserializeRun(raw: Record<string, unknown>): AgentRun | undefin
   };
 }
 
-/** `skills` / `usage` from a serialized line; both `null` when absent or malformed. */
+/** `skills` / `usage` / `tools` from a serialized line; `null` when absent or malformed. */
 export function extrasOf(raw: Record<string, unknown>): AgentExtras {
   return {
     skills: skillsOf(raw.skills),
     usage: usageOf(raw.usage),
+    tools: toolsOf(raw.tools),
+  };
+}
+
+function toolsOf(value: unknown): AgentTools | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const calls = record.calls;
+  const lists = [record.web, record.mcp, record.subagents, record.outside];
+  if (
+    calls === null ||
+    typeof calls !== "object" ||
+    Array.isArray(calls) ||
+    Object.values(calls).some((count) => typeof count !== "number") ||
+    lists.some((list) => !Array.isArray(list) || list.some((item) => typeof item !== "string")) ||
+    !(record.busyMs === null || typeof record.busyMs === "number")
+  ) {
+    return null;
+  }
+  return {
+    calls: calls as Record<string, number>,
+    busyMs: record.busyMs as number | null,
+    web: record.web as string[],
+    mcp: record.mcp as string[],
+    subagents: record.subagents as string[],
+    outside: record.outside as string[],
   };
 }
 

@@ -9,22 +9,113 @@
  * with camelCase token fields (observed; not in the published json schema).
  * No cost field is documented for Cursor — `costUsd` stays null.
  *
- * `skills` is `null` when the stdout is not NDJSON we can parse (unknown),
- * `[]` when we parsed and found no skill reads.
+ * Tools: every `tool_call` (`<name>ToolCall`, args under it) counted once, on
+ * `started`; its `completed` closes the interval for the busy time
+ * (`timestamp_ms`). Observed on cursor-agent 2026.10.01: `webFetchToolCall`
+ * (`args.url`), `mcpToolCall` (`args.providerIdentifier` / `args.toolName`),
+ * `taskToolCall` (`args.description`), `shellToolCall` (`args.command`), and
+ * `path` / `targetDirectory` on the file tools.
+ *
+ * `skills` and `tools` are `null` when the stdout is not NDJSON we can parse
+ * (unknown); `skills` is `[]` when we parsed and found no skill reads.
  */
 
 import { readResult } from "@bluewombat/slot-kit";
+import { busyMs, count, emptyTools, isOutside, urlsIn } from "./tool-facts.mjs";
 
 /**
  * @param {string} stdout
  * @param {string} outputFormat
- * @returns {{ skills: string[] | null, usage: import("@bluewombat/slot-kit").AgentUsage | null }}
+ * @param {string} cwd the directory the agent worked in
+ * @returns {import("@bluewombat/slot-kit").AgentExtras}
  */
-export function extrasFromCursor(stdout, outputFormat) {
+export function extrasFromCursor(stdout, outputFormat, cwd) {
+  const streamed = outputFormat === "stream-json";
   return {
-    skills: outputFormat === "stream-json" ? skillsFromCursor(stdout) : null,
+    skills: streamed ? skillsFromCursor(stdout) : null,
     usage: usageFromCursor(stdout),
+    tools: streamed ? toolsFromCursor(stdout, cwd) : null,
   };
+}
+
+/**
+ * @param {string} stdout
+ * @param {string} cwd the directory the agent worked in
+ * @returns {import("@bluewombat/slot-kit").AgentTools | null}
+ */
+export function toolsFromCursor(stdout, cwd) {
+  const tools = emptyTools();
+  /** @type {Map<string, number>} */
+  const open = new Map();
+  /** @type {[number, number][]} */
+  const intervals = [];
+  let parsedAny = false;
+  for (const line of stdout.split("\n")) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event === null || typeof event !== "object" || Array.isArray(event)) {
+      continue;
+    }
+    parsedAny = true;
+    if (
+      event.type !== "tool_call" ||
+      event.tool_call === null ||
+      typeof event.tool_call !== "object"
+    ) {
+      continue;
+    }
+    const callId = typeof event.call_id === "string" ? event.call_id : "";
+    const at = Number(event.timestamp_ms);
+    if (event.subtype === "completed") {
+      const started = open.get(callId);
+      if (started !== undefined && Number.isFinite(at)) {
+        intervals.push([started, at]);
+      }
+      open.delete(callId);
+      continue;
+    }
+    if (event.subtype !== "started" || open.has(callId)) {
+      continue;
+    }
+    if (Number.isFinite(at)) {
+      open.set(callId, at);
+    }
+    const key = Object.keys(event.tool_call).find((name) => name.endsWith("ToolCall"));
+    if (key === undefined) {
+      continue;
+    }
+    const name = key.slice(0, -"ToolCall".length);
+    const args = event.tool_call[key]?.args ?? {};
+    count(tools, name);
+    if (name === "webFetch" && typeof args.url === "string") {
+      tools.web.push(args.url);
+    } else if (name === "webSearch") {
+      const term = args.searchTerm ?? args.query;
+      if (typeof term === "string") {
+        tools.web.push(`search: ${term}`);
+      }
+    } else if (name === "shell") {
+      tools.web.push(...urlsIn(args.command).map((url) => `${url} (shell)`));
+    } else if (name === "mcp") {
+      tools.mcp.push(`${args.providerIdentifier ?? args.server ?? "?"}/${args.toolName ?? "?"}`);
+    } else if (name === "task" && typeof args.description === "string") {
+      tools.subagents.push(args.description);
+    }
+    for (const path of [args.path, args.targetDirectory]) {
+      if (isOutside(path, cwd)) {
+        tools.outside.push(path);
+      }
+    }
+  }
+  if (!parsedAny) {
+    return null;
+  }
+  tools.busyMs = intervals.length === 0 ? null : busyMs(intervals);
+  return tools;
 }
 
 /**
