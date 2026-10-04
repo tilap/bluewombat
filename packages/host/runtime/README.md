@@ -204,39 +204,49 @@ touch it. It only sets how long `mason run` takes to notice:
 
 **What one tick costs**, with `@bluewombat/manager-github` (read in
 `src/loop/tick.ts` `runOnce`, `src/loop/probe.ts` `abandonGone`, the manager's
-`listen`):
+`listen`). The manager reads conditionally (its README, § Talking to GitHub):
+a read whose answer did not change comes back 304, which does not count
+against the token's budget.
 
-| The tick                     | GitHub REST calls                                                   | Besides                     |
-| ---------------------------- | ------------------------------------------------------------------- | --------------------------- |
-| Nothing to do                | 1: the issues updated since the Cursor, 100 per page                | none: no fetch              |
-| A Feature in flight          | + 1 per Feature that can still be abandoned: is its issue still there | a `git fetch` of the work line copy (not REST) |
-| A Feature `submitted`        | + the judgement: `ci-green` asks for the pull request, its check runs and its statuses (about 3) | |
+| The tick                     | GitHub REST calls                                                   | Counted when nothing moved | Besides                     |
+| ---------------------------- | ------------------------------------------------------------------- | -------------------------- | --------------------------- |
+| Nothing to do                | 1: the issues updated since the Cursor, 100 per page                | 0 (304)                    | none: no fetch              |
+| A Feature in flight          | + 1 per Feature that can still be abandoned: is its issue still there | 0 (304)                  | a `git fetch` of the work line copy (not REST) |
+| A Feature `submitted`        | + the judgement: `ci-green` asks for the pull request, its check runs and its statuses (about 3) | about 3: `ci-green` is its own process and keeps no `etag` | |
 
 Reports to the tracker (a comment, a label move: 2 to 4 calls each) happen
-when the work moves, not per tick.
+when the work moves, not per tick, and each changes the listing: the read
+after a report is a full one.
 
 **The budget.** A personal access token has 5,000 REST calls an hour
 (GitHub's primary rate limit). It is shared by every caller using that token:
 the reports, `ci-green`, `gh`, and every other Mason home pointed at it.
 
-| `pollIntervalMs` | Idle (1 call a tick) | Busy (about 5 calls a tick) |
-| ---------------- | -------------------- | --------------------------- |
-| 30000            | 120 /h (2 %)         | 600 /h (12 %)               |
-| 15000            | 240 /h (5 %)         | 1,200 /h (24 %)             |
-| **10000**        | **360 /h (7 %)**     | **1,800 /h (36 %)**         |
-| 5000             | 720 /h (14 %)        | 3,600 /h (72 %): too close  |
+| `pollIntervalMs` | Idle, nothing moved | A Feature `submitted` (about 3 counted a tick) | Worst case, every read changed (about 5) |
+| ---------------- | ------------------- | ---------------------------------------------- | ---------------------------------------- |
+| 30000            | ~0 /h               | 360 /h (7 %)                                   | 600 /h (12 %)                            |
+| 15000            | ~0 /h               | 720 /h (14 %)                                  | 1,200 /h (24 %)                          |
+| **10000**        | **~0 /h**           | **1,080 /h (22 %)**                            | **1,800 /h (36 %)**                      |
+| 5000             | ~0 /h               | 2,160 /h (43 %)                                | 3,600 /h (72 %): too close               |
+
+Measured idle: about 12 ticks at 10 s cost one counted call, the first full
+listing. Without conditional reads an idle tick counted one call (360 /h at
+10 s).
 
 **The floor.** An idle tick takes 1 to 1.5 s, almost all of it the `listen`
 call (measured on `tilap/orangemonkey-site`, October 2026). Below 2 to 3 s
 the loop never sleeps. Below 10 s nothing a person notices is gained: a
 Feature takes minutes, and 10 s against 30 s saves about 20 s per Feature,
 mostly the post-Submission wait (30 s of a 5 min 40 s run, measured). Going
-lower mostly spends the token.
+lower spends the token while a Feature is submitted, for seconds nobody
+notices.
 
-**So:** 10000 for one Mason home on a token. Several homes on the same token
-add up: multiply the busy column by their count and stay under half the
-budget. The journal is not a reason either way: quiet ticks are folded into
-one `idle` line a minute (`src/loop/journal.ts`).
+**So:** 10000 for one Mason home on a token. Idle no longer spends the
+budget, so the quota is not what holds the floor: usefulness is, and a
+submitted Feature still is (its judgement counts). Several homes on the same
+token add up: multiply the `submitted` and worst-case columns by their count
+and stay under half the budget. The journal is not a reason either way: quiet
+ticks are folded into one `idle` line a minute (`src/loop/journal.ts`).
 
 A work line with CI is not waited for by this interval: `ci-green` polls the
 checks inside its own Gate, every `--poll-ms` (15 s by default), until they
