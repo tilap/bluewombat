@@ -18,6 +18,7 @@ import { payloadHasLabel } from "./labels.js";
 import { runListener } from "./listener/run/run-listener.js";
 import { probeIssue } from "./probe/probe-issue.js";
 import type { Repository } from "./repo.js";
+import { settledAlready } from "./settled.js";
 import {
   foldPullRequest,
   type SubmissionContext,
@@ -112,9 +113,9 @@ export function createGithubManager(options: GithubManagerOptions): ManagerPort 
 
     async listen(input): Promise<ListenResult> {
       const deliveries: ListenResult["deliveries"] = [];
-      const alreadyDone = (payload: Record<string, unknown>): boolean =>
+      const alreadySettled = (payload: Record<string, unknown>): boolean =>
         options.stateLabelPrefix !== undefined &&
-        doneAlready(payload, options.stateLabelPrefix, readyLabel);
+        settledAlready(payload, options.stateLabelPrefix, readyLabel);
       const listenerInvocation: Parameters<typeof runListener>[0]["invocation"] = {
         manager: MANAGER,
         repo: options.repo,
@@ -139,7 +140,7 @@ export function createGithubManager(options: GithubManagerOptions): ManagerPort 
             typeof line.cursor === "string" &&
             isObject(line.payload)
           ) {
-            if (!alreadyDone(line.payload)) {
+            if (!alreadySettled(line.payload)) {
               deliveries.push({ cursor: line.cursor, payload: line.payload });
             }
           }
@@ -276,10 +277,6 @@ export function createGithubManager(options: GithubManagerOptions): ManagerPort 
  * cheaper than rebuilding a Feature that is already merged. The resume signal
  * overrides it, so a human still has a way to ask for more.
  */
-function doneAlready(payload: Record<string, unknown>, prefix: string, ready: string): boolean {
-  return payloadHasLabel(payload, `${prefix}done`) && !payloadHasLabel(payload, ready);
-}
-
 function keyFromPayload(payload: Record<string, unknown>, repo: Repository): string {
   const number = issueNumberFromPayload(payload);
   return number === undefined

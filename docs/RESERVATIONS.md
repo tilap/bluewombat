@@ -277,7 +277,9 @@ though the tracker already says `mason:done` on it and the work is merged.
 were already merged, and would have opened a pull request for each.
 
 *Mitigated:* the GitHub listener no longer delivers an issue that
-already carries the `done` state label, unless the resume signal is on it too.
+already carries the `done` or `cancelled` state label, unless the resume signal
+is on it too (`settled.ts`). `cancelled` was added after a fresh Mason home took
+up an abandoned issue and started planning it.
 The WorkLedger stays the source of truth; the tracker's own memory is now read
 as a guard against rebuilding what is already merged. It only works when
 `stateLabelPrefix` is set, and a tracker with no state of its own has no such
