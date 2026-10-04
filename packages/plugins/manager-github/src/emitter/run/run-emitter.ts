@@ -125,6 +125,9 @@ export async function runEmitter(options: RunOptions): Promise<RunResult> {
       return finish("unreportable", listed.detail);
     }
     if (hasEventId(listed.value, invocation.eventId)) {
+      // Said already, but the label may have moved since — a fresh ledger
+      // re-admitting the issue, a human — and it must show this Event again.
+      await syncLabel();
       return finish("duplicate");
     }
   }
@@ -140,7 +143,14 @@ export async function runEmitter(options: RunOptions): Promise<RunResult> {
 
   // The Event is committed. The label is a rendering of it: failing to move it
   // leaves the report standing, the way a missing section leaves the truth.
-  if (invocation.labelPrefix !== undefined) {
+  await syncLabel();
+
+  return finish("reported");
+
+  async function syncLabel(): Promise<void> {
+    if (invocation.labelPrefix === undefined) {
+      return;
+    }
     const synced = await syncStateLabel(invocation, github, context, invocation.labelPrefix);
     write({
       event: "labels-finished",
@@ -151,6 +161,4 @@ export async function runEmitter(options: RunOptions): Promise<RunResult> {
       ...(synced.kind === "unreportable" ? { detail: synced.detail } : {}),
     });
   }
-
-  return finish("reported");
 }
