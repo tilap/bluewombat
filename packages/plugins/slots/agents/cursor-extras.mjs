@@ -13,8 +13,10 @@
  * `started`; its `completed` closes the interval for the busy time
  * (`timestamp_ms`). Observed on cursor-agent 2026.10.01: `webFetchToolCall`
  * (`args.url`), `mcpToolCall` (`args.providerIdentifier` / `args.toolName`),
- * `taskToolCall` (`args.description`), `shellToolCall` (`args.command`), and
- * `path` / `targetDirectory` on the file tools.
+ * `getMcpToolsToolCall` (a catalogue read, counted in `mcp` so a server that
+ * was only listed still shows up), `taskToolCall` (`args.description`),
+ * `shellToolCall` (`args.command`), and `path` / `targetDirectory` on the
+ * file tools.
  *
  * `skills` and `tools` are `null` when the stdout is not NDJSON we can parse
  * (unknown); `skills` is `[]` when we parsed and found no skill reads.
@@ -102,6 +104,11 @@ export function toolsFromCursor(stdout, cwd) {
       tools.web.push(...urlsIn(args.command).map((url) => `${url} (shell)`));
     } else if (name === "mcp") {
       tools.mcp.push(`${args.providerIdentifier ?? args.server ?? "?"}/${args.toolName ?? "?"}`);
+    } else if (name === "getMcpTools") {
+      const server = args.server ?? args.providerIdentifier ?? args.provider;
+      tools.mcp.push(
+        typeof server === "string" && server.length > 0 ? `${server}/getMcpTools` : "getMcpTools",
+      );
     } else if (name === "task" && typeof args.description === "string") {
       tools.subagents.push(args.description);
     }

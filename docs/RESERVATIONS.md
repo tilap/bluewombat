@@ -232,6 +232,22 @@ verified against the author's intent.
 **Instead:** one command, `report?: string` present or absent deciding record
 vs. clear.
 
+### C23 · Vendor-home isolation covers Cursor, and stops Claude
+
+`packages/plugins/slots/agents/cursor.mjs`, `packages/plugins/slots/agents/claude.mjs`
+
+`--agent-home` changes `HOME` for the Cursor process only. Claude recognises
+the same flags and refuses to start. That is a choice: Claude's own flags
+(`--setting-sources`, `--strict-mcp-config`, `--safe-mode`, `--bare`) were
+read from `--help` and never run, because there is no Anthropic key to measure
+them. Two Cursor limits stay on purpose. The built-in MCP namespace `cursor`
+(WebFetch, Task, and the rest of the CLI's own tools) is still there after
+isolation. `cursor-agent status` does not see `CURSOR_API_KEY`; only a headless
+run does.
+
+**Instead:** isolate Claude once those flags have been measured; hide the
+`cursor` namespace; treat `status` as proof the key works.
+
 ---
 
 ## F — Faults found and left

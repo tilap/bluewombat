@@ -114,6 +114,8 @@ export const AGENT_OPTIONS: OptionSpec = {
   "--transcript-dir": {},
   "--transcript-part": { many: true, choices: TRANSCRIPT_PARTS },
   "--agent-arg": { many: true },
+  "--agent-home": {},
+  "--api-key-env": {},
   "--id": {},
   "--attempt": {},
   "--context": {},
