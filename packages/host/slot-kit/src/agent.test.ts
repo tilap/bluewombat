@@ -242,24 +242,34 @@ describe("serializeRun", () => {
 });
 
 describe("extrasOf", () => {
-  it("reads skills and usage from a serialized line", () => {
+  it("reads skills, usage and tools from a serialized line", () => {
+    const tools = {
+      calls: { read: 2 },
+      busyMs: null,
+      web: ["https://example.com"],
+      mcp: [],
+      subagents: [],
+      outside: [],
+    };
     assert.deepEqual(
       extrasOf({
         skills: ["a"],
         usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costUsd: null },
+        tools,
       }),
       {
         skills: ["a"],
         usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costUsd: null },
+        tools,
       },
     );
   });
 
   it("treats a missing or malformed extras field as unknown", () => {
-    assert.deepEqual(extrasOf({}), { skills: null, usage: null });
-    assert.deepEqual(extrasOf({ skills: [1], usage: { input: "x" } }), {
-      skills: null,
-      usage: null,
-    });
+    assert.deepEqual(extrasOf({}), { skills: null, usage: null, tools: null });
+    assert.deepEqual(
+      extrasOf({ skills: [1], usage: { input: "x" }, tools: { calls: { read: "2" } } }),
+      { skills: null, usage: null, tools: null },
+    );
   });
 });

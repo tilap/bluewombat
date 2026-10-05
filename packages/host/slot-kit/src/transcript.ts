@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentExtras, AgentRun, AgentUsage } from "./agent.js";
+import type { AgentExtras, AgentRun, AgentTools, AgentUsage } from "./agent.js";
 
 /**
  * One file per turn of the loop, written only when a Project asks for one.
@@ -16,9 +16,9 @@ import type { AgentExtras, AgentRun, AgentUsage } from "./agent.js";
  * failures — written to disk in the clear. Whoever turns it on should mean it.
  *
  * `parts` is what to keep. Timing is cheap and says nothing about the project,
- * so it is worth keeping when the rest is not. Skills and usage are header
- * facts like duration: always written when the wrapper passed them (including
- * `null` = unknown).
+ * so it is worth keeping when the rest is not. Skills, usage and tools are
+ * header facts like duration: always written when the wrapper passed them
+ * (including `null` = unknown).
  */
 export const TRANSCRIPT_PARTS = ["prompt", "stdout", "stderr", "timing"] as const;
 
@@ -91,6 +91,7 @@ function page(
   );
   if (extras !== undefined) {
     facts.push(["skills", skillsLabel(extras.skills)], ["usage", usageLabel(extras.usage)]);
+    facts.push(...toolsFacts(extras.tools));
   }
   for (const [name, value] of facts) {
     if (value !== undefined && value !== null && value !== "") {
@@ -149,6 +150,46 @@ export function skillsLabel(skills: string[] | null): string {
     return "(none)";
   }
   return skills.join(", ");
+}
+
+/** A list is cut here in the header; the stream below still holds every call. */
+const LIST_LIMIT = 12;
+
+/**
+ * The tools as header lines. `null` is one `tools: unknown`; otherwise the
+ * calls, then each list — `(none)` said explicitly, since "it did not fetch
+ * anything" is an answer a reader came for.
+ */
+export function toolsFacts(tools: AgentTools | null): [string, string][] {
+  if (tools === null) {
+    return [["tools", "unknown"]];
+  }
+  const calls = Object.entries(tools.calls)
+    .sort(([, a], [, b]) => b - a)
+    .map(([name, count]) => `${name}=${count}`)
+    .join(" ");
+  const busy = tools.busyMs === null ? "" : ` (tools busy ${(tools.busyMs / 1000).toFixed(1)}s)`;
+  return [
+    ["tools", calls.length === 0 ? "(none)" : `${calls}${busy}`],
+    ["web", listLabel(tools.web)],
+    ["mcp", listLabel(tools.mcp)],
+    ["subagents", listLabel(tools.subagents)],
+    ["outside the workspace", listLabel(tools.outside)],
+  ];
+}
+
+/** Repeats folded into `×n`, cut at {@link LIST_LIMIT}. */
+function listLabel(items: string[]): string {
+  if (items.length === 0) {
+    return "(none)";
+  }
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    counts.set(item, (counts.get(item) ?? 0) + 1);
+  }
+  const shown = [...counts].map(([item, count]) => (count > 1 ? `${item} ×${count}` : item));
+  const cut = shown.length - LIST_LIMIT;
+  return cut > 0 ? `${shown.slice(0, LIST_LIMIT).join(", ")}, … ${cut} more` : shown.join(", ");
 }
 
 /** `null` is unknown; otherwise token counts and optional USD cost. */

@@ -83,7 +83,7 @@ const transcript = transcriptFor(process.argv, options, {
   prompt,
 });
 const run = await runAgent({ file: bin, args, cwd });
-const extras = extrasFromClaude(run.stdout, outputFormat);
+const extras = extrasFromClaude(run.stdout, outputFormat, cwd);
 transcript.write(run, extras);
 answer(run, bin, extras);
 
@@ -102,7 +102,13 @@ function refuse(reason) {
 function answer(run, binPath, extras) {
   writeContract(
     `${JSON.stringify(
-      serializeRun(run, { name: NAME, bin: binPath, skills: extras.skills, usage: extras.usage }),
+      serializeRun(run, {
+        name: NAME,
+        bin: binPath,
+        skills: extras.skills,
+        usage: extras.usage,
+        tools: extras.tools,
+      }),
     )}\n`,
   );
   process.exit(0);

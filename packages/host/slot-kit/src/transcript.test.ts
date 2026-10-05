@@ -130,7 +130,7 @@ describe("openTranscript", () => {
   it("writes skills and usage in the header, distinguishing unknown from none", () => {
     const dir = sandbox();
     const transcript = openTranscript({ dir, parts: ["timing"] });
-    transcript.write(ran(), { skills: null, usage: null });
+    transcript.write(ran(), { skills: null, usage: null, tools: null });
     assert.match(wrote(dir).text, /- skills: unknown/);
     assert.match(wrote(dir).text, /- usage: unknown/);
 
@@ -138,6 +138,7 @@ describe("openTranscript", () => {
     openTranscript({ dir: dirNone, parts: ["timing"] }).write(ran(), {
       skills: [],
       usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costUsd: null },
+      tools: null,
     });
     const none = wrote(dirNone).text;
     assert.match(none, /- skills: \(none\)/);
@@ -148,10 +149,42 @@ describe("openTranscript", () => {
     openTranscript({ dir: dirNamed, parts: ["timing"] }).write(ran(), {
       skills: ["thin-slice", "done-when"],
       usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 3, costUsd: 0.1 },
+      tools: null,
     });
     const named = wrote(dirNamed).text;
     assert.match(named, /- skills: thin-slice, done-when/);
     assert.match(named, /costUsd=0\.1/);
+  });
+
+  it("writes what the tools did, saying none where there was none", () => {
+    // "Did it read the page I linked?" is answered here, not in the stream.
+    const dir = sandbox();
+    openTranscript({ dir, parts: ["timing"] }).write(ran(), {
+      skills: [],
+      usage: null,
+      tools: {
+        calls: { read: 3, webFetch: 1, mcp: 2 },
+        busyMs: 4200,
+        web: ["https://example.com"],
+        mcp: ["github/issue_read", "github/issue_read"],
+        subagents: [],
+        outside: [],
+      },
+    });
+    const text = wrote(dir).text;
+    assert.match(text, /- tools: read=3 mcp=2 webFetch=1 \(tools busy 4\.2s\)/);
+    assert.match(text, /- web: https:\/\/example\.com/);
+    assert.match(text, /- mcp: github\/issue_read ×2/);
+    assert.match(text, /- subagents: \(none\)/);
+    assert.match(text, /- outside the workspace: \(none\)/);
+
+    const unknown = sandbox();
+    openTranscript({ dir: unknown, parts: ["timing"] }).write(ran(), {
+      skills: null,
+      usage: null,
+      tools: null,
+    });
+    assert.match(wrote(unknown).text, /- tools: unknown/);
   });
 
   it("names the parts a slot may ask for", () => {
