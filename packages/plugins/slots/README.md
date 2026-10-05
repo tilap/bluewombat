@@ -92,8 +92,12 @@ or `--report`. A role slot after `--` is what names one:
 - ./.mason/transcripts
 ```
 
-`cursor.mjs` needs `cursor-agent` on PATH (`cursor-agent login`); `claude.mjs`
-needs `claude`, signed in once.
+`cursor.mjs` needs `cursor-agent` on PATH. Without `--agent-home` it uses the
+CLI's own login (`cursor-agent login`). With `--agent-home DIR` and
+`--api-key-env NAME` the vendor process gets that directory as `HOME` and
+`CURSOR_API_KEY` from `NAME`; the value never appears on the argv. `claude.mjs`
+needs `claude`, signed in once, and refuses those two flags: Claude is not
+isolated yet, and starting it would keep the operator's own config.
 
 | Option                             | Meaning                                                                          |
 | ---------------------------------- | -------------------------------------------------------------------------------- |
@@ -106,6 +110,8 @@ needs `claude`, signed in once.
 | `--transcript-dir PATH`            | Write one file per turn under here. Off unless given                             |
 | `--transcript-part NAME`           | `prompt`, `stdout`, `stderr`, `timing`. Repeatable. Default: all                 |
 | `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                          |
+| `--agent-home DIR`                 | Isolate the vendor process: its `HOME` is this directory. Cursor only; Claude refuses |
+| `--api-key-env NAME`               | With `--agent-home`, read `process.env[NAME]` for the vendor key. Never the value itself |
 | `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                 |
 
 The agent CLI prints **one JSON line** — a `SerializedRun` from
@@ -116,7 +122,7 @@ wrapper fills when it can:
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `skills` | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                         |
 | `usage`  | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost) |
-| `tools`  | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
+| `tools`  | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`, plus `getMcpTools` when the agent only listed a server's tools), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
 
 Cursor extracts skills from `stream-json` `readToolCall` paths ending in
 `/skills/<name>/SKILL.md`. Claude extracts them from `tool_use` blocks named

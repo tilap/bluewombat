@@ -53,6 +53,11 @@ export type AgentInvocation = {
   file: string;
   args: readonly string[];
   cwd: string;
+  /**
+   * Replaces the vendor process's environment. Omit it and the process
+   * inherits this one. The wrapper's own environment is never changed.
+   */
+  env?: NodeJS.ProcessEnv | undefined;
 };
 
 /**
@@ -64,12 +69,16 @@ export type AgentInvocation = {
  * `--output-format` has to be parsed from, and `stderr` alone, which is where
  * an agent says what it did.
  */
-export function runAgent({ file, args, cwd }: AgentInvocation): Promise<AgentRun> {
+export function runAgent({ file, args, cwd, env }: AgentInvocation): Promise<AgentRun> {
   return new Promise((resolve) => {
     const startedAt = new Date();
     // process-tree:layer — started in this process's own group, never a group of
     // its own: whoever supervises this slot ends the whole chain with one signal.
-    const child = spawn(file, [...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(file, [...args], {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(env === undefined ? {} : { env }),
+    });
     let stdout = "";
     let stderr = "";
     let output = "";

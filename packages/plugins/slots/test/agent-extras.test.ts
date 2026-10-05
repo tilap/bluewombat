@@ -138,6 +138,26 @@ describe("toolsFromCursor", () => {
     assert.deepEqual(tools?.outside, ["/home/someone/.config/notes.md"]);
   });
 
+  it("counts a getMcpTools catalogue read in the mcp list", () => {
+    const discovered = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "call-discover",
+      tool_call: { getMcpToolsToolCall: { args: { server: "github" } } },
+      timestamp_ms: 1,
+    });
+    const unnamed = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "call-discover-all",
+      tool_call: { getMcpToolsToolCall: { args: {} } },
+      timestamp_ms: 2,
+    });
+    const discoveredTools = toolsFromCursor(`${discovered}\n${unnamed}\n`, "/work");
+    assert.equal(discoveredTools?.calls.getMcpTools, 2);
+    assert.deepEqual(discoveredTools?.mcp, ["github/getMcpTools", "getMcpTools"]);
+  });
+
   it("is unknown when nothing is JSON, or not a stream", () => {
     assert.equal(toolsFromCursor("not json", "/work"), null);
     assert.equal(extrasFromCursor(stdout, "json", "/work/feature").tools, null);

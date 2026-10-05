@@ -26,6 +26,8 @@ import { extrasFromClaude } from "./claude-extras.mjs";
 //   --transcript-dir PATH  write one file per turn. Off by default
 //   --transcript-part NAME prompt, stdout, stderr, timing. Repeatable
 //   --agent-arg VALUE      appended before the prompt. Repeatable
+//   --agent-home / --api-key-env   recognised, then refused. Claude is not
+//                         isolated yet; starting would keep the operator's config
 //   --id / --attempt / --context   how a transcript is filed
 
 const NAME = "Claude Code";
@@ -46,6 +48,15 @@ if (!parsed.ok) {
   refuse(parsed.reason);
 }
 const options = parsed.values;
+
+if (
+  textOption(options, "agentHome") !== undefined ||
+  textOption(options, "apiKeyEnv") !== undefined
+) {
+  refuse(
+    "Claude Code does not isolate the operator home yet. Remove --agent-home and --api-key-env; the vendor was not started.",
+  );
+}
 
 const loaded = readAgentPrompt(options);
 if (!loaded.ok) {
