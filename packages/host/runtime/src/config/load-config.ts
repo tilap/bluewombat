@@ -699,8 +699,12 @@ function readAssembly(
  * resolved against the slot's working directory, which is the Task workspace.
  * A workspace is a git worktree that is published and then destroyed: output
  * left there is committed into the work first, and lost after.
+ *
+ * `--transcript-dir` and `--agent-home` are Host-owned write paths (films, and
+ * the vendor's isolated HOME). Both must resolve against the config directory
+ * even before the directory exists.
  */
-const WRITTEN_PATH_FLAGS = new Set(["--transcript-dir"]);
+const WRITTEN_PATH_FLAGS = new Set(["--transcript-dir", "--agent-home"]);
 
 function resolveArgv(argv: string[], configDir: string): string[] {
   return argv.map((token, at) =>

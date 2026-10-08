@@ -365,6 +365,34 @@ describe("parseArgs", () => {
     }
   });
 
+  it("resolves --agent-home against the config directory before it exists", () => {
+    const dir = dirs();
+    writeFileSync(
+      join(dir.root, CONFIG_FILENAME),
+      stringifyYaml(
+        configOf(dir, {
+          builder: {
+            producer: {
+              cmd: [node, builder, "--agent-home", "./.mason/agent-home"],
+              timeoutMs: 600_000,
+            },
+            repair: { cmd: [node, builder], timeoutMs: 600_000 },
+          },
+        }),
+      ),
+    );
+    const parsed = parseArgs([], { cwd: dir.root });
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      // Same rule as --transcript-dir: a relative agent-home would become the
+      // vendor HOME inside the Task worktree and trip parent-clean.
+      assert.equal(
+        parsed.invocation.builder.producer.cmd.at(-1),
+        join(dir.root, ".mason", "agent-home"),
+      );
+    }
+  });
+
   it("carries workLine.branch from the config to the invocation", () => {
     const dir = dirs();
     writeFileSync(

@@ -199,6 +199,10 @@ runs after align, before the Authority sees the work (or before the final
 fold, with none). Its refusal is repaired by `assembly.fix` exactly as an
 Authority's is, and shares the same `maxRefusals` budget.
 
+Paths a slot **writes** — `--transcript-dir` and `--agent-home` — always resolve
+against the config file's directory, even before that directory exists. Left
+relative they would land inside the Task worktree (published, then destroyed).
+
 Every tracker field lives in `managerOptions`. Host does not read them.
 
 ### Choosing `pollIntervalMs`
