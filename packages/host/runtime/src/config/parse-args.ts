@@ -582,6 +582,7 @@ function finalize(merged: Partial<HostInvocation>, cwd: string, checkPaths: bool
     ...(merged.workLineIsolationOptions === undefined
       ? {}
       : { workLineIsolationOptions: merged.workLineIsolationOptions }),
+    ...(merged.workLineWarm === undefined ? {} : { workLineWarm: merged.workLineWarm }),
     workspaceRoot,
     ledgerRoot: resolve(cwd, merged.ledgerRoot ?? inHome(home, "ledger")),
     persist: merged.persist ?? DEFAULT_PERSIST,

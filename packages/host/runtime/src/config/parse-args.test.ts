@@ -420,6 +420,42 @@ describe("parseArgs", () => {
     assert.match(refused.ok ? "" : refused.reason, /isolationOptions.*YAML mapping/);
   });
 
+  it("carries workLine.warm as a PassSpec, and refuses one without timeoutMs", () => {
+    const dir = dirs();
+    const withWarm = {
+      ...configOf(dir),
+      workLine: {
+        stable: dir.workLineStable,
+        isolation: "@bluewombat/isolation-copy",
+        warm: { cmd: ["pnpm", "install", "--frozen-lockfile"], timeoutMs: 600_000 },
+      },
+    };
+    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(withWarm));
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) {
+      return;
+    }
+    assert.deepEqual(parsed.invocation.workLineWarm, {
+      cmd: ["pnpm", "install", "--frozen-lockfile"],
+      timeoutMs: 600_000,
+    });
+
+    writeFileSync(
+      join(dir.root, CONFIG_FILENAME),
+      stringifyYaml({
+        ...withWarm,
+        workLine: {
+          ...withWarm.workLine,
+          warm: { cmd: ["pnpm", "install"] },
+        },
+      }),
+    );
+    const refused = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(refused.ok, false);
+    assert.match(refused.ok ? "" : refused.reason, /workLine\.warm.*timeoutMs/);
+  });
+
   it("takes the work line to fold onto from a flag too", () => {
     const dir = dirs();
     writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(configOf(dir)));

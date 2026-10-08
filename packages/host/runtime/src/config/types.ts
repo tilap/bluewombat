@@ -36,6 +36,11 @@ export type HostInvocation = {
    * manager. Absent: the strategy's own defaults.
    */
   workLineIsolationOptions?: Record<string, unknown>;
+  /**
+   * Prepare a Feature workspace once it exists (install deps, …), before any
+   * Subtask is isolated from it. Absent: Subtasks inherit a cold Feature.
+   */
+  workLineWarm?: PassSpec;
   workspaceRoot: string;
   ledgerRoot: string;
   /**

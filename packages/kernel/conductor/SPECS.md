@@ -223,7 +223,12 @@ One FeatureStandard, one Project. Pause flag is off.
    and leaves the ledger in `running` so a retry isolates again if the directory
    is missing. If a Submission is already recorded and the feature directory is
    gone, Conductor escalates `kind: "submitted"` rather than isolating again
-   over what the Authority was shown.
+   over what the Authority was shown. When a `warm` port is configured, prepare
+   the Feature workspace next (install deps, …) before any Subtask Isolation —
+   once per Feature in this Conductor instance, and again after a fresh
+   Isolation. Failure: `refused` with `warm-failed` (or `interrupted` /
+   `transformer-invalid`); the Feature directory is kept so the next
+   `runProject` retries warm without re-isolating.
 5. **Subtask loop** while `nextRunnable` is a Subtask and pause is off:
    1. `startSubtask`.
    2. `declareWorkspace({ subtask })` **then** `isolate` (parent = feature path).
@@ -325,6 +330,7 @@ it was asked to run.
 | `persist-failed`      | A ledger command returned `persist-failed`                       |
 | `interrupted`         | A transformer returned `interrupted`                             |
 | `isolate-failed`      | Feature Isolation did not return `isolated`                      |
+| `warm-failed`         | Feature warm (when configured) did not return `warmed`           |
 | `align-conflict`      | Align Integration returned `conflict`; state stays `integrating` |
 | `transformer-invalid` | A transformer returned `invalid-invocation`                      |
 | `unavailable`         | `breakDown` returned `unavailable` (Planner did not answer)      |

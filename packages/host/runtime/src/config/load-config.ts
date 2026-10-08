@@ -29,7 +29,7 @@ const KNOWN_KEYS = new Set([
   "pollIntervalMs",
 ]);
 
-const WORK_LINE_KEYS = new Set(["stable", "branch", "isolation", "isolationOptions"]);
+const WORK_LINE_KEYS = new Set(["stable", "branch", "isolation", "isolationOptions", "warm"]);
 const PASS_KEYS = new Set(["cmd", "timeoutMs"]);
 const STAGE_KEYS = new Set(["producer", "repair", "maxAttempts", "gates"]);
 const ASSEMBLY_KEYS = new Set(["fix", "validate", "maxAttempts", "gates"]);
@@ -115,6 +115,9 @@ export function loadConfig(path: string): LoadedConfig {
     }
     if (workLine.isolationOptions !== undefined) {
       invocation.workLineIsolationOptions = workLine.isolationOptions;
+    }
+    if (workLine.warm !== undefined) {
+      invocation.workLineWarm = workLine.warm;
     }
   }
 
@@ -261,12 +264,13 @@ function readWorkLine(
   configDir: string,
 ):
   | {
-      ok: true;
-      stable?: string;
-      branch?: string;
-      isolation?: string;
-      isolationOptions?: Record<string, unknown>;
-    }
+    ok: true;
+    stable?: string;
+    branch?: string;
+    isolation?: string;
+    isolationOptions?: Record<string, unknown>;
+    warm?: PassSpec;
+  }
   | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: 'Config "workLine" must be a YAML mapping.' };
@@ -301,6 +305,14 @@ function readWorkLine(
   ) {
     return { ok: false, reason: 'Config "workLine.isolationOptions" must be a YAML mapping.' };
   }
+  let warm: PassSpec | undefined;
+  if (object.warm !== undefined) {
+    const read = readPass(object.warm, configDir, "workLine.warm");
+    if (read.ok === false) {
+      return read;
+    }
+    warm = read.value;
+  }
   return {
     ok: true,
     ...(stable.value === undefined ? {} : { stable: resolve(configDir, stable.value) }),
@@ -309,6 +321,7 @@ function readWorkLine(
     ...(isolationOptions === undefined
       ? {}
       : { isolationOptions: isolationOptions as Record<string, unknown> }),
+    ...(warm === undefined ? {} : { warm }),
   };
 }
 

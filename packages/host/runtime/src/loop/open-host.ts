@@ -20,6 +20,7 @@ import { openStreams, type Streams } from "./streams.js";
 import { type Host, run, runOnce } from "./tick.js";
 import { openTrace } from "./trace.js";
 import { createTransformers } from "./transformers.js";
+import { openWarm } from "./warm.js";
 import { inspectWorkLine, materializeWorkLine, resolveWorkLine } from "./work-line.js";
 
 export type { HostOptions } from "../config/types.js";
@@ -223,6 +224,15 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   // Conductor says what happens mid-pass; the tick that is running decides what
   // to do with it (report it), so the hook is a slot the tick fills.
   const watcher: HostRunInput["watcher"] = {};
+  const warm =
+    options.workLineWarm === undefined
+      ? undefined
+      : openWarm({
+        pass: options.workLineWarm,
+        interruptFlag,
+        trace,
+        journal,
+      });
   const conductor = openConductor({
     ledger,
     transformers,
@@ -235,6 +245,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     ...(options.maxRefusals === undefined ? {} : { maxRefusals: options.maxRefusals }),
     assemblyValidate: options.assembly.validate !== undefined,
     assemblyFixDeclared: options.assembly.fix !== undefined,
+    ...(warm === undefined ? {} : { warm }),
   });
 
   const ctx: HostRunInput = {

@@ -137,6 +137,9 @@ managerOptions:
 workLine:
   stable: ./work-line-stable
   isolation: "@bluewombat/isolation-copy"
+  warm:
+    cmd: [pnpm, install, --frozen-lockfile]
+    timeoutMs: 600000
 planner:
   cmd:
     - node
@@ -166,6 +169,7 @@ pollIntervalMs: 10000
 | `workLine.stable`           | Existing directory the work folds into. Optional when the manager names a reference work line: Host then keeps its own copy at `<home>/work-line`                                                                                                                                                                                                                            |
 | `workLine.isolation`        | Package name or path exporting `strategy` — required. Host loads it like a manager; Isolator/Integrator do not sniff                                                                                                                                                                                                                                                         |
 | `workLine.isolationOptions` | What that strategy is told, unread by Host — like `managerOptions`. `isolation-git` reads `exclude`, the paths a Child never gets (default `.env`, `.env.*`). A strategy without `createStrategy` refuses any                                                                                                                                                                |
+| `workLine.warm`             | Optional `cmd` / `timeoutMs`. Runs once in the Feature workspace after Isolation, before any Subtask is copied from it — typically `pnpm install --frozen-lockfile`. Absent: Subtasks inherit a cold Feature                                                                                                                                                                 |
 | `workLine.branch`           | The work line a fold lands on. Without it, what the reference names, or else whatever is checked out                                                                                                                                                                                                                                                                         |
 | `authority`                 | `enabled`, the `publish` / `refresh` slots, and the optional `describe` slot (§ Describer). Absent: the fold is local                                                                                                                                                                                                                                                        |
 | `home`                      | Where Host keeps what is its own — default `./.mason`                                                                                                                                                                                                                                                                                                                        |

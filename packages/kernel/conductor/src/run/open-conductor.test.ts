@@ -1342,3 +1342,123 @@ describe("openConductor", () => {
     assert.deepEqual(after.aggregate.bail, before.aggregate.bail);
   });
 });
+
+describe("warm Feature", () => {
+  it("runs after Feature Isolation and before any Subtask Isolation", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(feature());
+    const order: string[] = [];
+    const { transformers } = recordingTransformers({
+      async isolate(input) {
+        order.push(`isolate:${input.parent === stable ? "feature" : "subtask"}`);
+        mkdirSync(input.child, { recursive: true });
+        return { outcome: "isolated" };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      warm: {
+        durationMs: 1_000,
+        async prepare({ workspace }) {
+          order.push(`warm:${workspace}`);
+          writeFileSync(join(workspace, "warmed.txt"), "ok\n");
+          return { outcome: "warmed" };
+        },
+      },
+    });
+    const result = await conductor.runProject("proj");
+    assert.equal(result.outcome, "done");
+    assert.deepEqual(
+      order.slice(0, 3),
+      [
+        "isolate:feature",
+        `warm:${featureWorkspacePath(root, "fake:42")}`,
+        "isolate:subtask",
+      ],
+      "warm sits between Feature and Subtask Isolation",
+    );
+  });
+
+  it("is skipped on later passes once it succeeded", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(feature());
+    let warmCalls = 0;
+    let pauseNow: (() => void) | undefined;
+    const { transformers } = recordingTransformers({
+      async isolate(input) {
+        mkdirSync(input.child, { recursive: true });
+        if (input.parent !== stable) {
+          pauseNow?.();
+        }
+        return { outcome: "isolated" };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      warm: {
+        durationMs: 1_000,
+        async prepare() {
+          warmCalls += 1;
+          return { outcome: "warmed" };
+        },
+      },
+    });
+    pauseNow = () => conductor.pause();
+    const paused = await conductor.runProject("proj");
+    assert.equal(paused.outcome, "paused");
+    assert.equal(warmCalls, 1);
+    conductor.resume();
+    const second = await conductor.runProject("proj");
+    assert.equal(second.outcome, "done");
+    assert.equal(warmCalls, 1, "a warmed Feature is not prepared again");
+  });
+
+  it("refuses warm-failed and retries on the next runProject", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(feature());
+    let warmCalls = 0;
+    const { transformers } = recordingTransformers();
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      warm: {
+        durationMs: 1_000,
+        async prepare() {
+          warmCalls += 1;
+          return { outcome: warmCalls === 1 ? "failed" : "warmed" };
+        },
+      },
+    });
+    const first = await conductor.runProject("proj");
+    assert.deepEqual(first, { outcome: "refused", code: "warm-failed" });
+    assert.equal(warmCalls, 1);
+    const second = await conductor.runProject("proj");
+    assert.equal(second.outcome, "done");
+    assert.equal(warmCalls, 2);
+  });
+
+  it("is not required: without warm, Subtasks still run", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(feature());
+    const { transformers } = recordingTransformers();
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+    });
+    assert.equal((await conductor.runProject("proj")).outcome, "done");
+  });
+});

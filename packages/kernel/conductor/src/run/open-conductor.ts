@@ -25,6 +25,7 @@ export type ConductorRefusalCode =
   | "persist-failed"
   | "interrupted"
   | "isolate-failed"
+  | "warm-failed"
   | "align-conflict"
   | "transformer-invalid"
   | "unavailable"
@@ -32,6 +33,13 @@ export type ConductorRefusalCode =
   | "point-of-no-return"
   | "project-busy"
   | "illegal-transition";
+
+/** Prepare a Feature workspace after Isolation — install deps, and so on. */
+export type WarmOutcome = "warmed" | "failed" | "interrupted" | "invalid-invocation";
+
+export type WarmPort = {
+  prepare(input: { workspace: string; durationMs: number }): Promise<{ outcome: WarmOutcome }>;
+};
 
 export type ProjectRunResult =
   | { outcome: "idle" }
@@ -76,18 +84,25 @@ export type OpenConductorOptions = {
    * its own problem and does not stop the run.
    */
   observe?: (moment: ConductorMoment) => Promise<void> | void;
+  /**
+   * Prepare the Feature workspace once it exists, before any Subtask is
+   * isolated from it. Absent: Subtasks inherit whatever Isolation left —
+   * often a cold tree with no dependencies. Bounded by `durationMs`; retried
+   * on the next `runProject` until it returns `warmed`.
+   */
+  warm?: WarmPort & { durationMs: number };
 };
 
 /** One thing that happened inside a pass, for whoever is watching from outside. */
 export type ConductorMoment =
   | { kind: "planned"; key: string }
   | {
-      kind: "subtask-integrated";
-      key: string;
-      subtaskId: string;
-      integrated: number;
-      total: number;
-    }
+    kind: "subtask-integrated";
+    key: string;
+    subtaskId: string;
+    integrated: number;
+    total: number;
+  }
   | { kind: "submitted"; key: string; reference: string };
 
 export type Conductor = {
@@ -230,6 +245,9 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   const maxRefusals = options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
   const assemblyValidate = options.assemblyValidate ?? false;
   const assemblyFixDeclared = options.assemblyFixDeclared ?? false;
+  const warm = options.warm;
+  /** Features whose warm already succeeded in this Conductor instance. */
+  const warmed = new Set<string>();
   let paused = false;
 
   const refused = (code: ConductorRefusalCode): ProjectRunResult => ({
@@ -384,32 +402,50 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         return failure;
       }
     }
-    if (existsSync(child)) {
-      return undefined;
+    let fresh = false;
+    if (!existsSync(child)) {
+      if (got.aggregate.submission !== undefined) {
+        // The Authority is holding a Submission built from a workspace that is no
+        // longer here. Isolating again would rebuild the feature from the work
+        // line and publish it over that Submission, which would drop whatever the
+        // Authority has already been shown. That is a human's call, not this
+        // loop's.
+        const escalated = await freeze(key, { kind: "submitted" });
+        return escalated;
+      }
+      const isolated = await transformers.isolate({
+        id: key,
+        context: key,
+        parent: workLineStable,
+        child,
+        durationMs,
+      });
+      if (isolated.outcome === "interrupted") {
+        return refused("interrupted");
+      }
+      if (isolated.outcome !== "isolated") {
+        return refused(
+          isolated.outcome === "invalid-invocation" ? "transformer-invalid" : "isolate-failed",
+        );
+      }
+      fresh = true;
+      warmed.delete(key);
     }
-    if (got.aggregate.submission !== undefined) {
-      // The Authority is holding a Submission built from a workspace that is no
-      // longer here. Isolating again would rebuild the feature from the work
-      // line and publish it over that Submission, which would drop whatever the
-      // Authority has already been shown. That is a human's call, not this
-      // loop's.
-      const escalated = await freeze(key, { kind: "submitted" });
-      return escalated;
-    }
-    const isolated = await transformers.isolate({
-      id: key,
-      context: key,
-      parent: workLineStable,
-      child,
-      durationMs,
-    });
-    if (isolated.outcome === "interrupted") {
-      return refused("interrupted");
-    }
-    if (isolated.outcome !== "isolated") {
-      return refused(
-        isolated.outcome === "invalid-invocation" ? "transformer-invalid" : "isolate-failed",
-      );
+    if (warm !== undefined && (fresh || !warmed.has(key))) {
+      const prepared = await warm.prepare({
+        workspace: child,
+        durationMs: warm.durationMs,
+      });
+      if (prepared.outcome === "interrupted") {
+        return refused("interrupted");
+      }
+      if (prepared.outcome === "invalid-invocation") {
+        return refused("transformer-invalid");
+      }
+      if (prepared.outcome !== "warmed") {
+        return refused("warm-failed");
+      }
+      warmed.add(key);
     }
     return undefined;
   }
