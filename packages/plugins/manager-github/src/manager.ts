@@ -26,7 +26,7 @@ import {
 } from "./submission/submission.js";
 import { writtenFingerprint } from "./written-fingerprint.js";
 
-const silent = (): void => {};
+const silent = (): void => { };
 const MANAGER = "github";
 const UNKNOWN_PROJECT = "unknown";
 const DEFAULT_MAX_EVENTS = 10_000;
@@ -227,7 +227,9 @@ export function createGithubManager(options: GithubManagerOptions): ManagerPort 
         write: silent,
         interruptFlag: options.interruptFlag,
       });
-      return result.outcome === "reported";
+      // A Thread that already carries this eventId has said it. Counting that
+      // as failure made every poll re-ask and film report-declined forever.
+      return result.outcome === "reported" || result.outcome === "duplicate";
     },
 
     async submit(input: SubmissionRequest): Promise<SubmissionResult> {

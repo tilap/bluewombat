@@ -96,6 +96,11 @@ export type Conductor = {
   resume(): void;
   runProject(project: string): Promise<ProjectRunResult>;
   cancel(key: string): Promise<CommandResult>;
+  /**
+   * Drop a held Subtask (or planning) without waiting for the bail clock.
+   * Destroys the declared Subtask directory when one was recorded.
+   */
+  release(key: string): Promise<CommandResult>;
 };
 
 type DriveResult = ProjectRunResult | undefined;
@@ -307,6 +312,28 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     }
   }
 
+  /**
+   * A Subtask was started and a transformer stopped on interrupt. Release the
+   * bail now so the next process does not wait an hour for the clock.
+   */
+  async function releaseHeldAfterInterrupt(key: string): Promise<ProjectRunResult | undefined> {
+    const before = await ledger.get(key);
+    const child = before.ok ? before.aggregate.workspaces?.subtask : undefined;
+    const released = await ledger.releaseBail(key);
+    if (!released.ok) {
+      if (released.code === "persist-failed") {
+        return refused("persist-failed");
+      }
+      // Already free, or a state releaseBail refuses — leave the ledger and
+      // still answer interrupted.
+      return undefined;
+    }
+    if (child !== undefined) {
+      await destroy(child);
+    }
+    return undefined;
+  }
+
   async function reconcile(project: string): Promise<void> {
     const declared = await ledger.listDeclaredWorkspaces();
     const allowed = new Set<string>();
@@ -469,7 +496,8 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       durationMs,
     });
     if (isolated.outcome === "interrupted") {
-      return refused("interrupted");
+      const failure = await releaseHeldAfterInterrupt(key);
+      return failure ?? refused("interrupted");
     }
     if (isolated.outcome !== "isolated") {
       return refused(
@@ -492,7 +520,8 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       workspace: child,
     });
     if (implemented.outcome === "interrupted") {
-      return refused("interrupted");
+      const failure = await releaseHeldAfterInterrupt(key);
+      return failure ?? refused("interrupted");
     }
     if (implemented.outcome === "invalid-invocation") {
       return refused("transformer-invalid");
@@ -536,7 +565,8 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       mergeSubject: `Merge ${subtaskId} into the feature`,
     });
     if (folded.outcome === "interrupted") {
-      return refused("interrupted");
+      const failure = await releaseHeldAfterInterrupt(key);
+      return failure ?? refused("interrupted");
     }
     if (folded.outcome === "conflict") {
       // The unit passed its Gates; what stopped it is the fold, which leaves
@@ -990,6 +1020,16 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         await destroyDeclared(key);
       }
       return cancelled;
+    },
+
+    async release(key: string): Promise<CommandResult> {
+      const before = await ledger.get(key);
+      const child = before.ok ? before.aggregate.workspaces?.subtask : undefined;
+      const released = await ledger.releaseBail(key);
+      if (released.ok && child !== undefined) {
+        await destroy(child);
+      }
+      return released;
     },
   };
 }

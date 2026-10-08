@@ -1,14 +1,44 @@
 # bluewombat
 
-Autonomously turn a user intention into a delivered final solution: receive the
-intention from an external tracker, break it into units, execute and validate each
-one, then integrate the result into a stable work line — without a human on the
-happy path.
+bluewombat turns a user intention into a delivered solution on its own: it
+receives the intention from an external tracker, breaks it into units, executes
+and validates each one, then folds the result into a stable work line — without
+a human on the happy path.
 
-bluewombat is the system: the npm packages `@bluewombat/*` and the rules they
-follow. **mason** is its command-line tool — the binary `@bluewombat/runtime`
-ships, and the name on the config file, the home directory, and the labels it
-writes on a tracker.
+It is three layers with a one-way dependency. The **kernel** is the
+tracker-agnostic core — Conductor, WorkLedger, four Transformers — that speaks
+intention, plan, attempt, and directory. The **host** is what runs that core:
+the binary **mason**, the loop, and the contracts a plugin answers. **Plugins**
+are what a Project names in its config — managers, isolation, persistence,
+slots — loaded by name; Host never imports them, and the kernel imports nothing
+outside itself.
+
+```mermaid
+flowchart LR
+  subgraph Plugins["plugins — what a config names"]
+    P["managers · isolation · persist · slots"]
+  end
+
+  subgraph Host["host — what runs it"]
+    H["runtime · mason<br/>kits a plugin answers"]
+  end
+
+  subgraph Kernel["kernel — what stands alone"]
+    K["Conductor · WorkLedger<br/>four Transformers"]
+  end
+
+  P -->|"Host loads by name"| H
+  H -->|"wires Ports"| K
+```
+
+A third-party package is the same shape in another repository: depend on the
+kit from npm, name it in the config. Layout and rules:
+[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md),
+[packages/README.md](./packages/README.md).
+
+bluewombat is the system — the npm packages `@bluewombat/*` and the rules they
+follow. mason is the name on the binary, the config file, the home directory,
+and the labels it writes on a tracker.
 
 This is a 0.x cut. Node.js 24.20 is required. What has been run for real, and
 what has not, is in [docs/RESERVATIONS.md](./docs/RESERVATIONS.md).
@@ -104,10 +134,10 @@ npm run dev:link
 `npm run build` is enough to pick up a change. `npm run dev:unlink` removes it.
 Details: [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
-This repository is three groups of packages on one TypeScript toolchain
-(Turborepo, npm workspaces): the [kernel](./packages/kernel/README.md), the
-[host](./packages/host/README.md), and the [plugins](./packages/plugins/README.md).
-Open the package you want to run and follow the docs next to it for its CLI.
+kernel, host, and plugins share one TypeScript toolchain (Turborepo, npm
+workspaces). Open the package you want — [kernel](./packages/kernel/README.md),
+[host](./packages/host/README.md), or [plugins](./packages/plugins/README.md) —
+and follow the docs next to it for its CLI.
 
 What it is and the rules it follows: [docs/PRODUCT.md](./docs/PRODUCT.md). How
 to work in the repo: [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).

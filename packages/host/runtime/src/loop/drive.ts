@@ -40,7 +40,21 @@ export async function driveProject(
   const key = "key" in run && run.key !== undefined ? run.key : fallbackKey;
   const got = await input.ledger.get(key);
   if (got.ok) {
-    input.trace(describeFeature(got.aggregate));
+    const line = describeFeature(got.aggregate);
+    // A held Feature is swept every poll; repeating the same line on stdout
+    // looks like the loop is stuck printing, not waiting.
+    const traced = `trace:${key}:${line}`;
+    if (input.said === undefined || !input.said.has(traced)) {
+      if (input.said !== undefined) {
+        for (const entry of [...input.said]) {
+          if (entry.startsWith(`trace:${key}:`)) {
+            input.said.delete(entry);
+          }
+        }
+        input.said.add(traced);
+      }
+      input.trace(line);
+    }
     journalFeature(input.journal, run.outcome, got.aggregate, input.said);
     await reportAfterRun(input, run, got.aggregate);
     // The work landed, or it was abandoned: nobody is going to read what the

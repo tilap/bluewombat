@@ -50,16 +50,17 @@ package's README — Host does not grow a `--repo` flag for it.
 
 ## Commands
 
-| Command        | Job                                                                                    |
-| -------------- | -------------------------------------------------------------------------------------- |
-| `mason run`    | Drain the FeatureManager, run Conductor, report                                        |
-| `mason watch`  | Snapshot the ledger and follow the journal. Ctrl-C leaves the worker running           |
-| `mason status` | Snapshot the ledger, then exit. `--json` for scripts                                   |
-| `mason log`    | Replay the journal, with the reason a phase stopped. `--problems` for just those       |
-| `mason init`   | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
-| `mason setup`  | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
-| `mason doctor` | Check the config, the slots, and the manager. Exit 1 on any failure                    |
-| `mason cancel` | Abandon a Feature by key, when the tracker cannot say it is gone                       |
+| Command         | Job                                                                                    |
+| --------------- | -------------------------------------------------------------------------------------- |
+| `mason run`     | Drain the FeatureManager, run Conductor, report                                        |
+| `mason watch`   | Snapshot the ledger and follow the journal. Ctrl-C leaves the worker running           |
+| `mason status`  | Snapshot the ledger, then exit. `--json` for scripts                                   |
+| `mason log`     | Replay the journal, with the reason a phase stopped. `--problems` for just those       |
+| `mason init`    | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
+| `mason setup`   | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
+| `mason doctor`  | Check the config, the slots, and the manager. Exit 1 on any failure                    |
+| `mason cancel`  | Abandon a Feature by key, when the tracker cannot say it is gone                       |
+| `mason release` | Drop a held Subtask without waiting for the bail clock                                 |
 
 One `run` per ledger: `run` writes `<ledger>/lock` with its pid and a second
 `run` on the same home refuses to start while that process lives (two runs
@@ -104,6 +105,13 @@ manager with no `probe`), stop `run` if it holds the ledger lock, then:
 
 ```bash
 mason cancel github:owner/name#19
+```
+
+After a crash left a Subtask `running` with nobody on it, stop `run` if it
+holds the lock, then:
+
+```bash
+mason release github:owner/name#19
 ```
 
 The film is `<ledger>/events.jsonl`, next to `cursor`. It is not truth after a
@@ -151,31 +159,31 @@ timeoutMs: 600000
 pollIntervalMs: 10000
 ```
 
-| Field                       | Meaning                                                                                                                                                                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `manager`                   | Package name or path that exports `createManager`                                                                                                                                                                        |
-| `managerOptions`            | Opaque to Host. What it holds is the manager's own documentation                                                                                                                                                         |
-| `workLine.stable`           | Existing directory the work folds into. Optional when the manager names a reference work line: Host then keeps its own copy at `<home>/work-line`                                                                        |
-| `workLine.isolation`        | Package name or path exporting `strategy` — required. Host loads it like a manager; Isolator/Integrator do not sniff                                                                                                     |
-| `workLine.isolationOptions` | What that strategy is told, unread by Host — like `managerOptions`. `isolation-git` reads `exclude`, the paths a Child never gets (default `.env`, `.env.*`). A strategy without `createStrategy` refuses any            |
-| `workLine.branch`           | The work line a fold lands on. Without it, what the reference names, or else whatever is checked out                                                                                                                     |
-| `authority`                 | `enabled`, the `publish` / `refresh` slots, and the optional `describe` slot (§ Describer). Absent: the fold is local                                                                                                    |
-| `home`                      | Where Host keeps what is its own — default `./.mason`                                                                                                                                                                    |
-| `workspaceRoot`             | Isolated feature / Subtask directories (created). Default `<home>/workspaces`                                                                                                                                            |
-| `ledger`                    | WorkLedger root (created). The Cursor is a file inside it. Default `<home>/ledger`                                                                                                                                       |
-| `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend |
-| `planner`                   | `cmd` / `timeoutMs`. FeatureStandard in, a Plan out                                                                                                                                                                      |
-| `builder.producer`          | `cmd` / `timeoutMs`. Spawned in the Subtask workspace. Exit 0 lets Gates run                                                                                                                                             |
-| `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited                                                                                                                                                   |
-| `builder.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                   |
-| `builder.gates`             | `defaultTimeoutMs` and `gates`: ordered checks on each Subtask                                                                                                                                                           |
-| `assembly.fix`              | `cmd` / `timeoutMs`. Spawned when a judgement of the whole refused it — by an Authority, by `assembly.validate`, or by both                                                                                              |
-| `assembly.validate`         | `cmd` / `timeoutMs`. Optional. A local, read-only judge of the assembled feature, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's                     |
-| `assembly.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                               |
-| `assembly.gates`            | Ordered checks on the assembled feature. Empty: the Authority judges alone                                                                                                                                               |
-| `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                         |
-| `maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `assembly.validate`, or by both — one shared budget. Default 3                                                                                 |
-| `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick. Pick it with § Choosing `pollIntervalMs` — 10000 is the floor worth having                                                                       |
+| Field                       | Meaning                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `manager`                   | Package name or path that exports `createManager`                                                                                                                                                                                                                                                                                                                            |
+| `managerOptions`            | Opaque to Host. What it holds is the manager's own documentation                                                                                                                                                                                                                                                                                                             |
+| `workLine.stable`           | Existing directory the work folds into. Optional when the manager names a reference work line: Host then keeps its own copy at `<home>/work-line`                                                                                                                                                                                                                            |
+| `workLine.isolation`        | Package name or path exporting `strategy` — required. Host loads it like a manager; Isolator/Integrator do not sniff                                                                                                                                                                                                                                                         |
+| `workLine.isolationOptions` | What that strategy is told, unread by Host — like `managerOptions`. `isolation-git` reads `exclude`, the paths a Child never gets (default `.env`, `.env.*`). A strategy without `createStrategy` refuses any                                                                                                                                                                |
+| `workLine.branch`           | The work line a fold lands on. Without it, what the reference names, or else whatever is checked out                                                                                                                                                                                                                                                                         |
+| `authority`                 | `enabled`, the `publish` / `refresh` slots, and the optional `describe` slot (§ Describer). Absent: the fold is local                                                                                                                                                                                                                                                        |
+| `home`                      | Where Host keeps what is its own — default `./.mason`                                                                                                                                                                                                                                                                                                                        |
+| `workspaceRoot`             | Isolated feature / Subtask directories (created). Default `<home>/workspaces`                                                                                                                                                                                                                                                                                                |
+| `ledger`                    | WorkLedger root (created). The Cursor is a file inside it. Default `<home>/ledger`                                                                                                                                                                                                                                                                                           |
+| `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
+| `planner`                   | `cmd` / `timeoutMs`. FeatureStandard in, a Plan out                                                                                                                                                                                                                                                                                                                          |
+| `builder.producer`          | `cmd` / `timeoutMs`. Spawned in the Subtask workspace. Exit 0 lets Gates run                                                                                                                                                                                                                                                                                                 |
+| `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited                                                                                                                                                                                                                                                                                                       |
+| `builder.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                                                                                                                                                                       |
+| `builder.gates`             | `defaultTimeoutMs` and `gates`: ordered checks on each Subtask                                                                                                                                                                                                                                                                                                               |
+| `assembly.fix`              | `cmd` / `timeoutMs`. Spawned when a judgement of the whole refused it — by an Authority, by `assembly.validate`, or by both                                                                                                                                                                                                                                                  |
+| `assembly.validate`         | `cmd` / `timeoutMs`. Optional. A local, read-only judge of the assembled feature, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's                                                                                                                                                                          |
+| `assembly.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                                                                                                                                                                                   |
+| `assembly.gates`            | Ordered checks on the assembled feature. Empty: the Authority judges alone                                                                                                                                                                                                                                                                                                   |
+| `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                                                                                                                                                                             |
+| `maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `assembly.validate`, or by both — one shared budget. Default 3                                                                                                                                                                                                                                      |
+| `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick. Pick it with § Choosing `pollIntervalMs` — 10000 is the floor worth having                                                                                                                                                                                                                             |
 | `observability.streams`     | `enabled`, `dir`, `keep`. Films what every child says, as it says it — one file per child under `<dir>/<feature>/`, named in the journal by a `stream-opened` line. `dir` resolves against the config file; default `<home>/streams`. `keep` is `stdout` / `stderr`, default both. Off unless `enabled` is true: a stream is the Project's own code and prompts in the clear |
 
 Every `cmd` is named where it is used, and nothing falls back to a neighbour: a
@@ -208,11 +216,11 @@ touch it. It only sets how long `mason run` takes to notice:
 a read whose answer did not change comes back 304, which does not count
 against the token's budget.
 
-| The tick                     | GitHub REST calls                                                   | Counted when nothing moved | Besides                     |
-| ---------------------------- | ------------------------------------------------------------------- | -------------------------- | --------------------------- |
-| Nothing to do                | 1: the issues updated since the Cursor, 100 per page                | 0 (304)                    | none: no fetch              |
-| A Feature in flight          | + 1 per Feature that can still be abandoned: is its issue still there | 0 (304)                  | a `git fetch` of the work line copy (not REST) |
-| A Feature `submitted`        | + the judgement: `ci-green` asks for the pull request, its check runs and its statuses (about 3) | about 3: `ci-green` is its own process and keeps no `etag` | |
+| The tick              | GitHub REST calls                                                                                | Counted when nothing moved                                 | Besides                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ---------------------------------------------- |
+| Nothing to do         | 1: the issues updated since the Cursor, 100 per page                                             | 0 (304)                                                    | none: no fetch                                 |
+| A Feature in flight   | + 1 per Feature that can still be abandoned: is its issue still there                            | 0 (304)                                                    | a `git fetch` of the work line copy (not REST) |
+| A Feature `submitted` | + the judgement: `ci-green` asks for the pull request, its check runs and its statuses (about 3) | about 3: `ci-green` is its own process and keeps no `etag` |                                                |
 
 Reports to the tracker (a comment, a label move: 2 to 4 calls each) happen
 when the work moves, not per tick, and each changes the listing: the read
@@ -525,7 +533,7 @@ change that breaks it does not merge.
 | `config/`            | What a Project wrote: argv, `mason.config.yaml`, discovery, `HostOptions`. Pure: YAML in, options out                                                     | A runtime value (a Journal, a Port, a process handle)            | Node, `manager-kit` types                     |
 | `plugins/`           | Load a package by name and check its shape: a manager, an isolation strategy                                                                              | What to do with the loaded thing                                 | `config`                                      |
 | `loop/`              | The process: listen → probe → adapt → admit → run → report; composition (`open-host`, `transformers`, Authority, work line, lock, Cursor, journal, trace) | A command a human types; a string a human reads about the config | `plugins`, `config`, the kernel, Transformers |
-| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `cancel`, `board`, the terminal prompt                                           | Anything the loop needs — the loop cannot see this layer         | everything below                              |
+| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `cancel`, `release`, `board`, the terminal prompt                                | Anything the loop needs — the loop cannot see this layer         | everything below                              |
 | `index.ts`, `cli.ts` | The package surface and the dispatch. Nothing else sits at the top of `src/`                                                                              | Logic                                                            | everything                                    |
 
 Host's code names no plugin. A manager, an isolation strategy, a persistence
@@ -576,10 +584,10 @@ SPECS.md                 behavioural contract
 README.md                how to install, configure and run; the layers above
 src/
   index.ts               the package surface
-  cli.ts                 mason run | watch | status | log | cancel | init | setup | doctor
+  cli.ts                 mason run | watch | status | log | cancel | release | init | setup | doctor
   config/                argv, JSON config, config discovery → HostOptions; defaults: the plugin names Host ships with
   plugins/               load: the one loader; manager, isolation, persist: one shape each; discover
   loop/                  open-host (composition), tick (the loop), deliveries, drive, probe, report, authority, work-line, cursor, lock, journal (the film), streams (what a child said), trace, transformers
-  operator/              init, setup, doctor, live (watch / status), log, film, cancel, board, prompt, git-remote
+  operator/              init, setup, doctor, live (watch / status), log, film, cancel, release, board, prompt, git-remote
 fixtures/                stand-in slots for the loop's tests
 ```

@@ -4,7 +4,7 @@ import { runAdapter } from "./adapter/run/run-adapter.js";
 import { runEmitter } from "./emitter/run/run-emitter.js";
 import { runListener } from "./listener/run/run-listener.js";
 
-const silent = (): void => {};
+const silent = (): void => { };
 const MANAGER = "fake";
 const UNKNOWN_PROJECT = "unknown";
 const DEFAULT_PRIORITY = 50;
@@ -100,7 +100,8 @@ export function createFakeManager(options: FakeManagerOptions): ManagerPort {
         },
         write: silent,
       });
-      return result.outcome === "reported";
+      // Same as GitHub: a Thread that already carries this eventId has said it.
+      return result.outcome === "reported" || result.outcome === "duplicate";
     },
   };
 }

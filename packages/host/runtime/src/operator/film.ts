@@ -198,6 +198,11 @@ function headlineOf(line: Record<string, unknown>): string {
   if (typeof line.phase === "string") {
     return line.phase;
   }
+  // A held Feature names when the bail frees it — that is the line a watcher
+  // needs, not the state word alone.
+  if (line.event === "held" && typeof line.until === "number") {
+    return `until ${new Date(line.until).toISOString().slice(11, 19)}`;
+  }
   if (typeof line.state === "string") {
     return line.state;
   }

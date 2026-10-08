@@ -117,6 +117,11 @@ export type WorkLedger = {
   declareWorkspace(input: DeclareWorkspaceInput): Promise<CommandResult>;
   clearWorkspace(input: ClearWorkspaceInput): Promise<CommandResult>;
   expireBail(key: string): Promise<CommandResult>;
+  /**
+   * Drop a held Subtask (or planning) without waiting for the bail clock.
+   * Same ledger outcome as an expired bail in those states.
+   */
+  releaseBail(key: string): Promise<CommandResult>;
   renewBail(key: string): Promise<CommandResult>;
   get(key: string): Promise<GetResult>;
   /** Every known Feature, whatever its state. */
@@ -176,6 +181,35 @@ function unblocksCount(
   subtasks: { id: string; depends_on: string[] }[],
 ): number {
   return subtasks.filter((st) => st.depends_on.includes(subtaskId)).length;
+}
+
+/** Drop a declared Subtask workspace path; keep the feature path when present. */
+function clearSubtaskWorkspace(aggregate: FeatureAggregate): void {
+  if (aggregate.workspaces === undefined) {
+    return;
+  }
+  delete aggregate.workspaces.subtask;
+  if (aggregate.workspaces.feature === undefined) {
+    delete aggregate.workspaces;
+  }
+}
+
+/**
+ * A held Subtask becomes runnable from zero. Returns whether one was held.
+ */
+function releaseRunningSubtask(aggregate: FeatureAggregate): boolean {
+  if (aggregate.plan === undefined) {
+    return false;
+  }
+  const running = aggregate.plan.subtasks.find((st) => st.state === "running");
+  if (running === undefined) {
+    return false;
+  }
+  running.state = "runnable";
+  aggregate.attempts_used += 1;
+  clearSubtaskWorkspace(aggregate);
+  delete aggregate.bail;
+  return true;
 }
 
 export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
@@ -743,22 +777,35 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return await write(aggregate);
       }
       if (aggregate.state === "running" && aggregate.plan !== undefined) {
-        const running = aggregate.plan.subtasks.find((st) => st.state === "running");
-        if (running !== undefined) {
-          running.state = "runnable";
-          aggregate.attempts_used += 1;
+        if (!releaseRunningSubtask(aggregate)) {
+          clearSubtaskWorkspace(aggregate);
+          delete aggregate.bail;
         }
-        if (aggregate.workspaces !== undefined) {
-          delete aggregate.workspaces.subtask;
-          if (aggregate.workspaces.feature === undefined) {
-            delete aggregate.workspaces;
-          }
-        }
-        delete aggregate.bail;
         return await write(aggregate);
       }
       delete aggregate.bail;
       return await write(aggregate);
+    },
+
+    async releaseBail(key: string): Promise<CommandResult> {
+      const current = await loadOrRefuse(key);
+      if (!current.ok) {
+        return current;
+      }
+      const { aggregate } = current;
+      if (aggregate.state === "planning") {
+        aggregate.state = "received";
+        delete aggregate.bail;
+        return await write(aggregate);
+      }
+      if (aggregate.state === "running" && aggregate.plan !== undefined) {
+        if (!releaseRunningSubtask(aggregate)) {
+          // Already free: no Subtask held, nothing to write.
+          return { ok: true };
+        }
+        return await write(aggregate);
+      }
+      return refused("illegal-transition");
     },
 
     async renewBail(key: string): Promise<CommandResult> {

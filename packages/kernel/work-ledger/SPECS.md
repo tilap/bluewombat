@@ -234,6 +234,7 @@ Idempotence is on `key` unless a row says otherwise.
 | `declareWorkspace`      | Record a WorkSpaceFeature and/or WorkSpaceSubtask path **before** glue creates it                                                                                                                             | Feature `done` or `cancelled`                                                                                                                                       |
 | `clearWorkspace`        | Drop a declared path after glue deleted that directory                                                                                                                                                        | —                                                                                                                                                                   |
 | `expireBail`            | Bail past expiry: Subtask `running` → `runnable` (from zero, consume an Attempt); Feature `planning` → `received`                                                                                             | No bail, or bail not expired                                                                                                                                        |
+| `releaseBail`           | Same ledger outcome as an expired bail in `planning` / `running`, without waiting for the clock. A `running` Feature with no Subtask held is success with no rewrite                                           | Feature not `planning` or `running`                                                                                                                                 |
 | `renewBail`             | Push bail expiry forward by the configured duration. Allowed while a bail is held                                                                                                                             | No bail                                                                                                                                                             |
 
 `resumeReady` from `invalid` requires `admit` of a corrected FeatureStandard
@@ -276,6 +277,12 @@ Attempt.
 Expired bail: `expireBail`. The Subtask becomes `runnable` from zero and
 consumes an Attempt. Declared Subtask workspace is cleared (glue deletes the
 directory). The ledger decides; glue acts.
+
+A clean stop (or an operator) that knows the holder is gone calls
+`releaseBail`: the same `planning` / `running` outcome, without the clock.
+It refuses `integrating`, `submitted`, `merging`, and every terminal state —
+those are not a held Subtask. A `running` Feature that already has no Subtask
+`running` is success with no rewrite.
 
 After a process start, glue calls `listDeclaredWorkspaces` and destroys
 directories that are not on that list. It does not invent Feature state from

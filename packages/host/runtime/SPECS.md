@@ -34,10 +34,10 @@ Planner / Builder / Gate argv.
 
 ## 2. Faces
 
-| Face   | Entry                                                                      | Must not                                      |
-| ------ | -------------------------------------------------------------------------- | --------------------------------------------- |
-| Import | `openHost(options)` then `runOnce` / `run`                                 | Live inside Conductor `src/run/`              |
-| CLI    | `mason run \| watch \| status \| log \| cancel \| init \| setup \| doctor` | Interpret a FeatureStandard; pick Child paths |
+| Face   | Entry                                                                                 | Must not                                      |
+| ------ | ------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Import | `openHost(options)` then `runOnce` / `run`                                            | Live inside Conductor `src/run/`              |
+| CLI    | `mason run \| watch \| status \| log \| cancel \| release \| init \| setup \| doctor` | Interpret a FeatureStandard; pick Child paths |
 
 `src/loop/` is the process: `open-host.ts` opens packages (composition),
 `tick.ts` runs the listen / probe / Cursor / sweep loop, `deliveries.ts` handles one
@@ -147,9 +147,11 @@ than waited for; the Transformer then answers `interrupted`. `mason run` exits
 
 Each pass appends JSON lines to `<ledgerRoot>/events.jsonl` (listen, probed,
 Transformer progress, admitted, reported, queued, idle, a heartbeat while
-`submitted`). Every report to the tracker is filmed with how long it took
-(`ms`): `reported` when the manager took it, `report-declined` when it did not
-(already said, or it failed). That file is a film, not truth: a crash may drop the last lines;
+`submitted`, one `held` while a Subtask waits on a bail that has not expired).
+Every report to the tracker is filmed with how long it took (`ms`): `reported`
+when the manager took it (including a Thread that already carried that eventId
+— a duplicate is already said), `report-declined` when it failed. That file is
+a film, not truth: a crash may drop the last lines;
 the ledger is still right. `mason run` still writes a human Trace on stdout.
 The journal is how another process attaches.
 
@@ -177,7 +179,7 @@ and left; the next sweep that finds the Project free claims it. The same set
 copy: starting a queued Feature on a copy that was not fast-forwarded this
 tick would build on a version that no longer exists.
 
-## 8. init, setup, doctor, watch, status, log and cancel
+## 8. init, setup, doctor, watch, status, log, cancel and release
 
 `init` writes a config that already runs: the Planner is the bootstrap one from
 `@bluewombat/slots/planners/`, the Builder is a stub that says what to replace
@@ -333,6 +335,14 @@ takes the ledger lock — stop `run` first if it holds it. Exit 0 on cancel or
 already cancelled, 1 when abandon is refused (`done`, point of no return), 2
 when the key is missing or the ledger does not know it. The key is the first
 positional: `cancel github:owner/name#19`.
+
+`release <key>` drops a held Subtask (or a Feature still in `planning`) without
+waiting for the bail clock — the hatch after a crash left nobody on the work.
+A clean stop releases itself. It takes the ledger lock — stop `run` first if
+it holds it. Exit 0 when the Subtask was released or the Feature was already
+free, 1 when the Feature is past `planning` / `running` (the state is named),
+2 when the key is missing or the ledger does not know it. The key is the first
+positional: `release github:owner/name#19`.
 
 ## 9. Acceptance
 

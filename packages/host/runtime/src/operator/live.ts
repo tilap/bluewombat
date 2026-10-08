@@ -81,13 +81,15 @@ function formatFilm(line: Record<string, unknown>): string {
       ? line.label
       : typeof line.outcome === "string"
         ? String(line.outcome)
-        : typeof line.state === "string"
-          ? String(line.state)
-          : typeof line.reference === "string"
-            ? line.reference
-            : typeof line.behind === "string"
-              ? line.behind
-              : "";
+        : line.event === "held" && typeof line.until === "number"
+          ? `until ${new Date(line.until).toISOString().slice(11, 19)}`
+          : typeof line.state === "string"
+            ? String(line.state)
+            : typeof line.reference === "string"
+              ? line.reference
+              : typeof line.behind === "string"
+                ? line.behind
+                : "";
   const note = failureNote(line);
   return [at, event, key, extra, note].filter((part) => part.length > 0).join("  ");
 }

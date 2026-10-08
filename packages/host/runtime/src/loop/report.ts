@@ -185,9 +185,9 @@ export async function reportAfterRun(
           ...((aggregate.escalation?.report ?? aggregate.submission?.last_report) === undefined
             ? {}
             : {
-                trace: (aggregate.escalation?.report ??
-                  aggregate.submission?.last_report) as string,
-              }),
+              trace: (aggregate.escalation?.report ??
+                aggregate.submission?.last_report) as string,
+            }),
         },
       });
       return;
@@ -401,6 +401,28 @@ export function journalFeature(
   said?: Set<string>,
 ): void {
   const key = aggregate.intention.key;
+  // A Subtask held by a bail is driven again every poll until the clock (or a
+  // release) frees it. One `held` line names the wait; repeating `ran paused`
+  // every ten seconds is noise.
+  if (
+    outcome === "paused" &&
+    aggregate.state === "running" &&
+    aggregate.bail !== undefined &&
+    aggregate.bail.expires_at > Date.now()
+  ) {
+    const seen = `journal:${key}:held:${aggregate.bail.expires_at}`;
+    if (said?.has(seen)) {
+      return;
+    }
+    said?.add(seen);
+    journal.append({
+      event: "held",
+      key,
+      until: aggregate.bail.expires_at,
+      state: aggregate.state,
+    });
+    return;
+  }
   journal.append({ event: "ran", key, outcome, state: aggregate.state });
   if (aggregate.state !== "submitted" || aggregate.submission === undefined) {
     return;

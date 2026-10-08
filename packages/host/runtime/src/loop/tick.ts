@@ -4,7 +4,7 @@ import type { FeatureState, FeatureSummary, WorkLedger } from "@bluewombat/work-
 import { refreshWorkLine } from "./authority.js";
 import type { HostRunInput } from "./context.js";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { type CancelResult, handleDelivery } from "./deliveries.js";
+import { type CancelResult, handleDelivery, type ReleaseResult } from "./deliveries.js";
 import { driveUntilBlocked } from "./drive.js";
 import { abandonGone } from "./probe.js";
 import { reportMoment } from "./report.js";
@@ -35,6 +35,8 @@ export type Host = {
   run(): Promise<HostTickResult>;
   /** Abandon one Feature by key. Takes the same path as a `cancel` delivery. */
   cancel(key: string): Promise<CancelResult>;
+  /** Drop a held Subtask without waiting for the bail clock. */
+  release(key: string): Promise<ReleaseResult>;
   /** Give the ledger back: the lock `openHost` took. */
   close(): Promise<void>;
 };
@@ -170,7 +172,7 @@ export async function run(input: HostRunInput): Promise<HostTickResult> {
     listenerOutcome: "completed",
     reported: [],
   };
-  for (;;) {
+  for (; ;) {
     if (interruptFlag.interrupted) {
       journal.append({ event: "paused" });
       conductor.pause();

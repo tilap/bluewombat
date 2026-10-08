@@ -345,6 +345,96 @@ describe("openWorkLedger (test-double Port)", () => {
     );
   });
 
+  it("10d. releaseBail while a Subtask is running makes it runnable without waiting for the bail", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(feature());
+    await claimKey(ledger, "proj");
+    await ledger.recordPlan({
+      key: "fake:42",
+      plannedAt: "2026-01-01T00:00:00.000Z",
+      subtasks: twoSubtasks(),
+    });
+    await ledger.startSubtask({ key: "fake:42", subtaskId: "A" });
+    await ledger.declareWorkspace({
+      key: "fake:42",
+      feature: "/tmp/ws-feature",
+      subtask: "/tmp/ws-subtask",
+    });
+    const before = await requireAggregate(ledger, "fake:42");
+    assert.ok(before.bail !== undefined);
+    assert.ok(before.bail.expires_at > 1_000);
+
+    assert.deepEqual(await ledger.releaseBail("fake:42"), { ok: true });
+    const after = await requireAggregate(ledger, "fake:42");
+    assert.equal(after.state, "running");
+    assert.equal(after.bail, undefined);
+    assert.equal(after.attempts_used, 1);
+    assert.equal(
+      after.plan?.subtasks.find((st) => st.id === "A")?.state,
+      "runnable",
+    );
+    assert.equal(after.plan?.subtasks.find((st) => st.id === "B")?.state, "pending");
+    assert.deepEqual(after.workspaces, { feature: "/tmp/ws-feature" });
+  });
+
+  it("10e. releaseBail on running with no Subtask held is success with no rewrite", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(feature());
+    await claimKey(ledger, "proj");
+    await ledger.recordPlan({
+      key: "fake:42",
+      plannedAt: "2026-01-01T00:00:00.000Z",
+      subtasks: twoSubtasks(),
+    });
+    const before = await requireAggregate(ledger, "fake:42");
+    assert.equal(before.plan?.subtasks.find((st) => st.id === "A")?.state, "runnable");
+    assert.deepEqual(await ledger.releaseBail("fake:42"), { ok: true });
+    const after = await requireAggregate(ledger, "fake:42");
+    assert.equal(after.attempts_used, before.attempts_used);
+    assert.deepEqual(after.bail, before.bail);
+  });
+
+  it("10f. releaseBail refuses integrating and leaves the bail", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(feature());
+    await claimKey(ledger, "proj");
+    await ledger.recordPlan({
+      key: "fake:42",
+      plannedAt: "2026-01-01T00:00:00.000Z",
+      subtasks: [{ id: "A", intention: "first", definition_of_done: "A done", depends_on: [] }],
+    });
+    await ledger.startSubtask({ key: "fake:42", subtaskId: "A" });
+    await ledger.recordAttempt({
+      key: "fake:42",
+      subtaskId: "A",
+      number: 1,
+      trace: { ended: "validated" },
+    });
+    await ledger.markSubtaskIntegrated({ key: "fake:42", subtaskId: "A" });
+    const before = await requireAggregate(ledger, "fake:42");
+    assert.equal(before.state, "integrating");
+    assert.ok(before.bail !== undefined);
+
+    assert.deepEqual(await ledger.releaseBail("fake:42"), {
+      ok: false,
+      code: "illegal-transition",
+    });
+    const after = await requireAggregate(ledger, "fake:42");
+    assert.equal(after.state, "integrating");
+    assert.deepEqual(after.bail, before.bail);
+  });
+
+  it("10g. releaseBail while planning returns the Feature to received", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(feature());
+    await claimKey(ledger, "proj");
+    assert.equal((await requireAggregate(ledger, "fake:42")).state, "planning");
+    assert.deepEqual(await ledger.releaseBail("fake:42"), { ok: true });
+    const after = await requireAggregate(ledger, "fake:42");
+    assert.equal(after.state, "received");
+    assert.equal(after.bail, undefined);
+  });
+
   it("11. declareWorkspace then listDeclaredWorkspaces includes the path; clearWorkspace removes it", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await ledger.admit(feature());

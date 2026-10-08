@@ -11,6 +11,7 @@ import { runInit } from "./operator/init.js";
 import { runLive } from "./operator/live.js";
 import { runLog } from "./operator/log.js";
 import { isInteractive, terminalAsk } from "./operator/prompt.js";
+import { runRelease } from "./operator/release.js";
 import { runSetup } from "./operator/setup.js";
 
 const USAGE = `Usage: ${PRODUCT} <command>
@@ -20,6 +21,7 @@ const USAGE = `Usage: ${PRODUCT} <command>
   status   snapshot the ledger, then exit
   log      replay the journal, including why a phase stopped
   cancel   abandon a Feature by key (when the tracker cannot say it is gone)
+  release  drop a held Subtask without waiting for the bail clock
   init     set this directory up — asks, writes, then runs setup
   doctor   check the config, the slots, and the manager
   setup    prepare the tracker (--apply to write; a plan without it)
@@ -175,6 +177,21 @@ async function main(argv: string[]): Promise<number> {
     const detachSignals = installSignalHandlers(interruptFlag);
     try {
       return await runCancel({
+        cwd: process.cwd(),
+        argv: rest,
+        env: process.env,
+        write: (line) => process.stdout.write(line),
+        interruptFlag,
+      });
+    } finally {
+      detachSignals();
+    }
+  }
+  if (command === "release") {
+    const interruptFlag = { interrupted: false };
+    const detachSignals = installSignalHandlers(interruptFlag);
+    try {
+      return await runRelease({
         cwd: process.cwd(),
         argv: rest,
         env: process.env,

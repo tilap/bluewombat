@@ -10,6 +10,8 @@ export type { WorkLineState } from "./loop/work-line.js";
 export { inspectWorkLine } from "./loop/work-line.js";
 export type { CancelInput } from "./operator/cancel.js";
 export { runCancel } from "./operator/cancel.js";
+export type { ReleaseInput } from "./operator/release.js";
+export { runRelease } from "./operator/release.js";
 export type { DoctorInput } from "./operator/doctor.js";
 export { runDoctor } from "./operator/doctor.js";
 export { cloneWorkLine, remoteBranches } from "./operator/git-remote.js";

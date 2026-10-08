@@ -44,6 +44,24 @@ describe("createManager", () => {
     assert.equal(typo.ok, false);
     assert.match(typo.ok === false ? typo.reason : "", /unknown key "sources"/);
   });
+
+  it("treats a repeated eventId as already said, not as a failed report", async () => {
+    const { root } = sandbox();
+    const created = createManager(contextOf({ source: "./source", target: "./threads" }, root));
+    assert.equal(created.ok, true);
+    if (!created.ok) {
+      throw new Error("unreachable");
+    }
+    const report = {
+      event: "planned" as const,
+      key: "fake:42",
+      project: "proj",
+      fields: { plan: "1. first" },
+      eventId: "fake:42:planned:once",
+    };
+    assert.equal(await created.manager.report(report), true);
+    assert.equal(await created.manager.report(report), true);
+  });
 });
 
 describe("scaffoldManager", () => {

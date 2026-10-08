@@ -13,7 +13,7 @@ import { contextOf, loadManagerModule, type ManagerRequest } from "../plugins/ma
 import { resolvePersistModule } from "../plugins/persist.js";
 import { openAuthority } from "./authority.js";
 import type { HostRunInput } from "./context.js";
-import { cancelFeature } from "./deliveries.js";
+import { cancelFeature, releaseFeature } from "./deliveries.js";
 import { coalesceQuiet, type Journal, openJournalFile, stampJournal } from "./journal.js";
 import { acquireLock } from "./lock.js";
 import { openStreams, type Streams } from "./streams.js";
@@ -23,7 +23,7 @@ import { createTransformers } from "./transformers.js";
 import { inspectWorkLine, materializeWorkLine, resolveWorkLine } from "./work-line.js";
 
 export type { HostOptions } from "../config/types.js";
-export type { CancelResult } from "./deliveries.js";
+export type { CancelResult, ReleaseResult } from "./deliveries.js";
 export type { Host, HostTickResult } from "./tick.js";
 
 const DEFAULT_MAX_UNITS = 10;
@@ -60,9 +60,9 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const interruptFlag = options.interruptFlag ?? { interrupted: false };
   const trace = openTrace(
     options.write ??
-      ((text: string) => {
-        process.stdout.write(text);
-      }),
+    ((text: string) => {
+      process.stdout.write(text);
+    }),
   );
   const resolved = await resolveIsolationStrategy(
     options.workLineIsolation,
@@ -161,10 +161,10 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const streams: Streams | undefined =
     streamsSpec?.enabled === true
       ? openStreams({
-          dir: streamsSpec.dir ?? join(home, "streams"),
-          keep: streamsSpec.keep ?? ["stdout", "stderr"],
-          journal,
-        })
+        dir: streamsSpec.dir ?? join(home, "streams"),
+        keep: streamsSpec.keep ?? ["stdout", "stderr"],
+        journal,
+      })
       : undefined;
   const transformers = createTransformers({
     trace,
@@ -199,19 +199,19 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const authority =
     wantsAuthority && options.authority !== undefined && target !== undefined
       ? openAuthority({
-          manager,
-          workLineStable: stable,
-          workLineTarget: target,
-          publishArgv: options.authority.publishArgv,
-          timeoutMs: options.timeoutMs,
-          refOf: resolved.strategy.refOf ?? ((id) => id),
-          env: workLineEnv,
-          describe:
-            options.authority.describeArgv === undefined
-              ? undefined
-              : { cmd: options.authority.describeArgv, timeoutMs: options.timeoutMs },
-          journal,
-        })
+        manager,
+        workLineStable: stable,
+        workLineTarget: target,
+        publishArgv: options.authority.publishArgv,
+        timeoutMs: options.timeoutMs,
+        refOf: resolved.strategy.refOf ?? ((id) => id),
+        env: workLineEnv,
+        describe:
+          options.authority.describeArgv === undefined
+            ? undefined
+            : { cmd: options.authority.describeArgv, timeoutMs: options.timeoutMs },
+        journal,
+      })
       : undefined;
   // Asking for an Authority from a manager that has none is a configuration
   // mistake, not a reason to quietly fold locally instead.
@@ -261,6 +261,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     runOnce: () => runOnce(ctx),
     run: () => run(ctx),
     cancel: (key) => cancelFeature(ctx, key),
+    release: (key) => releaseFeature(ctx, key),
     // The film closes before the lock does: whoever reads it next has to be
     // able to tell a run that ended from one whose process was killed, and the
     // absence of this line is the only way to say the second.

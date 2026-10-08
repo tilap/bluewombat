@@ -576,9 +576,9 @@ describe("openConductor", () => {
         if (input.id.endsWith(":judgement")) {
           return refuse
             ? {
-                outcome: "escalated",
-                traces: [{ ended: "fail-retryable", report: "the check went red" }],
-              }
+              outcome: "escalated",
+              traces: [{ ended: "fail-retryable", report: "the check went red" }],
+            }
             : { outcome: "validated", traces: [{ ended: "validated" }] };
         }
         if (input.id.endsWith(":assembly")) {
@@ -699,11 +699,11 @@ describe("openConductor", () => {
         if (input.id.endsWith(":judgement")) {
           return refuse
             ? {
-                outcome: "escalated",
-                traces: [
-                  { ended: "fail-retryable", report: "the check went red", refusedBy: "ci-green" },
-                ],
-              }
+              outcome: "escalated",
+              traces: [
+                { ended: "fail-retryable", report: "the check went red", refusedBy: "ci-green" },
+              ],
+            }
             : { outcome: "validated", traces: [{ ended: "validated" }] };
         }
         if (input.id.endsWith(":assembly")) {
@@ -1075,15 +1075,15 @@ describe("openConductor", () => {
           if (input.validate === true) {
             return refuse
               ? {
-                  outcome: "escalated",
-                  traces: [
-                    {
-                      ended: "fail-retryable",
-                      report: "drops the CLI flag",
-                      refusedBy: "reviewer",
-                    },
-                  ],
-                }
+                outcome: "escalated",
+                traces: [
+                  {
+                    ended: "fail-retryable",
+                    report: "drops the CLI flag",
+                    refusedBy: "reviewer",
+                  },
+                ],
+              }
               : { outcome: "validated", traces: [{ ended: "validated" }] };
           }
           if (input.id.endsWith(":assembly")) {
@@ -1245,5 +1245,100 @@ describe("openConductor", () => {
       assert.equal(got.aggregate.parked_refusals, 1);
       assert.match(got.aggregate.escalation?.report ?? "", /still off/);
     });
+  });
+
+  it("implement interrupted releases the Subtask so the next run does not wait for the bail", async () => {
+    const { stable, root } = tempPair();
+    const { transformers } = recordingTransformers({
+      async implement() {
+        return { outcome: "interrupted" };
+      },
+    });
+    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
+    await ledger.admit(feature());
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+    });
+    const result = await conductor.runProject("proj");
+    assert.deepEqual(result, { outcome: "refused", code: "interrupted" });
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.state, "running");
+    assert.equal(got.aggregate.bail, undefined);
+    assert.equal(got.aggregate.attempts_used, 1);
+    assert.equal(got.aggregate.plan?.subtasks.find((st) => st.id === "A")?.state, "runnable");
+    assert.equal(got.aggregate.workspaces?.subtask, undefined);
+    const featurePath = featureWorkspacePath(root, "fake:42");
+    const subtaskPath = subtaskWorkspacePath(root, "fake:42", "A");
+    assert.equal(existsSync(featurePath), true);
+    assert.equal(existsSync(subtaskPath), false);
+  });
+
+  it("breakDown interrupted leaves planning and the bail", async () => {
+    const { stable, root } = tempPair();
+    const { transformers } = recordingTransformers({
+      async breakDown() {
+        return { outcome: "interrupted" };
+      },
+    });
+    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
+    await ledger.admit(feature());
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+    });
+    const result = await conductor.runProject("proj");
+    assert.deepEqual(result, { outcome: "refused", code: "interrupted" });
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.state, "planning");
+    assert.ok(got.aggregate.bail !== undefined);
+  });
+
+  it("release on integrating is illegal-transition and leaves the bail", async () => {
+    const { stable, root } = tempPair();
+    const { transformers } = recordingTransformers();
+    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
+    await ledger.admit(feature());
+    await ledger.claim("proj");
+    await ledger.recordPlan({
+      key: "fake:42",
+      plannedAt: "2026-01-01T00:00:00.000Z",
+      subtasks: [
+        { id: "A", intention: "first", definition_of_done: "A done", depends_on: [] },
+      ],
+    });
+    await ledger.startSubtask({ key: "fake:42", subtaskId: "A" });
+    await ledger.recordAttempt({
+      key: "fake:42",
+      subtaskId: "A",
+      number: 1,
+      trace: { ended: "validated" },
+    });
+    await ledger.markSubtaskIntegrated({ key: "fake:42", subtaskId: "A" });
+    const before = await ledger.get("fake:42");
+    assert.ok(before.ok);
+    assert.equal(before.aggregate.state, "integrating");
+    assert.ok(before.aggregate.bail !== undefined);
+
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+    });
+    assert.deepEqual(await conductor.release("fake:42"), {
+      ok: false,
+      code: "illegal-transition",
+    });
+    const after = await ledger.get("fake:42");
+    assert.ok(after.ok);
+    assert.equal(after.aggregate.state, "integrating");
+    assert.deepEqual(after.aggregate.bail, before.aggregate.bail);
   });
 });

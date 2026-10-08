@@ -220,9 +220,44 @@ export async function handleCancel(
 export type CancelResult =
   | { ok: true }
   | {
-      ok: false;
-      code: "not-found" | "point-of-no-return" | "already-cancelled" | "done";
-    };
+    ok: false;
+    code: "not-found" | "point-of-no-return" | "already-cancelled" | "done";
+  };
+
+export type ReleaseResult =
+  | { ok: true; freed: boolean }
+  | {
+    ok: false;
+    code: "not-found" | "illegal-transition";
+    state?: string;
+  };
+
+/**
+ * Drop a held Subtask (or planning) by key — without waiting for the bail clock.
+ *
+ * `freed` is false when the Feature was already free (running with no Subtask
+ * held). Refused past `planning` / `running`: those states resume without a
+ * held Subtask, or are past the point a local release can undo.
+ */
+export async function releaseFeature(input: HostRunInput, key: string): Promise<ReleaseResult> {
+  const got = await input.ledger.get(key);
+  if (!got.ok) {
+    return { ok: false, code: "not-found" };
+  }
+  const { aggregate } = got;
+  const held =
+    aggregate.state === "planning" ||
+    (aggregate.state === "running" &&
+      (aggregate.plan?.subtasks.some((subtask) => subtask.state === "running") ?? false));
+  const released = await input.conductor.release(key);
+  if (!released.ok) {
+    if (released.code === "not-found") {
+      return { ok: false, code: "not-found" };
+    }
+    return { ok: false, code: "illegal-transition", state: aggregate.state };
+  }
+  return { ok: true, freed: held };
+}
 
 /** Abandon one Feature by key — the same path a `cancel` delivery takes. */
 export async function cancelFeature(input: HostRunInput, key: string): Promise<CancelResult> {

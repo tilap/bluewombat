@@ -30,9 +30,9 @@ same functions.
 
 ## 2. Faces and wiring
 
-| Face   | Entry                                                              | Must not                                         |
-| ------ | ------------------------------------------------------------------ | ------------------------------------------------ |
-| Import | `openConductor({ ledger, transformers, workLineStable, workspaceRoot })` | Import a Transformer package from `src/run/`           |
+| Face         | Entry                                                                    | Must not                                               |
+| ------------ | ------------------------------------------------------------------------ | ------------------------------------------------------ |
+| Import       | `openConductor({ ledger, transformers, workLineStable, workspaceRoot })` | Import a Transformer package from `src/run/`           |
 | Transformers | A value that implements the Transformer Port                             | Live under `src/run/` as a concrete Transformer import |
 
 The caller builds the transformers (`runIsolator`, `runBreakdown`, `runImplementer`,
@@ -55,11 +55,11 @@ Transformers do not import this package. WorkLedger does not import this package
                                                    Integration, durable state
 ```
 
-| Layer     | Owns                                                        | Does not own                                     |
-| --------- | ----------------------------------------------------------- | ------------------------------------------------ |
-| Conductor | Order of steps, pause, orphan destroy, when to call whom    | FeatureStandard transitions, git, Builder, Gates |
-| Ledger    | Legal transitions, bail, Plan freeze                        | Directories, Transformer outcomes                      |
-| Transformers    | One Isolation / Breakdown / Attempt loop / Integration each | WorkLedger commands, pause, claim                |
+| Layer        | Owns                                                        | Does not own                                     |
+| ------------ | ----------------------------------------------------------- | ------------------------------------------------ |
+| Conductor    | Order of steps, pause, orphan destroy, when to call whom    | FeatureStandard transitions, git, Builder, Gates |
+| Ledger       | Legal transitions, bail, Plan freeze                        | Directories, Transformer outcomes                |
+| Transformers | One Isolation / Breakdown / Attempt loop / Integration each | WorkLedger commands, pause, claim                |
 
 A caller never talks to Isolator through Conductor internals. It talks to
 `runProject`. The run loop never talks to `node:child_process`. It talks to
@@ -89,12 +89,12 @@ Hard rules. Breaking one is a spec bug, not a refactor.
 
 Four operations. Real Transformers or test doubles; the Port does not care.
 
-| Operation   | In (minimum)                                                                 | Out (minimum)                                                                                       |
-| ----------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `isolate`   | `id`, `parent`, `child` (absolute paths), `durationMs`                       | `isolated` / `failed` / `invalid-invocation` / `interrupted`                                        |
-| `breakDown` | FeatureStandard JSON (key, intention, optional title) | `planned` + subtasks + `planned_at`, or `refused` + code + reason, or `unavailable` / `interrupted` |
+| Operation   | In (minimum)                                                                                                       | Out (minimum)                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `isolate`   | `id`, `parent`, `child` (absolute paths), `durationMs`                                                             | `isolated` / `failed` / `invalid-invocation` / `interrupted`                                        |
+| `breakDown` | FeatureStandard JSON (key, intention, optional title)                                                              | `planned` + subtasks + `planned_at`, or `refused` + code + reason, or `unavailable` / `interrupted` |
 | `implement` | `id`, intention, `workspace`, durations / attempt bound, optional definition of done, `report`, `stage`, `produce` | `validated` / `escalated` / `interrupted` / `invalid-invocation`, plus ordered Traces               |
-| `integrate` | `id`, `parent`, `child`, `durationMs`                                        | `integrated` / `conflict` / `failed` / `invalid-invocation` / `interrupted`                         |
+| `integrate` | `id`, `parent`, `child`, `durationMs`                                                                              | `integrated` / `conflict` / `failed` / `invalid-invocation` / `interrupted`                         |
 
 Conductor maps ledger fields into `breakDown` JSON. It does not reopen
 FeatureAdapter's closed shape. Recognised keys are `key`, `intention`, `title`.
@@ -189,6 +189,7 @@ command does not start a Transformer.
 | `resume`     | Clear the pause flag. Does not itself take work                                                                                                                     | —                                              |
 | `runProject` | Reconcile, then take or resume the active FeatureStandard on that Project, and drive it until a terminal or wait state                                              | `workLineStable` missing on disk               |
 | `cancel`     | `ledger.cancel(key)` then destroy declared workspaces for that key                                                                                                  | Ledger `point-of-no-return`                    |
+| `release`    | `ledger.releaseBail(key)` then destroy the declared Subtask directory when one was recorded                                                                         | Ledger `illegal-transition` / `not-found`      |
 
 `runProject` outcomes:
 
@@ -290,13 +291,15 @@ Boundaries where pause is honoured: before `claim`, before `startSubtask`,
 before align, before `markMerging`. A running `implement` finishes.
 
 Interrupt is the Transformer Port's problem (the same `interruptFlag` the Transformers
-already take). If a transformer returns `interrupted`, Conductor does not mark the
-Subtask integrated. It leaves the ledger as the last successful command left
-it (typically `running` with that Subtask `running`) and returns `refused`
-with code `interrupted`. Reconcile + `expireBail` after process restart is how
-that Subtask becomes `runnable` again when the bail expires. First
-implementation may also `expireBail` immediately on interrupt if the bail is
-already expired; it does not invent a new ledger command.
+already take). If a transformer returns `interrupted` after `startSubtask`
+(Subtask isolate, `implement`, or fold into the feature), Conductor does not
+mark the Subtask integrated. It calls `releaseBail` — the Subtask becomes
+`runnable` from zero, the declared Subtask directory is destroyed — and
+returns `refused` with code `interrupted`. The next process resumes without
+waiting for the bail clock. Interrupt during planning, feature isolate,
+align, assembly, or a Submission judgement leaves the ledger as the last
+successful command left it: those paths resume on the next `runProject`
+without a held Subtask.
 
 ## 10. Reconcile
 
@@ -315,16 +318,16 @@ it was asked to run.
 
 ## 11. Refusals
 
-| Code             | When                                                             |
-| ---------------- | ---------------------------------------------------------------- |
-| `stable-missing` | `workLineStable` is not a directory                              |
-| `root-invalid`   | `workspaceRoot` is not absolute, or equals `workLineStable`      |
-| `persist-failed` | A ledger command returned `persist-failed`                       |
-| `interrupted`    | A transformer returned `interrupted`                                   |
-| `isolate-failed` | Feature Isolation did not return `isolated`                      |
-| `align-conflict` | Align Integration returned `conflict`; state stays `integrating` |
-| `transformer-invalid`  | A transformer returned `invalid-invocation`                            |
-| `unavailable`    | `breakDown` returned `unavailable` (Planner did not answer)      |
+| Code                  | When                                                             |
+| --------------------- | ---------------------------------------------------------------- |
+| `stable-missing`      | `workLineStable` is not a directory                              |
+| `root-invalid`        | `workspaceRoot` is not absolute, or equals `workLineStable`      |
+| `persist-failed`      | A ledger command returned `persist-failed`                       |
+| `interrupted`         | A transformer returned `interrupted`                             |
+| `isolate-failed`      | Feature Isolation did not return `isolated`                      |
+| `align-conflict`      | Align Integration returned `conflict`; state stays `integrating` |
+| `transformer-invalid` | A transformer returned `invalid-invocation`                      |
+| `unavailable`         | `breakDown` returned `unavailable` (Planner did not answer)      |
 
 Ledger codes (`project-busy`, `point-of-no-return`, …) pass through on `cancel`
 and when `claim` refuses.
@@ -339,7 +342,7 @@ Shipped:
   without an Authority. Its refusal is parked on the aggregate and shares the
   `maxRefusals` budget; `assemblyFixDeclared` says whether it escalates on the
   spot instead
-- `reconcile`, `pause`, `resume`, `runProject`, `cancel`
+- `reconcile`, `pause`, `resume`, `runProject`, `cancel`, `release`
 - Happy path: align, assembly judgement (`produce: false`), `markMerging`, final fold
 - Authority path: offer, judge, `recordRefusal` / fold, no Integrator fold into WorkLineStable
 - `pending_fingerprint` consumed after a Subtask integrates and when entering `integrating`
