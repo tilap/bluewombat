@@ -1,3 +1,4 @@
+import { runGate } from "../child/run-gate.js";
 import { checkFeatureStandard } from "../feature/check-feature.js";
 import { checkPlan } from "../plan/check-plan.js";
 import { fingerprintPlan } from "../plan/fingerprint.js";
@@ -183,7 +184,77 @@ async function runOnce(input: {
     planned_at: plannedAt,
   };
 
+  // Gates check `invocation.workspace` only once a Plan is otherwise
+  // accepted — a Plan already being discarded for its own reason gains
+  // nothing from a workspace check (SPECS.md §5a).
+  const gated = await runGateSequence({
+    invocation,
+    key,
+    write,
+    shouldInterrupt,
+    onChild: input.onChild,
+  });
+  if (gated !== undefined) {
+    if (gated.stop === "interrupted") {
+      return finishOutcome({ cwd: input.cwd, invocation, write, key, outcome: "interrupted" });
+    }
+    return finishRefused({
+      cwd: input.cwd,
+      invocation,
+      write,
+      key,
+      code: "gate-refused",
+      reason: `${gated.gateId}: ${gated.report}`,
+    });
+  }
+
   return finishPlanned({ cwd: input.cwd, invocation, write, key, plan });
+}
+
+/**
+ * Judges `invocation.workspace` after a Plan was otherwise accepted. Both
+ * fail-retryable and fail-blocking collapse to the same `refused`: this
+ * Transformer runs once (SPECS.md choice 3), so there is no Attempt of its
+ * own to retry.
+ */
+async function runGateSequence(input: {
+  invocation: Invocation;
+  key: string;
+  write: ProgressWriter;
+  shouldInterrupt: () => boolean;
+  onChild: OpenChildSink | undefined;
+}): Promise<
+  { stop: "interrupted" } | { stop: "refused"; gateId: string; report: string } | undefined
+> {
+  const { invocation, key, write, shouldInterrupt } = input;
+  for (const gate of invocation.gates) {
+    if (shouldInterrupt()) {
+      return { stop: "interrupted" };
+    }
+    const result = await runGate({
+      workspace: invocation.workspace,
+      key,
+      gate,
+      timeoutMs: gate.timeoutMs,
+      shouldInterrupt,
+      onChild: input.onChild,
+    });
+    write(
+      withKey(key, {
+        event: "gate-finished",
+        gate_id: gate.id,
+        verdict: result.entry.verdict,
+        report: result.entry.report,
+      }),
+    );
+    if (result.stop === "interrupted") {
+      return { stop: "interrupted" };
+    }
+    if (result.stop !== undefined) {
+      return { stop: "refused", gateId: gate.id, report: result.entry.report };
+    }
+  }
+  return undefined;
 }
 
 async function announceOutcome(input: {

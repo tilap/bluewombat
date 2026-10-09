@@ -145,15 +145,17 @@ planner:
     - node
     - ./node_modules/@bluewombat/slots/planners/one-subtask.mjs
   timeoutMs: 600000
+  gates: { defaultTimeoutMs: 120000, gates: [] }
 builder:
   producer:
     cmd: [node, ./mason-builder.mjs]
     timeoutMs: 600000
+    gates: { defaultTimeoutMs: 120000, gates: [] }
   repair:
     cmd: [node, ./mason-repair.mjs]
     timeoutMs: 600000
+    gates: { defaultTimeoutMs: 120000, gates: [] }
   maxAttempts: 3
-  gates: { defaultTimeoutMs: 120000, gates: [] }
 assembly:
   gates: { defaultTimeoutMs: 900000, gates: [] }
 authority:
@@ -176,15 +178,14 @@ pollIntervalMs: 10000
 | `workspaceRoot`             | Isolated feature / Subtask directories (created). Default `<home>/workspaces`                                                                                                                                                                                                                                                                                                |
 | `ledger`                    | WorkLedger root (created). The Cursor is a file inside it. Default `<home>/ledger`                                                                                                                                                                                                                                                                                           |
 | `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
-| `planner`                   | `cmd` / `timeoutMs`. FeatureStandard in, a Plan out                                                                                                                                                                                                                                                                                                                          |
-| `builder.producer`          | `cmd` / `timeoutMs`. Spawned in the Subtask workspace. Exit 0 lets Gates run                                                                                                                                                                                                                                                                                                 |
-| `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited                                                                                                                                                                                                                                                                                                       |
+| `planner`                   | `cmd` / `timeoutMs` / `gates`. FeatureStandard in, a Plan out. Its own `gates` judges `workLineStable` once a Plan is otherwise accepted — not where the Planner agent itself reads from                                                                                                                                                                                   |
+| `builder.producer`          | `cmd` / `timeoutMs` / `gates`. Spawned in the Subtask workspace. Exit 0 runs its own `gates`                                                                                                                                                                                                                                                                                 |
+| `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited — including its `gates`: a repair with none of its own runs ungated, even when `builder.producer.gates` is not empty                                                                                                                                                                               |
 | `builder.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                                                                                                                                                                       |
-| `builder.gates`             | `defaultTimeoutMs` and `gates`: ordered checks on each Subtask                                                                                                                                                                                                                                                                                                               |
-| `assembly.fix`              | `cmd` / `timeoutMs`. Spawned when a judgement of the whole refused it — by an Authority, by `assembly.validate`, or by both                                                                                                                                                                                                                                                  |
-| `assembly.validate`         | `cmd` / `timeoutMs`. Optional. A local, read-only judge of the assembled feature, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's                                                                                                                                                                          |
+| `assembly.fix`              | `cmd` / `timeoutMs` / `gates`. Spawned when a judgement of the whole refused it — by an Authority, by `assembly.validate`, or by both. Judged by its own `gates`                                                                                                                                                                                                            |
+| `assembly.validate`         | `cmd` / `timeoutMs` / `gates`. Optional. A local, read-only judge of the assembled feature, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's. Judged by its own `gates`, never `builder`'s or `assembly.fix`'s                                                                                            |
 | `assembly.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                                                                                                                                                                                   |
-| `assembly.gates`            | Ordered checks on the assembled feature. Empty: the Authority judges alone                                                                                                                                                                                                                                                                                                   |
+| `assembly.gates`            | `defaultTimeoutMs` and `gates`: the produce:false judgement-only pass — no producer of its own, re-checking the assembled feature. Empty: the Authority judges alone. Independent of `assembly.fix.gates` / `assembly.validate.gates` — never shared with either                                                                                                          |
 | `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                                                                                                                                                                             |
 | `maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `assembly.validate`, or by both — one shared budget. Default 3                                                                                                                                                                                                                                      |
 | `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick. Pick it with § Choosing `pollIntervalMs` — 10000 is the floor worth having                                                                                                                                                                                                                             |
@@ -334,18 +335,27 @@ that completes cleanly but finds a problem is still a refusal.
 
 ### Gates
 
-Two sequences, because a Subtask and the feature it assembles into are not the
-same situation. `builder.gates` runs on each Subtask; `assembly.gates` on the
-assembled feature. Put the Project's own checks in `builder.gates`, and fill
-`assembly.gates` with what only makes sense on the whole — `ci-green` reads the
-checks the work line ran on what the Publisher placed, so it belongs there.
+Five independent sequences, one per role — `planner`, `builder.producer`,
+`builder.repair`, `assembly.fix`, `assembly.validate` — plus `assembly.gates`
+for the one judgement-only pass with no producer of its own (re-checking the
+assembled feature; `ci-green` reads the checks the work line ran on what the
+Publisher placed, so it belongs there). No sharing, no dispatch choosing
+between two buckets: a check right for one pass is not necessarily right for
+another, even within the same stage. `builder.repair` is the sharpest edge —
+it does not inherit `builder.producer.gates`, so a repair Attempt with no
+Gate of its own runs ungated.
 
-Every Gate is told `--stage unit` or `--stage assembly` alongside `--id`,
-`--attempt`, `--gate-id`, `--intention` and `--definition-of-done`. Most have no
-use for it. `workspace-changed` does: "nothing changed" means nothing was done
-in a unit, and is the correct outcome for an assembly that needed nothing.
+Implementer's Gates are told `--stage unit` or `--stage assembly` alongside
+`--id`, `--attempt`, `--gate-id`, `--intention` and `--definition-of-done`.
+Most have no use for it. `workspace-changed` does: "nothing changed" means
+nothing was done in a unit, and is the correct outcome for an assembly that
+needed nothing. FeatureBreakdown's Gates (`planner.gates`) are told only
+`--key` and `--gate-id` — no Attempt counter, no `--stage`, no
+`--definition-of-done` — so a Gate written for Implementer's shape is not a
+drop-in for `planner.gates`.
 
-`init` writes an empty list; add a Gate when the Project has a check.
+`init` writes an empty list on `builder.producer` and `builder.repair`; add a
+Gate when the Project has a check.
 
 Every child carries its own ceiling and no other. A Gate entry may name a
 `timeoutMs`; without one it takes its sequence's `defaultTimeoutMs`, and a Gate
@@ -354,7 +364,9 @@ from what another child left behind, so a slow producer can no longer leave its
 Gates a millisecond to answer in.
 
 What bounds a Subtask is therefore what you wrote:
-`builder.maxAttempts × (builder.producer.timeoutMs + Σ builder.gates timeouts)`.
+`builder.maxAttempts × (builder.producer.timeoutMs + Σ builder.producer.gates timeouts)`
+for a first pass, and the same shape with `repair` in place of `producer` once
+a Gate has refused one.
 A repair and an assembly fix each carry their own `timeoutMs`. An assembly fix
 is bounded the same way from `assembly.maxAttempts` and `assembly.fix`.
 

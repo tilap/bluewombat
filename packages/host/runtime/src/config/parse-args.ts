@@ -5,7 +5,7 @@ import { DEFAULT_PERSIST, ISOLATION_GIT } from "./defaults.js";
 import { findConfig } from "./find-config.js";
 import { homeOf, inHome } from "./home.js";
 import { loadConfig } from "./load-config.js";
-import type { AssemblySpec, HostInvocation, PassSpec } from "./types.js";
+import type { AssemblySpec, GatedPassSpec, HostInvocation, PassSpec } from "./types.js";
 
 const HOST_FLAGS = new Set([
   "--config",
@@ -23,6 +23,8 @@ const HOST_FLAGS = new Set([
   "--poll-interval-ms",
   "--planner",
   "--planner-timeout-ms",
+  "--planner-gate",
+  "--planner-gate-timeout-ms",
   "--builder",
   "--builder-timeout-ms",
   "--builder-max-attempts",
@@ -30,13 +32,35 @@ const HOST_FLAGS = new Set([
   "--builder-repair-timeout-ms",
   "--builder-gate",
   "--builder-gate-timeout-ms",
+  "--builder-repair-gate",
+  "--builder-repair-gate-timeout-ms",
   "--assembly-fix",
   "--assembly-fix-timeout-ms",
+  "--assembly-fix-gate",
+  "--assembly-fix-gate-timeout-ms",
   "--assembly-validate",
   "--assembly-validate-timeout-ms",
+  "--assembly-validate-gate",
+  "--assembly-validate-gate-timeout-ms",
   "--assembly-max-attempts",
   "--assembly-gate",
   "--assembly-gate-timeout-ms",
+]);
+
+/** The gate-id and gate-timeout-ms flags, each landing on a GatedPassBag or on AssemblyBag's own top-level pocket (the produce:false judgement pass). */
+const GATE_FLAGS = new Set([
+  "--planner-gate",
+  "--planner-gate-timeout-ms",
+  "--builder-gate",
+  "--builder-gate-timeout-ms",
+  "--builder-repair-gate",
+  "--builder-repair-gate-timeout-ms",
+  "--assembly-gate",
+  "--assembly-gate-timeout-ms",
+  "--assembly-fix-gate",
+  "--assembly-fix-gate-timeout-ms",
+  "--assembly-validate-gate",
+  "--assembly-validate-gate-timeout-ms",
 ]);
 
 /** Flags that take a command after `--`, and where each one lands. */
@@ -67,19 +91,26 @@ export type ParseInput = {
 
 type PassBag = { cmd?: string[]; timeoutMs?: number };
 
-type StageBag = {
-  producer: PassBag;
-  repair: PassBag;
-  maxAttempts?: number;
+/** A pass with its own Gate pocket: `gates`, plus the one-shot staging field for `--*-gate-timeout-ms`. */
+type GatedPassBag = PassBag & {
   gates: GateSpec[];
-  /** Applies to the next gate of this stage, so one ceiling per Gate is one flag. */
+  /** Applies to the next Gate of this pass, so one ceiling per Gate is one flag. */
   nextGateTimeoutMs?: number;
 };
 
-type AssemblyBag = {
-  fix: PassBag;
-  validate: PassBag;
+type GatePocket = { gates: GateSpec[]; nextGateTimeoutMs?: number };
+
+type StageBag = {
+  producer: GatedPassBag;
+  repair: GatedPassBag;
   maxAttempts?: number;
+};
+
+type AssemblyBag = {
+  fix: GatedPassBag;
+  validate: GatedPassBag;
+  maxAttempts?: number;
+  /** The produce:false judgement pass's own pocket — never shared with fix or validate. */
   gates: GateSpec[];
   nextGateTimeoutMs?: number;
 };
@@ -95,7 +126,7 @@ type FlagBag = {
   workspaceRoot?: string;
   ledgerRoot?: string;
   persist?: string;
-  planner: PassBag;
+  planner: GatedPassBag;
   builder: StageBag;
   assembly: AssemblyBag;
   timeoutMs?: number;
@@ -103,12 +134,41 @@ type FlagBag = {
   streamsDir?: string;
 };
 
+function emptyGatedPass(): GatedPassBag {
+  return { gates: [] };
+}
+
 function emptyStage(): StageBag {
-  return { producer: {}, repair: {}, gates: [] };
+  return { producer: emptyGatedPass(), repair: emptyGatedPass() };
 }
 
 function emptyAssembly(): AssemblyBag {
-  return { fix: {}, validate: {}, gates: [] };
+  return { fix: emptyGatedPass(), validate: emptyGatedPass(), gates: [] };
+}
+
+/** Which bag a `--*-gate`/`--*-gate-timeout-ms` flag writes into. */
+function gatePocket(bag: FlagBag, token: string): GatePocket {
+  switch (token) {
+    case "--planner-gate":
+    case "--planner-gate-timeout-ms":
+      return bag.planner;
+    case "--builder-gate":
+    case "--builder-gate-timeout-ms":
+      return bag.builder.producer;
+    case "--builder-repair-gate":
+    case "--builder-repair-gate-timeout-ms":
+      return bag.builder.repair;
+    case "--assembly-gate":
+    case "--assembly-gate-timeout-ms":
+      return bag.assembly;
+    case "--assembly-fix-gate":
+    case "--assembly-fix-gate-timeout-ms":
+      return bag.assembly.fix;
+    default:
+      // --assembly-validate-gate / --assembly-validate-gate-timeout-ms: the
+      // only remaining member of GATE_FLAGS, by construction of its callers.
+      return bag.assembly.validate;
+  }
 }
 
 function takeValue(argv: string[], index: number): { value: string; next: number } | null {
@@ -191,7 +251,7 @@ function addManagerOption(
 function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; reason: string } {
   const bag: FlagBag = {
     managerOptions: {},
-    planner: {},
+    planner: emptyGatedPass(),
     builder: emptyStage(),
     assembly: emptyAssembly(),
   };
@@ -221,8 +281,8 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       continue;
     }
 
-    if (token === "--builder-gate" || token === "--assembly-gate") {
-      const stage = token === "--builder-gate" ? "builder" : "assembly";
+    if (GATE_FLAGS.has(token) && !token.endsWith("-timeout-ms")) {
+      const pocket = gatePocket(bag, token);
       const idTaken = takeValue(argv, i);
       if (!idTaken) {
         return { ok: false, reason: `Missing value for ${token}.` };
@@ -231,15 +291,15 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       if (!command) {
         return { ok: false, reason: `Missing non-empty command after ${token} <id> --.` };
       }
-      const timeoutMs = bag[stage].nextGateTimeoutMs;
+      const timeoutMs = pocket.nextGateTimeoutMs;
       if (timeoutMs === undefined) {
         return {
           ok: false,
           reason: `${token} ${idTaken.value} has no ${token}-timeout-ms before it.`,
         };
       }
-      bag[stage].gates.push({ id: idTaken.value, argv: command.command, timeoutMs });
-      delete bag[stage].nextGateTimeoutMs;
+      pocket.gates.push({ id: idTaken.value, argv: command.command, timeoutMs });
+      delete pocket.nextGateTimeoutMs;
       i = command.next;
       continue;
     }
@@ -314,12 +374,16 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
         break;
       }
       case "--planner-timeout-ms":
+      case "--planner-gate-timeout-ms":
       case "--builder-timeout-ms":
       case "--builder-repair-timeout-ms":
       case "--builder-max-attempts":
       case "--builder-gate-timeout-ms":
+      case "--builder-repair-gate-timeout-ms":
       case "--assembly-fix-timeout-ms":
+      case "--assembly-fix-gate-timeout-ms":
       case "--assembly-validate-timeout-ms":
+      case "--assembly-validate-gate-timeout-ms":
       case "--assembly-max-attempts":
       case "--assembly-gate-timeout-ms": {
         const value = parsePositiveInt(taken.value);
@@ -339,9 +403,6 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
           case "--builder-max-attempts":
             bag.builder.maxAttempts = value;
             break;
-          case "--builder-gate-timeout-ms":
-            bag.builder.nextGateTimeoutMs = value;
-            break;
           case "--assembly-fix-timeout-ms":
             bag.assembly.fix.timeoutMs = value;
             break;
@@ -352,7 +413,9 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
             bag.assembly.maxAttempts = value;
             break;
           default:
-            bag.assembly.nextGateTimeoutMs = value;
+            // The six --*-gate-timeout-ms flags: each a one-shot ceiling
+            // staged on its own GatedPassBag/AssemblyBag pocket.
+            gatePocket(bag, token).nextGateTimeoutMs = value;
             break;
         }
         break;
@@ -417,7 +480,7 @@ function overlay(
   if (bag.persist !== undefined) {
     merged.persist = bag.persist;
   }
-  const planner = overlayPass(merged.planner, bag.planner);
+  const planner = overlayGatedPass(merged.planner, bag.planner);
   if (planner !== undefined) {
     merged.planner = planner;
   }
@@ -454,20 +517,30 @@ function overlayPass(base: PassSpec | undefined, bag: PassBag): PassSpec | undef
   return { cmd, timeoutMs };
 }
 
+/** CLI flags replace a Gate list wholesale — never merged item-by-item with the file's. */
+function overlayGates(base: readonly GateSpec[] | undefined, bag: GatePocket): GateSpec[] {
+  return bag.gates.length > 0 ? bag.gates : [...(base ?? [])];
+}
+
+function overlayGatedPass(
+  base: GatedPassSpec | undefined,
+  bag: GatedPassBag,
+): GatedPassSpec | undefined {
+  const pass = overlayPass(base, bag);
+  if (pass === undefined) {
+    return base;
+  }
+  return { ...pass, gates: overlayGates(base?.gates, bag) };
+}
+
 function overlayBuilder(
   base: HostInvocation["builder"] | undefined,
   bag: StageBag,
 ): HostInvocation["builder"] | undefined {
-  const producer = overlayPass(base?.producer, bag.producer);
-  const repair = overlayPass(base?.repair, bag.repair);
+  const producer = overlayGatedPass(base?.producer, bag.producer);
+  const repair = overlayGatedPass(base?.repair, bag.repair);
   const maxAttempts = bag.maxAttempts ?? base?.maxAttempts;
-  const gates = bag.gates.length > 0 ? bag.gates : (base?.gates ?? []);
-  if (
-    producer === undefined &&
-    repair === undefined &&
-    maxAttempts === undefined &&
-    gates.length === 0
-  ) {
+  if (producer === undefined && repair === undefined && maxAttempts === undefined) {
     return base;
   }
   if (producer === undefined || repair === undefined) {
@@ -477,7 +550,6 @@ function overlayBuilder(
     producer,
     repair,
     ...(maxAttempts === undefined ? {} : { maxAttempts }),
-    gates,
   };
 }
 
@@ -485,10 +557,10 @@ function overlayAssembly(
   base: AssemblySpec | undefined,
   bag: AssemblyBag,
 ): AssemblySpec | undefined {
-  const fix = overlayPass(base?.fix, bag.fix);
-  const validate = overlayPass(base?.validate, bag.validate);
+  const fix = overlayGatedPass(base?.fix, bag.fix);
+  const validate = overlayGatedPass(base?.validate, bag.validate);
   const maxAttempts = bag.maxAttempts ?? base?.maxAttempts;
-  const gates = bag.gates.length > 0 ? bag.gates : (base?.gates ?? []);
+  const gates = overlayGates(base?.gates, bag);
   if (
     fix === undefined &&
     validate === undefined &&

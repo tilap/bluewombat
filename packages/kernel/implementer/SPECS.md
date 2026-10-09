@@ -49,8 +49,10 @@ not read configuration from the workspace.
 | `--builder-timeout-ms`        | Positive integer. **Required.** Wall clock of one producer run. Nothing else bounds it.                                     |
 | `--repair-builder -- <argv…>` | Optional producer for a pass that has something to resolve. Needs a `--builder` to fall back to.                            |
 | `--repair-builder-timeout-ms` | Optional. Wall clock of that producer. Absent: `--builder-timeout-ms`.                                                      |
-| `--gate <id> -- <argv…>`      | One Gate. Repeatable; order is the sequence. **May be omitted** (empty sequence). Each `id` unique. Command non-empty.      |
+| `--gate <id> -- <argv…>`      | One Gate judging the Attempt that ran `--builder`. Repeatable; order is the sequence. **May be omitted** (empty sequence). Each `id` unique. Command non-empty. |
 | `--gate-timeout-ms`           | Positive integer. **Required before each `--gate`.** Wall clock of that Gate.                                               |
+| `--repair-gate <id> -- <argv…>` | One Gate judging the Attempt that ran `--repair-builder`, instead of `--gate`'s list. Repeatable; same rules as `--gate`. **May be omitted** (empty sequence) — a repair Attempt with no `--repair-gate` of its own runs ungated, even when `--gate` names Gates. |
+| `--repair-gate-timeout-ms`    | Positive integer. **Required before each `--repair-gate`.** Wall clock of that Gate.                                        |
 | `--max-attempts`              | Positive integer. Attempts this invocation may start.                                                                       |
 | `--report`                    | Optional. Failure report passed to the producer on Attempt 1 (and kept for retries).                                        |
 | `--report-from`               | Optional. Which Gate produced `--report`, when a Gate did.                                                                  |
@@ -70,8 +72,13 @@ that is an empty invocation, and it validates.
 
 One invocation runs the whole Attempt loop.
 
-An Attempt is one pass: Builder, then Gates from the start of the list, stopping
-at the first non-pass. Numbered from 1. It starts when the Builder is spawned.
+An Attempt is one pass: Builder, then Gates from the start of the list that
+matches whichever producer this Attempt ran — `--gate`'s list for `--builder`,
+`--repair-gate`'s for `--repair-builder` — stopping at the first non-pass.
+Numbered from 1. It starts when the Builder is spawned. Making from a
+specification and repairing what a check refused are different jobs; a Gate
+right for one is not necessarily right for the other, the same reasoning that
+gave `--repair-builder` its own command instead of reusing `--builder`.
 
 The run is `validated` only when **every** Gate passes in the **same** Attempt.
 An empty list after a completed Builder is validation: Implementer adds no Gate
@@ -95,7 +102,8 @@ Start Attempt 1.
                     → next Attempt.
                       Builder receives `--report` with the failing Gate's
                       report (or the Builder failure detail if no Gate ran).
-                      Gates restart from the first in the list.
+                      Gates restart from the first of the list that matches
+                      the next Attempt's producer.
 ```
 
 ```mermaid
@@ -191,9 +199,13 @@ A Builder that cannot proceed returns `fail-blocking` with the reason in
 
 ## 6. Gates
 
-The sequence is the `--gate` arguments, in that order. Implementer does not add
-Gates, does not reorder them, and does not skip one because an earlier Attempt
-passed it.
+There are two sequences, each the arguments of its own flag, in that order:
+`--gate` judges the Attempt that ran `--builder`; `--repair-gate` judges the
+Attempt that ran `--repair-builder`. Implementer does not add Gates to either,
+does not reorder them, does not skip one because an earlier Attempt passed it,
+and does not borrow one sequence for the other's Attempt — a repair Attempt
+with no `--repair-gate` of its own validates the moment `--repair-builder`
+completes, whatever `--gate` names.
 
 Working directory: `--workspace`. Implementer appends arguments to the Gate
 command. No `--report`: the Gate judges the workspace.
@@ -374,5 +386,6 @@ No partial validation. Implementer never deletes `--workspace`.
 8. The loop's decisions are unit-testable with no child process.
 9. Entering the Builder on Attempt 1 of `--max-attempts 3` announces `label` `building:attempt-1:3` on stdout, and via `--on-status` when that argument is set.
 10. `--on-status` exiting non-zero does not change a `validated` run.
+11. A `--repair-builder` Attempt is judged by `--repair-gate`'s list, not `--gate`'s, in both directions: a `--gate` that always refuses does not stop a repair Attempt with no `--repair-gate` of its own, and a `--repair-gate` that always refuses does stop one even when `--gate` is empty.
 
 How to build and run this Transformer: [README.md](./README.md).

@@ -31,9 +31,12 @@ function sandbox(): string {
       ledger: "./.mason/ledger",
       planner: { cmd: [node, planner], timeoutMs: 30_000 },
       builder: {
-        producer: { cmd: [node, builder], timeoutMs: 30_000 },
+        producer: {
+          cmd: [node, builder],
+          timeoutMs: 30_000,
+          gates: { gates: [{ id: "check", argv: [node, gateFail], timeoutMs: 10_000 }] },
+        },
         repair: { cmd: [node, builder], timeoutMs: 30_000 },
-        gates: { gates: [{ id: "check", argv: [node, gateFail], timeoutMs: 10_000 }] },
       },
       timeoutMs: 30_000,
     }),
@@ -85,11 +88,14 @@ describe("runCancel", () => {
       workLineIsolation: "@bluewombat/isolation-copy",
       workspaceRoot: join(cwd, ".mason/workspaces"),
       ledgerRoot: join(cwd, ".mason/ledger"),
-      planner: { cmd: [node, planner], timeoutMs: 30_000 },
+      planner: { cmd: [node, planner], timeoutMs: 30_000, gates: [] },
       builder: {
-        producer: { cmd: [node, builder], timeoutMs: 30_000 },
-        repair: { cmd: [node, builder], timeoutMs: 30_000 },
-        gates: [{ id: "check", argv: [node, gateFail], timeoutMs: 10_000 }],
+        producer: {
+          cmd: [node, builder],
+          timeoutMs: 30_000,
+          gates: [{ id: "check", argv: [node, gateFail], timeoutMs: 10_000 }],
+        },
+        repair: { cmd: [node, builder], timeoutMs: 30_000, gates: [] },
       },
       assembly: { gates: [] },
       timeoutMs: 30_000,

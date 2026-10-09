@@ -87,9 +87,12 @@ function configOf(dir: ReturnType<typeof dirs>, over: Record<string, unknown> = 
     managerOptions: { repo: "tilap/mason", defaultProject: "from-config" },
     planner: { cmd: [node, planner], timeoutMs: 600_000 },
     builder: {
-      producer: { cmd: [node, builder], timeoutMs: 600_000 },
+      producer: {
+        cmd: [node, builder],
+        timeoutMs: 600_000,
+        gates: { defaultTimeoutMs: 60_000, gates: [{ id: "check", argv: [node, gate] }] },
+      },
       repair: { cmd: [node, builder], timeoutMs: 600_000 },
-      gates: { defaultTimeoutMs: 60_000, gates: [{ id: "check", argv: [node, gate] }] },
     },
     timeoutMs: 1000,
     ...over,
@@ -298,9 +301,12 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
-            producer: { cmd: [node, builder], timeoutMs: 600_000 },
+            producer: {
+              cmd: [node, builder],
+              timeoutMs: 600_000,
+              gates: { defaultTimeoutMs: 60_000, gates: [] },
+            },
             repair: { cmd: [node, builder], timeoutMs: 600_000 },
-            gates: { defaultTimeoutMs: 60_000, gates: [] },
           },
         }),
       ),
@@ -308,7 +314,8 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["--config", configPath], { cwd: dir.root });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      assert.deepEqual(parsed.invocation.builder.gates, []);
+      assert.deepEqual(parsed.invocation.builder.producer.gates, []);
+      assert.deepEqual(parsed.invocation.builder.repair.gates, []);
     }
   });
 
@@ -554,12 +561,15 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir),
         builder: {
-          producer: { cmd: [node, builder], timeoutMs: 600_000 },
-          repair: { cmd: [node, builder], timeoutMs: 600_000 },
-          gates: {
-            defaultTimeoutMs: 60_000,
-            gates: [{ id: "unit", argv: ["node", "gate.mjs"] }],
+          producer: {
+            cmd: [node, builder],
+            timeoutMs: 600_000,
+            gates: {
+              defaultTimeoutMs: 60_000,
+              gates: [{ id: "unit", argv: ["node", "gate.mjs"] }],
+            },
           },
+          repair: { cmd: [node, builder], timeoutMs: 600_000 },
         },
         assembly: {
           gates: {
@@ -574,7 +584,7 @@ describe("parseArgs", () => {
     if (!parsed.ok) {
       return;
     }
-    assert.equal(parsed.invocation.builder.gates[0]?.id, "unit");
+    assert.equal(parsed.invocation.builder.producer.gates[0]?.id, "unit");
     assert.equal(parsed.invocation.assembly.gates[0]?.id, "whole");
   });
 
@@ -755,6 +765,105 @@ describe("parseArgs", () => {
     assert.deepEqual(parsed.invocation.assembly.validate?.cmd, [node, builder, "--review"]);
     assert.equal(parsed.invocation.assembly.validate?.timeoutMs, 30_000);
     assert.deepEqual(parsed.invocation.assembly.fix?.cmd, [node, builder]);
+  });
+
+  it("gives planner, builder.repair, assembly.fix and assembly.validate each their own Gate, via the CLI", () => {
+    const dir = dirs();
+    const parsed = parseArgs(
+      [
+        "--manager",
+        "@bluewombat/manager-github",
+        ...paths(dir),
+        ...slots(),
+        "--planner-gate-timeout-ms",
+        "1000",
+        "--planner-gate",
+        "plan-check",
+        "--",
+        node,
+        gate,
+        "--builder-repair-gate-timeout-ms",
+        "1000",
+        "--builder-repair-gate",
+        "repair-check",
+        "--",
+        node,
+        gate,
+        "--assembly-fix",
+        "--",
+        node,
+        builder,
+        "--assembly-fix-timeout-ms",
+        "60000",
+        "--assembly-fix-gate-timeout-ms",
+        "1000",
+        "--assembly-fix-gate",
+        "fix-check",
+        "--",
+        node,
+        gate,
+        "--assembly-validate",
+        "--",
+        node,
+        builder,
+        "--assembly-validate-timeout-ms",
+        "30000",
+        "--assembly-validate-gate-timeout-ms",
+        "1000",
+        "--assembly-validate-gate",
+        "validate-check",
+        "--",
+        node,
+        gate,
+      ],
+      { cwd: dir.root },
+    );
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) {
+      return;
+    }
+    assert.deepEqual(
+      parsed.invocation.planner.gates.map((g) => g.id),
+      ["plan-check"],
+    );
+    assert.deepEqual(
+      parsed.invocation.builder.repair.gates.map((g) => g.id),
+      ["repair-check"],
+    );
+    assert.deepEqual(
+      parsed.invocation.assembly.fix?.gates.map((g) => g.id),
+      ["fix-check"],
+    );
+    assert.deepEqual(
+      parsed.invocation.assembly.validate?.gates.map((g) => g.id),
+      ["validate-check"],
+    );
+    // --builder-gate (in slots()) and --builder-repair-gate never cross-populate.
+    assert.deepEqual(
+      parsed.invocation.builder.producer.gates.map((g) => g.id),
+      ["check"],
+    );
+  });
+
+  it("rejects the old shared builder.gates shape as an unknown key", () => {
+    const dir = dirs();
+    writeFileSync(
+      join(dir.root, CONFIG_FILENAME),
+      stringifyYaml({
+        ...configOf(dir, {
+          builder: {
+            producer: { cmd: [node, builder], timeoutMs: 600_000 },
+            repair: { cmd: [node, builder], timeoutMs: 600_000 },
+            gates: { defaultTimeoutMs: 60_000, gates: [] },
+          },
+        }),
+      }),
+    );
+    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /unknown key "gates"/);
+    }
   });
 
   it("puts the ledger, the workspaces and home under .mason by the config unless told otherwise", () => {

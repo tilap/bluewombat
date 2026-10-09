@@ -48,13 +48,17 @@ file. It does not read a directory of work.
 | `--planner-duration-ms`  | Positive integer. Wall clock of the Planner.                                                              |
 | `--on-status -- <argv…>` | Optional. Command to run each time Status changes. Omitted: Status still goes to stdout.                  |
 | `--at <iso>`             | Optional. Value stamped as `planned_at`. Omitted: the current time.                                       |
+| `--workspace <path>`     | Absolute path. Must already exist. Where a Gate looks, once a Plan is otherwise accepted — not where the Planner itself reads from. **Required.** See §5a. |
+| `--gate <id> -- <argv…>` | One Gate, judging `--workspace` after a Plan is otherwise accepted. Repeatable; order is the sequence. **May be omitted** (empty sequence). Each `id` unique. Command non-empty. |
+| `--gate-timeout-ms`      | Positive integer. **Required before each `--gate`.** Wall clock of that Gate.                             |
 
 No other argument is read.
 
 Malformed arguments, empty command, missing `--planner`, missing
-`--planner-duration-ms`, `--feature` together with a stdin FeatureStandard, or a
-non-positive bound → run outcome `invalid-invocation`. Nothing is read, nothing
-is spawned.
+`--planner-duration-ms`, missing or unusable `--workspace`, duplicate Gate ids,
+a Gate with no `--gate-timeout-ms`, `--feature` together with a stdin
+FeatureStandard, or a non-positive bound → run outcome `invalid-invocation`.
+Nothing is read, nothing is spawned.
 
 `invalid-invocation` is about **this call**. A FeatureStandard that cannot be
 planned is not an invocation error: it is the outcome `refused`, which is a
@@ -102,7 +106,9 @@ Run the Planner once (§5).
     → run outcome `refused` with that reason.
   If the Planner returns a Plan
     → check the Plan (§6).
-      Usable   → run outcome `planned`.
+      Usable   → run the Gate sequence against `--workspace` (§5a).
+                   All pass, or none declared → run outcome `planned`.
+                   A Gate refuses              → run outcome `refused`, code `gate-refused`.
       Unusable → run outcome `refused` with the first failing code.
 ```
 
@@ -117,8 +123,10 @@ flowchart TD
   PL -->|stop signal| INT[interrupted]
   PL -->|planner refused| REF2[refused — not-specifiable]
   PL -->|a Plan| CHK{Plan usable?}
-  CHK -->|yes| OK[planned]
   CHK -->|no| REF3[refused — structural code]
+  CHK -->|yes| GATE{Gates pass?}
+  GATE -->|yes| OK[planned]
+  GATE -->|no| REF4[refused — gate-refused]
 ```
 
 Argument checks, FeatureStandard checks, and Plan checks are pure functions of
@@ -197,6 +205,57 @@ and must be retryable.
 
 The Planner is skipped entirely when the FeatureStandard is already `refused`:
 there is nothing to split.
+
+## 5a. Gates
+
+Gates are not part of the Planner's own contract. The Planner answers from the
+FeatureStandard text alone (§5, choice 18) and is never told `--workspace`.
+Gates run afterward, only once a Plan has passed §6's checks, against
+`--workspace` — a directory this Transformer still does not create, write to,
+or otherwise own; it only reads it long enough to spawn a Gate with it as that
+child's `cwd`.
+
+The sequence is the `--gate` arguments, in that order, run once, stopping at
+the first non-pass. Empty — the default — means `planned` follows directly
+from a usable Plan, as before this section existed.
+
+Working directory: `--workspace`. FeatureBreakdown appends arguments to the
+Gate command:
+
+| Argument    | Content          |
+| ----------- | ---------------- |
+| `--key`     | From the FeatureStandard |
+| `--gate-id` | This Gate's `id` |
+
+Smaller than the arguments Implementer appends to its own Gates: no Attempt
+counter (this Transformer has none, choice 3), no `--stage`, no
+`--definition-of-done`. A Project wiring `planner.gates` writes a Gate for
+this contract rather than reusing one of the Gate scripts shipped for
+Implementer's as-is.
+
+Stdout, verdicts, and what-happened table are the same shape as Implementer's
+Gates (own SPECS.md §6): one JSON object with `verdict` and, when not `pass`,
+`report`. The difference is what a non-`pass` verdict does next:
+
+| `verdict`        | Here                                                             |
+| ---------------- | ----------------------------------------------------------------- |
+| `pass`           | Next Gate, or `planned` if this was the last.                     |
+| `fail-retryable` | Run outcome `refused`, code `gate-refused`. No retry: see below.  |
+| `fail-blocking`  | Run outcome `refused`, code `gate-refused`. Same as `fail-retryable` here. |
+
+Both verdicts collapse to the same `refused` outcome. This Transformer runs
+once (choice 3); a Gate that would ask for a retry is asking for a property
+this Transformer intentionally does not have. `reason` on that `refused` is
+the refusing Gate's `id`, then its `report`.
+
+A refused, unavailable, or interrupted Planner answer never reaches a Gate — a
+Plan already being discarded for its own reason gains nothing from a workspace
+check.
+
+**Known gap, not solved here:** nothing ties `--workspace` to whatever path a
+Project's own `--planner` command was told to read via its own `--read`-style
+argument. If the two name different directories, a Gate judges a directory the
+Planner was never prompted about. See RESERVATIONS.md.
 
 ## 6. Plan
 
@@ -297,6 +356,11 @@ Plan.
 `--planner-duration-ms`, kill the child, run outcome `unavailable`. The report
 names the clock.
 
+**Gate clock.** Starts when a Gate is spawned. On that Gate's own
+`--gate-timeout-ms`, kill it; the Plan is `refused`, code `gate-refused` (§5a)
+— a killed Gate is a non-`pass` verdict like any other, not `unavailable`: the
+Plan it is judging did answer.
+
 **Interrupt.** SIGINT and SIGTERM stop this invocation. Kill the child if it is
 running, run outcome `interrupted`. No partial `result` line is written: a
 truncated Plan is worse than none.
@@ -366,6 +430,7 @@ lines record the Breakdown.
 | ------------------ | ----------------------------------------------------------- |
 | `status`           | Each time Status changes                                    |
 | `planner-finished` | The Planner ended or was killed. Absent when no Planner ran |
+| `gate-finished`    | A Gate ended. Absent when `--gate` is empty or no Plan was reached (§5a) |
 | `result`           | The run outcome is known. Always the last line              |
 
 Each line carries `key` when the FeatureStandard key is usable.
@@ -377,13 +442,14 @@ Diagnostics go to stderr. Stdout is the contract.
 
 FeatureBreakdown creates no file.
 
-### Filming the Planner
+### Filming the Planner and Gates
 
-A caller may hand `runBreakdown` an `onChild`. It is asked once, before the
-Planner runs, and answers a sink for that child's raw output or nothing to leave
-it unfilmed. FeatureBreakdown opens no file and knows nothing of where a sink
-writes. The sink is opened after the child is running, closed exactly once on
-every way out, and nothing it does changes the outcome. Default: no sink.
+A caller may hand `runBreakdown` an `onChild`. It is asked once per child —
+the Planner, then each Gate that actually runs — and answers a sink for that
+child's raw output or nothing to leave it unfilmed. FeatureBreakdown opens no
+file and knows nothing of where a sink writes. The sink is opened after the
+child is running, closed exactly once on every way out, and nothing it does
+changes the outcome. Default: no sink.
 
 ## 10. Refusal
 
@@ -410,6 +476,7 @@ recognised field, then `missing-key`, then `missing-intention`.
 | -------------------- | ----------------------------------------------- |
 | `not-specifiable`    | The Planner refused the FeatureStandard         |
 | *(Plan codes in §6)* | The Planner returned a Plan that failed a check |
+| `gate-refused`       | A Gate refused `--workspace` after the Plan otherwise passed (§5a) |
 
 The `reason` names what was wrong, in a sentence a human can act on without
 reading this file. For `cycle`, the reason names at least one cycle as ids
@@ -455,6 +522,10 @@ failed a check.
 16. FeatureBreakdown creates no file, and reads none other than the FeatureStandard and the one named by `--planner`'s command.
 17. Fields unknown on the FeatureStandard never appear on the Plan. Fields unknown on a Subtask never appear on that Subtask.
 18. FeatureStandard checks and Plan checks are unit-testable as pure functions, with no child process.
+19. A passing Gate still yields `planned`.
+20. A failing Gate on an otherwise-usable Plan → `refused`, code `gate-refused`, `reason` naming the Gate's `id`.
+21. A refused, unavailable, or interrupted Planner answer never spawns a Gate.
+22. SIGTERM mid-Gate-sequence → `interrupted`, not `refused`.
 
 ## 13. Choices
 
@@ -511,5 +582,14 @@ consequence: another answer was possible.
     Breakdown down.
 18. **No workspace argument.** The split is from the FeatureStandard text. A
     Planner that needs extra context takes it on its own argv, before `--`.
+19. **`--workspace` is a mechanical Gate target, not the Planner's own context.**
+    Choice 18 holds: the Planner itself is never told a workspace and takes
+    any context it needs on its own argv before `--`. `--workspace` exists
+    only so a Gate — which the Planner never sees — has somewhere to look
+    after the Plan is otherwise accepted.
+20. **A Gate verdict of either kind becomes `refused`, with no retry of its
+    own.** This Transformer runs once (choice 3); a Gate that would ask for a
+    retry is asking for a property this Transformer intentionally does not
+    have.
 
 How to build and run this Transformer: [README.md](./README.md).

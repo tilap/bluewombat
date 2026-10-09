@@ -5,7 +5,7 @@ import { PRODUCT } from "@bluewombat/manager-kit";
 import { ISOLATION_COPY, ISOLATION_GIT } from "../config/defaults.js";
 import { CONFIG_FILENAME, findConfig } from "../config/find-config.js";
 import { parseArgs } from "../config/parse-args.js";
-import type { HostInvocation } from "../config/types.js";
+import type { GatedPassSpec, HostInvocation } from "../config/types.js";
 import { inspectWorkLine, resolveWorkLine, type WorkLineResolution } from "../loop/work-line.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
 import { contextOf, loadManagerModule } from "../plugins/manager.js";
@@ -87,27 +87,20 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
         }
       : { level: "ok", label: "streams", detail: "off — the journal alone" },
   );
-  findings.push(commandFinding("Planner", invocation.planner.cmd, input.env));
-  for (const stage of ["builder", "assembly"] as const) {
-    if (stage === "builder") {
-      for (const pass of ["producer", "repair"] as const) {
-        findings.push(
-          commandFinding(`${label(stage)} ${pass}`, invocation.builder[pass].cmd, input.env),
-        );
-      }
-    } else {
-      if (invocation.assembly.fix !== undefined) {
-        findings.push(commandFinding("Assembly fix", invocation.assembly.fix.cmd, input.env));
-      }
-      if (invocation.assembly.validate !== undefined) {
-        findings.push(
-          commandFinding("Assembly validate", invocation.assembly.validate.cmd, input.env),
-        );
-      }
-    }
-    for (const gate of invocation[stage].gates) {
-      findings.push(commandFinding(`${label(stage)} gate ${gate.id}`, gate.argv, input.env));
-    }
+  findings.push(...gatedPassFindings("Planner", invocation.planner, input.env));
+  findings.push(...gatedPassFindings("Builder producer", invocation.builder.producer, input.env));
+  findings.push(...gatedPassFindings("Builder repair", invocation.builder.repair, input.env));
+  if (invocation.assembly.fix !== undefined) {
+    findings.push(...gatedPassFindings("Assembly fix", invocation.assembly.fix, input.env));
+  }
+  if (invocation.assembly.validate !== undefined) {
+    findings.push(
+      ...gatedPassFindings("Assembly validate", invocation.assembly.validate, input.env),
+    );
+  }
+  // The judgement-only pass's own sequence — never shared with fix or validate.
+  for (const gate of invocation.assembly.gates) {
+    findings.push(commandFinding(`Assembly gate ${gate.id}`, gate.argv, input.env));
   }
   findings.push(...assemblyFixFindings(invocation));
 
@@ -366,8 +359,17 @@ function assemblyFinding(invocation: HostInvocation): Finding | undefined {
   };
 }
 
-function label(stage: "builder" | "assembly"): string {
-  return stage === "builder" ? "Builder" : "Assembly";
+/** A gated pass's command, then one finding per Gate's own command. */
+function gatedPassFindings(
+  label: string,
+  pass: GatedPassSpec,
+  env: Record<string, string | undefined>,
+): Finding[] {
+  const findings = [commandFinding(label, pass.cmd, env)];
+  for (const gate of pass.gates) {
+    findings.push(commandFinding(`${label} gate ${gate.id}`, gate.argv, env));
+  }
+  return findings;
 }
 
 /**

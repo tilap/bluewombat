@@ -127,7 +127,14 @@ export type Invocation = {
    * first Attempt.
    */
   repairArgv?: string[];
+  /** Judges the Attempt that ran `builderArgv` — no report yet, or no `repairArgv` at all. */
   gates: GateSpec[];
+  /**
+   * Judges the Attempt that ran `repairArgv`. Ignored when `repairArgv` is
+   * absent — that Attempt always uses `gates`. Empty by default: a Task that
+   * names a repair producer but no repair Gate runs that Attempt ungated.
+   */
+  repairGates: GateSpec[];
   /**
    * What a pass before this invocation left unresolved.
    *

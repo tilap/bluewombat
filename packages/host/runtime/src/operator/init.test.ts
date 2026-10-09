@@ -44,12 +44,14 @@ describe("runInit", () => {
     assert.deepEqual(config.managerOptions.labels, ["mason"]);
     assert.equal(existsSync(join(cwd, "mason-builder.mjs")), true);
     assert.equal(existsSync(join(cwd, "mason-gate.mjs")), false);
-    assert.deepEqual(config.builder.gates.gates, []);
+    assert.deepEqual(config.builder.producer.gates.gates, []);
+    assert.deepEqual(config.builder.repair.gates.gates, []);
     // A producer with no ceiling is the failure this shape exists to prevent,
     // so `init` writes one rather than leaving a required key out.
     assert.equal(typeof config.builder.producer.timeoutMs, "number");
     assert.equal(typeof config.builder.repair.timeoutMs, "number");
-    assert.equal(typeof config.builder.gates.defaultTimeoutMs, "number");
+    assert.equal(typeof config.builder.producer.gates.defaultTimeoutMs, "number");
+    assert.equal(typeof config.builder.repair.gates.defaultTimeoutMs, "number");
     // Where Host keeps its own files is a default, not a line to maintain.
     assert.equal(config.home, undefined);
     assert.equal(config.workspaceRoot, undefined);
@@ -98,7 +100,7 @@ describe("runInit", () => {
     await initIn(cwd, ["--manager", "@bluewombat/manager-fake"]);
     assert.equal(existsSync(join(cwd, "mason-gate.mjs")), false);
     const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8"));
-    assert.deepEqual(config.builder.gates.gates, []);
+    assert.deepEqual(config.builder.producer.gates.gates, []);
   });
 
   it("lets the fake manager prepare its Source and Thread directories", async () => {

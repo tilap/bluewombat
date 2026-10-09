@@ -44,12 +44,17 @@ node dist/cli.js \
   --max-feature-bytes 65536 \
   --max-units 20 \
   --planner -- node /path/to/planner.js \
-  --planner-duration-ms 60000
+  --planner-duration-ms 60000 \
+  --workspace /absolute/path/to/work-line
 ```
 
-Progress is JSON lines on stdout (`status`, `planner-finished`, `result`). Exit
-codes: `0` planned, `1` refused, `2` invalid-invocation, `3` unavailable,
-`130` interrupted.
+`--workspace` is where a Gate looks once a Plan is otherwise accepted, not
+where the Planner itself reads from (SPECS.md §5a). Add Gates with
+`--gate-timeout-ms` before each `--gate <id> -- <argv…>`.
+
+Progress is JSON lines on stdout (`status`, `planner-finished`,
+`gate-finished`, `result`). Exit codes: `0` planned, `1` refused, `2`
+invalid-invocation, `3` unavailable, `130` interrupted.
 
 ## Import
 
@@ -84,7 +89,7 @@ src/
   planner/               Planner spawn and stdout parse
   status/                Status labels and --on-status
   progress/              JSON-line progress writer
-  child/                 spawn (Planner, --on-status)
+  child/                 spawn (Planner, Gates, --on-status)
   run/                   invocation orchestration
 fixtures/                fake Planner / --on-status scripts for tests
 ```

@@ -114,11 +114,18 @@ async function hostFor(paths: Paths, gates: GateSpec[], fetch: typeof globalThis
     workLineIsolation: "@bluewombat/isolation-copy",
     workspaceRoot: paths.workspaceRoot,
     ledgerRoot: paths.ledgerRoot,
-    planner: { cmd: [node, plannerPath], timeoutMs: 30_000 },
+    planner: { cmd: [node, plannerPath], timeoutMs: 30_000, gates: [] },
     builder: {
-      producer: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
-      repair: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
-      gates,
+      producer: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates,
+      },
+      repair: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates: [],
+      },
     },
     assembly: { gates: [] },
     timeoutMs: 30_000,

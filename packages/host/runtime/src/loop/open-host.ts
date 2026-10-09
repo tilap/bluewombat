@@ -61,9 +61,9 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const interruptFlag = options.interruptFlag ?? { interrupted: false };
   const trace = openTrace(
     options.write ??
-    ((text: string) => {
-      process.stdout.write(text);
-    }),
+      ((text: string) => {
+        process.stdout.write(text);
+      }),
   );
   const resolved = await resolveIsolationStrategy(
     options.workLineIsolation,
@@ -162,10 +162,10 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const streams: Streams | undefined =
     streamsSpec?.enabled === true
       ? openStreams({
-        dir: streamsSpec.dir ?? join(home, "streams"),
-        keep: streamsSpec.keep ?? ["stdout", "stderr"],
-        journal,
-      })
+          dir: streamsSpec.dir ?? join(home, "streams"),
+          keep: streamsSpec.keep ?? ["stdout", "stderr"],
+          journal,
+        })
       : undefined;
   const transformers = createTransformers({
     trace,
@@ -174,6 +174,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     planner: options.planner,
     builder: options.builder,
     assembly: options.assembly,
+    workLineStable: stable,
     isolation: resolved.strategy.isolation,
     fold: resolved.strategy.fold,
     timeoutMs: options.timeoutMs,
@@ -200,19 +201,19 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const authority =
     wantsAuthority && options.authority !== undefined && target !== undefined
       ? openAuthority({
-        manager,
-        workLineStable: stable,
-        workLineTarget: target,
-        publishArgv: options.authority.publishArgv,
-        timeoutMs: options.timeoutMs,
-        refOf: resolved.strategy.refOf ?? ((id) => id),
-        env: workLineEnv,
-        describe:
-          options.authority.describeArgv === undefined
-            ? undefined
-            : { cmd: options.authority.describeArgv, timeoutMs: options.timeoutMs },
-        journal,
-      })
+          manager,
+          workLineStable: stable,
+          workLineTarget: target,
+          publishArgv: options.authority.publishArgv,
+          timeoutMs: options.timeoutMs,
+          refOf: resolved.strategy.refOf ?? ((id) => id),
+          env: workLineEnv,
+          describe:
+            options.authority.describeArgv === undefined
+              ? undefined
+              : { cmd: options.authority.describeArgv, timeoutMs: options.timeoutMs },
+          journal,
+        })
       : undefined;
   // Asking for an Authority from a manager that has none is a configuration
   // mistake, not a reason to quietly fold locally instead.
@@ -228,11 +229,11 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     options.workLineWarm === undefined
       ? undefined
       : openWarm({
-        pass: options.workLineWarm,
-        interruptFlag,
-        trace,
-        journal,
-      });
+          pass: options.workLineWarm,
+          interruptFlag,
+          trace,
+          journal,
+        });
   const conductor = openConductor({
     ledger,
     transformers,

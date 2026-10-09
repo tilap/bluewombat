@@ -27,9 +27,12 @@ function sandbox(config: Record<string, unknown>): string {
       ledger: "./.mason/ledger",
       planner: { cmd: [node, planner], timeoutMs: 600_000 },
       builder: {
-        producer: { cmd: [node, builder], timeoutMs: 600_000 },
+        producer: {
+          cmd: [node, builder],
+          timeoutMs: 600_000,
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
-        gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
       },
       timeoutMs: 1000,
       ...config,
@@ -233,14 +236,17 @@ describe("runDoctor", () => {
       manager: "@bluewombat/manager-fake",
       managerOptions: { source: "./source", target: "./threads" },
       builder: {
-        producer: { cmd: [node, builder], timeoutMs: 600_000 },
+        producer: {
+          cmd: [node, builder],
+          timeoutMs: 600_000,
+          gates: { gates: [{ id: "check", argv: ["definitely-not-a-command"], timeoutMs: 1000 }] },
+        },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
-        gates: { gates: [{ id: "check", argv: ["definitely-not-a-command"], timeoutMs: 1000 }] },
       },
     });
     const { code, output } = await doctorIn(cwd);
     assert.equal(code, 1);
-    assert.match(output, /FAIL {2}Builder gate check/);
+    assert.match(output, /FAIL {2}Builder producer gate check/);
   });
 
   it("fails an Authority that cannot fix a Submission sent back", async () => {

@@ -1,4 +1,6 @@
-import type { Invocation, ParseResult } from "../types.js";
+import { existsSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import type { GateSpec, Invocation, ParseResult } from "../types.js";
 
 const BREAKDOWN_FLAGS = new Set([
   "--feature",
@@ -8,6 +10,9 @@ const BREAKDOWN_FLAGS = new Set([
   "--planner-duration-ms",
   "--on-status",
   "--at",
+  "--workspace",
+  "--gate",
+  "--gate-timeout-ms",
 ]);
 
 function isBreakdownFlag(token: string): boolean {
@@ -78,6 +83,10 @@ export function parseArgs(argv: string[]): ParseResult {
   let plannerDurationMs: number | undefined;
   let onStatusArgv: string[] | undefined;
   let plannedAt: string | undefined;
+  let workspace: string | undefined;
+  const gates: GateSpec[] = [];
+  const seenGateIds = new Set<string>();
+  let gateTimeoutMs: number | undefined;
 
   let i = 0;
   while (i < argv.length) {
@@ -172,7 +181,78 @@ export function parseArgs(argv: string[]): ParseResult {
       continue;
     }
 
+    if (token === "--workspace") {
+      const taken = takeValue(argv, i);
+      if (!taken) {
+        return { ok: false, reason: "Missing value for --workspace." };
+      }
+      workspace = taken.value;
+      i = taken.next;
+      continue;
+    }
+
+    if (token === "--gate") {
+      const idTaken = takeValue(argv, i);
+      if (!idTaken) {
+        return { ok: false, reason: "Missing Gate id after --gate." };
+      }
+      const gateId = idTaken.value;
+      if (seenGateIds.has(gateId)) {
+        return { ok: false, reason: `Duplicate Gate id "${gateId}".` };
+      }
+      const command = takeCommandArgv(argv, idTaken.next);
+      if (!command) {
+        return {
+          ok: false,
+          reason: `Missing non-empty Gate command after --gate ${gateId} --.`,
+        };
+      }
+      if (gateTimeoutMs === undefined) {
+        return {
+          ok: false,
+          reason: `Gate "${gateId}" has no --gate-timeout-ms. Nothing else would bound it.`,
+        };
+      }
+      seenGateIds.add(gateId);
+      gates.push({ id: gateId, argv: command.command, timeoutMs: gateTimeoutMs });
+      gateTimeoutMs = undefined;
+      i = command.next;
+      continue;
+    }
+
+    if (token === "--gate-timeout-ms") {
+      const taken = takeValue(argv, i);
+      if (!taken) {
+        return { ok: false, reason: "Missing value for --gate-timeout-ms." };
+      }
+      const value = parsePositiveInt(taken.value);
+      if (value === null) {
+        return { ok: false, reason: "--gate-timeout-ms must be a positive integer." };
+      }
+      // Applies to the next --gate, so one ceiling per Gate is one flag.
+      gateTimeoutMs = value;
+      i = taken.next;
+      continue;
+    }
+
     return { ok: false, reason: `Unknown argument "${token}".` };
+  }
+
+  if (workspace === undefined) {
+    return { ok: false, reason: "Missing required --workspace." };
+  }
+  if (!isAbsolute(workspace)) {
+    return { ok: false, reason: "--workspace must be an absolute path." };
+  }
+  if (!existsSync(workspace)) {
+    return { ok: false, reason: `--workspace does not exist: ${workspace}` };
+  }
+  try {
+    if (!statSync(workspace).isDirectory()) {
+      return { ok: false, reason: `--workspace is not a directory: ${workspace}` };
+    }
+  } catch {
+    return { ok: false, reason: `--workspace is not usable: ${workspace}` };
   }
 
   if (maxFeatureBytes === undefined) {
@@ -193,6 +273,8 @@ export function parseArgs(argv: string[]): ParseResult {
     maxUnits,
     plannerArgv,
     plannerDurationMs,
+    workspace,
+    gates,
   };
   if (featureJson !== undefined) {
     invocation.featureJson = featureJson;

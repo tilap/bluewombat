@@ -197,3 +197,18 @@ export function runChild(request: SpawnRequest): Promise<SpawnOutcome> {
     });
   });
 }
+
+const REPORT_KEEP_CHARS = 8_192;
+
+function keepEnd(text: string): string {
+  if (text.length <= REPORT_KEEP_CHARS) {
+    return text;
+  }
+  return `[…${text.length - REPORT_KEEP_CHARS} characters cut]${text.slice(-REPORT_KEEP_CHARS)}`;
+}
+
+/** The fallback report of a child that left no contract line: its last words. */
+export function combinedOutput(stdout: string, stderr: string): string {
+  const parts = [stdout, stderr].filter((p) => p.length > 0);
+  return keepEnd(parts.join("\n"));
+}

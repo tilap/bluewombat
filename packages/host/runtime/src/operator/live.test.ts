@@ -32,9 +32,12 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
       ledger: "./ledger",
       planner: { cmd: [node, planner], timeoutMs: 600_000 },
       builder: {
-        producer: { cmd: [node, builder], timeoutMs: 600_000 },
+        producer: {
+          cmd: [node, builder],
+          timeoutMs: 600_000,
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
-        gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
       },
       timeoutMs: 1000,
     }),

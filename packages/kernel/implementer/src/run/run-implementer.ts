@@ -146,6 +146,9 @@ async function runLoop(input: {
     // A Task with no producer is its Gate sequence alone: nothing is made, and
     // the Attempt is the judgement.
     const producer = producerFor(invocation, previousReport !== undefined);
+    // Same condition producerFor just branched on: which Gate list judges
+    // this Attempt follows which producer ran it, not which Attempt number it is.
+    const usedRepair = previousReport !== undefined && invocation.repairArgv !== undefined;
     const builderRun =
       producer === undefined
         ? {
@@ -186,7 +189,7 @@ async function runLoop(input: {
     } else {
       // Builder completed — run Gates (may be empty → validated).
       let gateStop: AttemptEnded | undefined;
-      for (const gate of invocation.gates) {
+      for (const gate of usedRepair ? invocation.repairGates : invocation.gates) {
         if (shouldInterrupt()) {
           gateStop = "interrupted";
           break;

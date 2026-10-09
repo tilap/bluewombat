@@ -248,6 +248,14 @@ run does.
 **Instead:** isolate Claude once those flags have been measured; hide the
 `cursor` namespace; treat `status` as proof the key works.
 
+### C24 · FeatureBreakdown's Gate primitive is duplicated from Implementer's, not shared
+
+`packages/kernel/feature-breakdown/src/types.ts`, `src/child/run-gate.ts`, `src/child/parse-gate-output.ts`
+
+Giving the Planner a Gate sequence meant `GateSpec`/`GateVerdict`/`GateTraceEntry`/`runGate` had to exist somewhere FeatureBreakdown could reach, and Transformers do not depend on each other (`AGENTS.md`). The call was made without the user's sign-off — asked once, no answer came back in time — and taken by default toward the lower-risk option: copy the ~80 lines into `feature-breakdown`, matching the project's own convention of deliberate duplication across independent units (`ai-plugins/README.md`'s `repo-recon` et al.: "the same file in every plugin: edit one, copy it to the others"). The alternative not taken: extract a shared `@bluewombat/gate-kit`-style package both Transformers (and Host, for its own `GateSpec` import) depend on — more DRY, but a bigger, separate refactor, and the first instance of a kernel package shared between two Transformers rather than owned by one. `scripts/check-kernel.mjs` confirms the duplication did not become an import, but has no opinion on whether it *should* have been one.
+
+**Instead:** extract the shared package, once there is a second feature (beyond Gates) that would otherwise be copied a third time.
+
 ---
 
 ## F — Faults found and left
@@ -551,6 +559,26 @@ is filmed with its duration, so the next one shows. 30 seconds is a guess no
 measurement backs. **Instead**: reports off the critical path — queued and
 sent beside the work — would make any wait harmless, at the cost of ordering
 the tracker's comments by hand.
+
+### U16 · A planner Gate checks `workLineStable`, which may disagree with what `--read` was told
+
+`packages/host/runtime/src/loop/transformers.ts` — `breakDown()`; `packages/kernel/feature-breakdown/src/run/run-gate.ts`
+
+`planner.gates` runs against `workLineStable` — the one persistent trunk Host
+resolves and keeps across every run, never torn down the way a Subtask's
+workspace is. That is a deliberate choice (there is no other directory
+bluewombat itself knows about that corresponds to "what the Planner was only
+supposed to read"), but nothing ties it to whatever path the Project's own
+`--read <path>` convention told the Planner agent to read from. If the two
+name different directories, a Gate judges a directory the Planner was never
+prompted about, and a Project could misconfigure the two to disagree with no
+error at load time. Never run against a real Project's `planner.gates`, so
+the shipped Implementer-shaped Gate scripts (`workspace-changed.mjs` and
+friends) have not been checked against this smaller argv contract either —
+see `feature-breakdown/SPECS.md` §5a. **Instead**: a doctor check comparing
+the two paths when both are set; collapsing them into one config key the
+Project sets once, with Host threading it to both the Planner's `--read` and
+`--workspace`.
 
 ## I — Working, and worse than it could be
 

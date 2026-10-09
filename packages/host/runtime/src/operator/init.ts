@@ -173,12 +173,21 @@ async function init(input: InitInput): Promise<InitResult> {
     // `.mason`, and a key that repeats a default is one more thing to keep true.
     planner: { cmd: ["node", plannerPath(input.cwd)], timeoutMs: DURATION_MS },
     // Both passes name the same stub, and both are written out: a repair runs
-    // its own agent or it runs nothing, never the first pass by default.
+    // its own agent or it runs nothing, never the first pass by default. Each
+    // carries its own Gate sequence — a repair with none of its own runs
+    // ungated, even once the producer's is filled in.
     builder: {
-      producer: { cmd: ["node", `./${BUILDER_FILENAME}`], timeoutMs: BUILDER_TIMEOUT_MS },
-      repair: { cmd: ["node", `./${BUILDER_FILENAME}`], timeoutMs: BUILDER_TIMEOUT_MS },
+      producer: {
+        cmd: ["node", `./${BUILDER_FILENAME}`],
+        timeoutMs: BUILDER_TIMEOUT_MS,
+        gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
+      },
+      repair: {
+        cmd: ["node", `./${BUILDER_FILENAME}`],
+        timeoutMs: BUILDER_TIMEOUT_MS,
+        gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
+      },
       maxAttempts: 3,
-      gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
     },
     // No fix here: that command only runs on a Submission an Authority sent
     // back, and this Project offers nothing yet.
@@ -581,7 +590,7 @@ function addManagerOption(
 function hostNextSteps(): string[] {
   return [
     `${BUILDER_FILENAME} — your producer; or point builder.producer at @bluewombat/slots/builders/producer.mjs and builder.repair at builders/repair.mjs, with an agent after --`,
-    `builder.gates.gates in ${CONFIG_FILENAME} — start with workspace-changed (examples in @bluewombat/slots/gates/)`,
+    `builder.producer.gates.gates in ${CONFIG_FILENAME} — start with workspace-changed (examples in @bluewombat/slots/gates/); builder.repair.gates is separate and runs ungated until you add one`,
     `authority.enabled in ${CONFIG_FILENAME} — true to offer the assembled feature outside, which then needs assembly.fix (assembly.validate is another way to send work back to it, local and optional)`,
   ];
 }

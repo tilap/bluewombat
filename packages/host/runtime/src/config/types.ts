@@ -1,5 +1,12 @@
+import type { GateSpec as PlannerGateSpec } from "@bluewombat/feature-breakdown";
 import type { GateSpec } from "@bluewombat/implementer";
 import type { ManagerModule } from "@bluewombat/manager-kit";
+
+/**
+ * A command with its own Gate sequence. Every role is gated independently —
+ * no sharing, no dispatch choosing between two buckets (see DECISIONS.md).
+ */
+export type GatedPassSpec<G = GateSpec> = PassSpec & { gates: G[] };
 
 /**
  * What `mason run` accepted. Nothing here names a tracker: whatever a
@@ -49,8 +56,8 @@ export type HostInvocation = {
    * `@bluewombat/persist-fs`.
    */
   persist: string;
-  /** FeatureStandard in, a Plan out. */
-  planner: PassSpec;
+  /** FeatureStandard in, a Plan out. Gated: judges `workLineStable` once a Plan is accepted. */
+  planner: GatedPassSpec<PlannerGateSpec>;
   /** Making a Subtask, and judging what came out of it. */
   builder: StageSpec;
   /** Judging the assembled feature, and fixing what a judgement refused. */
@@ -130,17 +137,17 @@ export type PassSpec = {
 };
 
 /**
- * Making a Subtask: first pass, then repair when a Gate refused, then Gates.
+ * Making a Subtask: first pass, then repair when a Gate refused, each judged
+ * by its own Gate sequence — a repair Attempt with no gates of its own runs
+ * ungated, even when the producer's list is not empty.
  */
 export type StageSpec = {
-  /** Produces from a specification. */
-  producer: PassSpec;
-  /** Produces again, with the report of what refused the last pass. */
-  repair: PassSpec;
+  /** Produces from a specification. Judged by its own `gates`. */
+  producer: GatedPassSpec;
+  /** Produces again, with the report of what refused the last pass. Judged by its own `gates`. */
+  repair: GatedPassSpec;
   /** Attempts one Task may start. Default 3. */
   maxAttempts?: number;
-  /** Judged after the producer, in order. */
-  gates: GateSpec[];
 };
 
 /**
@@ -151,18 +158,25 @@ export type StageSpec = {
  * judgement refused. The work is sent back to `fix` by an Authority, by
  * `validate`, or by both — `doctor` checks that at least one refuser exists
  * before `fix` is declared, not `authority.enabled` alone.
+ *
+ * `fix` and `validate` each carry their own Gate sequence. `gates`, at this
+ * level, is unrelated to either — it is the judgement-only pass with no
+ * producer of its own (nothing new made, the existing assembled state
+ * re-checked; e.g. `ci-green`), and was never shared with `fix` or `validate`.
  */
 export type AssemblySpec = {
-  /** Fixes what a judgement of the whole refused. Needs `--report`. */
-  fix?: PassSpec;
+  /** Fixes what a judgement of the whole refused. Needs `--report`. Judged by its own `gates`. */
+  fix?: GatedPassSpec;
   /**
    * A local, read-only judge of the assembled feature: whether it meets the
    * intention, before there is a Submission or a Gate sequence to answer that.
    * Optional. Runs after align, with or without an Authority. A refusal is
    * parked on the aggregate and repaired by `fix`, the same as an Authority's.
+   * Judged by its own `gates`.
    */
-  validate?: PassSpec;
+  validate?: GatedPassSpec;
   maxAttempts?: number;
+  /** The judgement-only pass's own sequence — see above. */
   gates: GateSpec[];
 };
 

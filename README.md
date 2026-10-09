@@ -67,8 +67,9 @@ npx mason watch
 
 Two things are left for you: the Builder (the stub `mason-builder.mjs`, or
 point `builder.producer` and `builder.repair` at a shipped one from
-[`@bluewombat/slots`](./packages/plugins/slots/README.md)), and any Gate you add to
-`builder.gates`.
+[`@bluewombat/slots`](./packages/plugins/slots/README.md)), and any Gate you add —
+each of `planner`, `builder.producer`, `builder.repair`, `assembly.fix` and
+`assembly.validate` carries its own `gates`, independently.
 Passing `--manager` to `init` turns the questions off, which is what a script wants.
 
 ```json
@@ -79,12 +80,23 @@ Passing `--manager` to `init` turns the questions off, which is what a script wa
   "authority": { "enabled": false },
   "workspaceRoot": "./.mason/workspaces",
   "ledger": "./.mason/ledger",
-  "planner": { "cmd": ["node", "./node_modules/@bluewombat/slots/planners/one-subtask.mjs"], "timeoutMs": 600000 },
-  "builder": {
-    "producer": { "cmd": ["node", "./mason-builder.mjs"], "timeoutMs": 600000 },
-    "repair": { "cmd": ["node", "./mason-builder.mjs"], "timeoutMs": 600000 },
-    "maxAttempts": 3,
+  "planner": {
+    "cmd": ["node", "./node_modules/@bluewombat/slots/planners/one-subtask.mjs"],
+    "timeoutMs": 600000,
     "gates": { "defaultTimeoutMs": 120000, "gates": [] }
+  },
+  "builder": {
+    "producer": {
+      "cmd": ["node", "./mason-builder.mjs"],
+      "timeoutMs": 600000,
+      "gates": { "defaultTimeoutMs": 120000, "gates": [] }
+    },
+    "repair": {
+      "cmd": ["node", "./mason-builder.mjs"],
+      "timeoutMs": 600000,
+      "gates": { "defaultTimeoutMs": 120000, "gates": [] }
+    },
+    "maxAttempts": 3
   },
   "assembly": { "gates": { "defaultTimeoutMs": 900000, "gates": [] } },
   "timeoutMs": 600000,
@@ -94,9 +106,11 @@ Passing `--manager` to `init` turns the questions off, which is what a script wa
 
 `builder` makes a Subtask. `assembly` judges the whole, and when that
 judgement refuses it, `assembly.fix` corrects what it named — not a second
-first-pass of the request. The judgement is the Gate sequence, an Authority's
-own checks, or — optionally — `assembly.validate`, a local read-only review run
-before either. Any of them may send work back to `fix`, and all share one
+first-pass of the request. The judgement is the `assembly.gates` sequence (the
+one no producer runs — nothing new made, the existing assembled state
+re-checked), an Authority's own checks, or — optionally — `assembly.validate`,
+a local read-only review run before either, judged by its own `gates`, not
+`assembly.gates`. Any of them may send work back to `fix`, and all share one
 `maxRefusals` budget. `doctor` requires `assembly.fix` exactly when
 `authority.enabled` is true; a Project may declare `assembly.validate` with no
 `fix` too — a reviewer that only gates, whose refusals escalate on the spot —

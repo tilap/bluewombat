@@ -21,6 +21,7 @@ function baseInvocation(over: Partial<Invocation> & Pick<Invocation, "workspace"
     definitionOfDone: "green",
     builderArgv: [node, join(fixtures, "builder-ok.mjs")],
     gates: [],
+    repairGates: [],
     maxAttempts: 3,
     builderTimeoutMs: 10_000,
     ...over,

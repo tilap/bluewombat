@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import type {
   AssemblySpec,
   AuthoritySpec,
+  GatedPassSpec,
   HostInvocation,
   ObservabilitySpec,
   PassSpec,
@@ -31,7 +32,8 @@ const KNOWN_KEYS = new Set([
 
 const WORK_LINE_KEYS = new Set(["stable", "branch", "isolation", "isolationOptions", "warm"]);
 const PASS_KEYS = new Set(["cmd", "timeoutMs"]);
-const STAGE_KEYS = new Set(["producer", "repair", "maxAttempts", "gates"]);
+const GATED_PASS_KEYS = new Set(["cmd", "timeoutMs", "gates"]);
+const STAGE_KEYS = new Set(["producer", "repair", "maxAttempts"]);
 const ASSEMBLY_KEYS = new Set(["fix", "validate", "maxAttempts", "gates"]);
 const GATES_KEYS = new Set(["defaultTimeoutMs", "gates"]);
 const AUTHORITY_KEYS = new Set(["enabled", "publish", "refresh", "describe"]);
@@ -146,7 +148,7 @@ export function loadConfig(path: string): LoadedConfig {
   }
 
   if (object.planner !== undefined) {
-    const planner = readPass(object.planner, configDir, "planner");
+    const planner = readGatedPass(object.planner, configDir, "planner");
     if (planner.ok === false) {
       return planner;
     }
@@ -264,13 +266,13 @@ function readWorkLine(
   configDir: string,
 ):
   | {
-    ok: true;
-    stable?: string;
-    branch?: string;
-    isolation?: string;
-    isolationOptions?: Record<string, unknown>;
-    warm?: PassSpec;
-  }
+      ok: true;
+      stable?: string;
+      branch?: string;
+      isolation?: string;
+      isolationOptions?: Record<string, unknown>;
+      warm?: PassSpec;
+    }
   | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: 'Config "workLine" must be a YAML mapping.' };
@@ -582,6 +584,54 @@ function readPass(
 }
 
 /**
+ * A command, and its own Gate sequence — `planner`, `builder.producer`,
+ * `builder.repair`, `assembly.fix`, `assembly.validate`. Deliberately its own
+ * ~10 lines rather than a parameterized `readPass`: each reader's error
+ * messages and key set stay independently legible.
+ */
+function readGatedPass(
+  value: unknown,
+  configDir: string,
+  key: string,
+): { ok: true; value: GatedPassSpec } | { ok: false; reason: string } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      ok: false,
+      reason: `Config "${key}" must be a YAML mapping with "cmd" and "timeoutMs".`,
+    };
+  }
+  const object = value as Record<string, unknown>;
+  for (const name of Object.keys(object)) {
+    if (!GATED_PASS_KEYS.has(name)) {
+      return { ok: false, reason: `Config "${key}" has unknown key "${name}".` };
+    }
+  }
+  const cmd = stringArrayField(object, "cmd");
+  if (cmd.ok === false || cmd.value === undefined) {
+    return { ok: false, reason: `Config "${key}.cmd" must be a non-empty array of strings.` };
+  }
+  const timeoutMs = positiveIntField(object, "timeoutMs");
+  if (timeoutMs.ok === false || timeoutMs.value === undefined) {
+    return {
+      ok: false,
+      reason: `Config "${key}" needs a positive "timeoutMs": nothing else bounds a command.`,
+    };
+  }
+  let gates: GateSpec[] = [];
+  if (object.gates !== undefined) {
+    const read = readGates(object.gates, configDir, `${key}.gates`);
+    if (read.ok === false) {
+      return read;
+    }
+    gates = read.value;
+  }
+  return {
+    ok: true,
+    value: { cmd: resolveArgv(cmd.value, configDir), timeoutMs: timeoutMs.value, gates },
+  };
+}
+
+/**
  * Making a Subtask: both passes named, neither borrowing the other's command.
  */
 function readBuilder(
@@ -603,18 +653,17 @@ function readBuilder(
   if (object.repair === undefined) {
     return { ok: false, reason: 'Config "builder" needs a "repair".' };
   }
-  const readProducer = readPass(object.producer, configDir, "builder.producer");
+  const readProducer = readGatedPass(object.producer, configDir, "builder.producer");
   if (readProducer.ok === false) {
     return readProducer;
   }
-  const readRepair = readPass(object.repair, configDir, "builder.repair");
+  const readRepair = readGatedPass(object.repair, configDir, "builder.repair");
   if (readRepair.ok === false) {
     return readRepair;
   }
   const spec: StageSpec = {
     producer: readProducer.value,
     repair: readRepair.value,
-    gates: [],
   };
   const maxAttempts = positiveIntField(object, "maxAttempts");
   if (maxAttempts.ok === false) {
@@ -622,13 +671,6 @@ function readBuilder(
   }
   if (maxAttempts.value !== undefined) {
     spec.maxAttempts = maxAttempts.value;
-  }
-  if (object.gates !== undefined) {
-    const gates = readGates(object.gates, configDir, "builder.gates");
-    if (gates.ok === false) {
-      return gates;
-    }
-    spec.gates = gates.value;
   }
   return { ok: true, value: spec };
 }
@@ -660,14 +702,14 @@ function readAssembly(
   }
   const spec: AssemblySpec = { gates: [] };
   if (object.fix !== undefined) {
-    const read = readPass(object.fix, configDir, "assembly.fix");
+    const read = readGatedPass(object.fix, configDir, "assembly.fix");
     if (read.ok === false) {
       return read;
     }
     spec.fix = read.value;
   }
   if (object.validate !== undefined) {
-    const read = readPass(object.validate, configDir, "assembly.validate");
+    const read = readGatedPass(object.validate, configDir, "assembly.validate");
     if (read.ok === false) {
       return read;
     }

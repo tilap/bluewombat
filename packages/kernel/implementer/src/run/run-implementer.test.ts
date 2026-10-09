@@ -21,6 +21,7 @@ function baseInvocation(over: Partial<Invocation> & Pick<Invocation, "workspace"
     definitionOfDone: "green",
     builderArgv: [node, join(fixtures, "builder-ok.mjs")],
     gates: [],
+    repairGates: [],
     maxAttempts: 3,
     builderTimeoutMs: 10_000,
     ...over,
@@ -334,6 +335,56 @@ describe("runImplementer acceptance", () => {
       "build",
       "repair",
     ]);
+  });
+
+  it("a repair Attempt with no gates of its own runs ungated, even when the producer's always refuse", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: baseInvocation({
+        workspace: ws,
+        builderArgv: [node, join(fixtures, "builder-ok.mjs")],
+        repairArgv: [node, join(fixtures, "builder-ok.mjs")],
+        maxAttempts: 2,
+        gates: [
+          {
+            id: "always-red",
+            argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
+            timeoutMs: 5_000,
+          },
+        ],
+        repairGates: [],
+      }),
+      write: () => {},
+    });
+    // Attempt 1 (the producer) is refused by `gates` every time it runs;
+    // Attempt 2 (the repair) is judged by `repairGates` instead, which is
+    // empty, so it validates rather than inheriting the producer's own Gate.
+    assert.equal(result.outcome, "validated");
+    assert.equal(result.traces.length, 2);
+  });
+
+  it("a repair Attempt is judged by its own Gate list, even when the producer's is empty", async () => {
+    const result = await runImplementer({
+      invocation: baseInvocation({
+        workspace: workspace(),
+        builderArgv: [node, join(fixtures, "builder-ok.mjs")],
+        repairArgv: [node, join(fixtures, "builder-ok.mjs")],
+        report: "something refused it", // carries straight to the repair producer, from Attempt 1
+        maxAttempts: 1,
+        gates: [],
+        repairGates: [
+          {
+            id: "always-red",
+            argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
+            timeoutMs: 5_000,
+          },
+        ],
+      }),
+      write: () => {},
+    });
+    assert.equal(result.outcome, "escalated");
+    assert.equal(result.traces[0]?.ended, "fail-retryable");
+    assert.equal(result.traces[0]?.gates[0]?.id, "always-red");
   });
 
   it("repairs from its very first Attempt when the report came from outside", async () => {

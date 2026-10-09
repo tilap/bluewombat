@@ -15,7 +15,7 @@ export type StatusPhase =
   | "interrupted"
   | "invalid";
 
-export type ClockName = "planner";
+export type ClockName = "planner" | "gate";
 
 export type RefusalCode =
   | "feature-too-large"
@@ -35,7 +35,24 @@ export type RefusalCode =
   | "bad-depends-on"
   | "unknown-dependency"
   | "cycle"
-  | "no-root";
+  | "no-root"
+  /** A Gate refused `--workspace` after a Plan was otherwise accepted. */
+  | "gate-refused";
+
+export type GateVerdict = "pass" | "fail-retryable" | "fail-blocking";
+
+export type GateSpec = {
+  id: string;
+  argv: string[];
+  /** How long this Gate may take, at most. Required. */
+  timeoutMs: number;
+};
+
+export type GateTraceEntry = {
+  id: string;
+  verdict: GateVerdict;
+  report: string;
+};
 
 export type Status = {
   phase: StatusPhase;
@@ -79,7 +96,9 @@ export type ChildSink = {
 export type ChildAbout = {
   /** The FeatureStandard being broken down. */
   key: string;
-  kind: "planner";
+  kind: "planner" | "gate";
+  /** Present when `kind` is `gate`. */
+  gate_id?: string;
 };
 
 /** Answers a sink for one child, or nothing to leave it unfilmed. */
@@ -90,6 +109,14 @@ export type Invocation = {
   maxUnits: number;
   plannerArgv: string[];
   plannerDurationMs: number;
+  /**
+   * Where a Gate looks, once a Plan is otherwise accepted — not where the
+   * Planner itself reads from (it takes that on its own argv, before `--`;
+   * see SPECS.md §5a). Required: a Gate always has a `cwd`, even an empty list.
+   */
+  workspace: string;
+  /** Judges the workspace after a Plan is otherwise accepted. May be empty. */
+  gates: GateSpec[];
   /** Set when --feature was given. Absent: FeatureStandard comes from stdin. */
   featureJson?: string;
   onStatusArgv?: string[];

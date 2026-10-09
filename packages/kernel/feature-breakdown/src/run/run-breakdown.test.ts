@@ -31,6 +31,8 @@ function baseInvocation(over: Partial<Invocation> = {}): Invocation {
     plannerArgv: [node, join(fixtures, "planner-ok.mjs")],
     plannerDurationMs: 10_000,
     plannedAt: "2026-09-05T10:00:00.000Z",
+    workspace: sandbox(),
+    gates: [],
     ...over,
   };
 }
@@ -434,5 +436,72 @@ describe("runBreakdown acceptance", { concurrency: false }, () => {
     });
     assert.equal(result.outcome, "unavailable");
     assert.match(result.detail ?? "", /clock/i);
+  });
+
+  it("a passing Gate still yields planned", async () => {
+    const ws = sandbox();
+    const result = await runBreakdown({
+      invocation: baseInvocation({
+        workspace: ws,
+        gates: [{ id: "ok", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 5_000 }],
+      }),
+      featureJson: featureJson(),
+      write: () => {},
+    });
+    assert.equal(result.outcome, "planned");
+    assert.ok(existsSync(join(ws, "gate-ran.txt")));
+  });
+
+  it("a failing Gate on an otherwise-good Plan is refused with gate-refused", async () => {
+    const result = await runBreakdown({
+      invocation: baseInvocation({
+        gates: [
+          { id: "ci", argv: [node, join(fixtures, "gate-fail-retryable.mjs")], timeoutMs: 5_000 },
+        ],
+      }),
+      featureJson: featureJson(),
+      write: () => {},
+    });
+    assert.equal(result.outcome, "refused");
+    assert.equal(result.code, "gate-refused");
+    assert.match(result.reason ?? "", /^ci: the work line moved/);
+  });
+
+  it("a refused Planner answer never spawns a Gate", async () => {
+    const ws = sandbox();
+    const result = await runBreakdown({
+      invocation: baseInvocation({
+        workspace: ws,
+        plannerArgv: [node, join(fixtures, "planner-refused.mjs")],
+        gates: [{ id: "ok", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 5_000 }],
+      }),
+      featureJson: featureJson(),
+      write: () => {},
+    });
+    assert.equal(result.outcome, "refused");
+    assert.equal(existsSync(join(ws, "gate-ran.txt")), false);
+  });
+
+  it("interrupt mid Gate sequence → interrupted, not refused", async () => {
+    const flag = { interrupted: false };
+    const pending = runBreakdown({
+      invocation: baseInvocation({
+        gates: [
+          {
+            id: "slow",
+            argv: [node, join(fixtures, "gate-sleep.mjs"), "30000"],
+            timeoutMs: 60_000,
+          },
+        ],
+      }),
+      featureJson: featureJson(),
+      write: () => {},
+      interruptFlag: flag,
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    flag.interrupted = true;
+    const result = await pending;
+    assert.equal(result.outcome, "interrupted");
+    assert.equal(result.exitCode, 130);
   });
 });

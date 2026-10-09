@@ -17,6 +17,8 @@ const IMPLEMENTER_FLAGS = new Set([
   "--repair-builder-timeout-ms",
   "--gate",
   "--gate-timeout-ms",
+  "--repair-gate",
+  "--repair-gate-timeout-ms",
   "--max-attempts",
   "--on-status",
 ]);
@@ -87,8 +89,11 @@ export function parseArgs(argv: string[]): ParseResult {
   let repairTimeoutMs: number | undefined;
   const gates: GateSpec[] = [];
   const seenGateIds = new Set<string>();
+  const repairGates: GateSpec[] = [];
+  const seenRepairGateIds = new Set<string>();
   let maxAttempts: number | undefined;
   let gateTimeoutMs: number | undefined;
+  let repairGateTimeoutMs: number | undefined;
   let onStatusArgv: string[] | undefined;
 
   let i = 0;
@@ -235,6 +240,50 @@ export function parseArgs(argv: string[]): ParseResult {
       continue;
     }
 
+    if (token === "--repair-gate") {
+      const idTaken = takeValue(argv, i);
+      if (!idTaken) {
+        return { ok: false, reason: "Missing Gate id after --repair-gate." };
+      }
+      const gateId = idTaken.value;
+      if (seenRepairGateIds.has(gateId)) {
+        return { ok: false, reason: `Duplicate repair Gate id "${gateId}".` };
+      }
+      const command = takeCommandArgv(argv, idTaken.next);
+      if (!command) {
+        return {
+          ok: false,
+          reason: `Missing non-empty Gate command after --repair-gate ${gateId} --.`,
+        };
+      }
+      if (repairGateTimeoutMs === undefined) {
+        return {
+          ok: false,
+          reason: `Repair Gate "${gateId}" has no --repair-gate-timeout-ms. Nothing else would bound it.`,
+        };
+      }
+      seenRepairGateIds.add(gateId);
+      repairGates.push({ id: gateId, argv: command.command, timeoutMs: repairGateTimeoutMs });
+      repairGateTimeoutMs = undefined;
+      i = command.next;
+      continue;
+    }
+
+    if (token === "--repair-gate-timeout-ms") {
+      const taken = takeValue(argv, i);
+      if (!taken) {
+        return { ok: false, reason: "Missing value for --repair-gate-timeout-ms." };
+      }
+      const value = parsePositiveInt(taken.value);
+      if (value === null) {
+        return { ok: false, reason: "--repair-gate-timeout-ms must be a positive integer." };
+      }
+      // Applies to the next --repair-gate, so one ceiling per Gate is one flag.
+      repairGateTimeoutMs = value;
+      i = taken.next;
+      continue;
+    }
+
     if (token === "--max-attempts") {
       const taken = takeValue(argv, i);
       if (!taken) {
@@ -334,6 +383,7 @@ export function parseArgs(argv: string[]): ParseResult {
     ...(builderArgv === undefined ? {} : { builderArgv }),
     ...(repairArgv === undefined ? {} : { repairArgv }),
     gates,
+    repairGates,
     maxAttempts,
     builderTimeoutMs,
     ...(repairTimeoutMs === undefined ? {} : { repairTimeoutMs }),

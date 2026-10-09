@@ -7,7 +7,7 @@ import {
 } from "@bluewombat/implementer";
 import { type FoldBackend, runIntegrator } from "@bluewombat/integrator";
 import { type IsolationBackend, runIsolator } from "@bluewombat/isolator";
-import type { AssemblySpec, PassSpec, StageSpec } from "../config/types.js";
+import type { AssemblySpec, GatedPassSpec, StageSpec } from "../config/types.js";
 import type { Journal } from "./journal.js";
 import type { Streams } from "./streams.js";
 import { failureNote, type Trace } from "./trace.js";
@@ -22,11 +22,18 @@ export type TransformerSlots = {
    * nothing is filmed and a child's output leaves a Transformer as one word.
    */
   streams?: Streams;
-  planner: PassSpec;
+  /** FeatureStandard in, a Plan out. Gated: judges `workLineStable` once a Plan is accepted. */
+  planner: GatedPassSpec;
   /** Making a Subtask, and the Gates judging what came out of it. */
   builder: StageSpec;
   /** Judging the assembled feature, and the command that fixes a refusal. */
   assembly: AssemblySpec;
+  /**
+   * The persistent trunk a planner Gate checks — not an ephemeral per-Task
+   * workspace, and not where the Planner agent itself reads from (that stays
+   * the Project's own `--read` convention; see feature-breakdown SPECS.md §5a).
+   */
+  workLineStable: string;
   /** How Isolator produces the Child. Host chooses; Isolator does not sniff. */
   isolation: IsolationBackend;
   /** How Integrator folds. Must match `isolation`. */
@@ -112,31 +119,6 @@ function reasonOf(trace: ImplementerTrace): { report: string; from?: string } | 
 }
 
 /**
- * Which sequence judges this Task.
- *
- * `assembly.gates` judge what was published, so they belong to the pass that
- * judges — not to the one that makes, whose Gates would still be looking at what
- * was there before it published anything.
- *
- * A making pass is judged like any other making pass, by the Project's own
- * sequence. Leaving it ungated lets a producer that made nothing pass, republish
- * the same thing, and be refused again until the budget is gone.
- */
-function gatesFor(
-  input: { stage?: string; produce?: boolean; validate?: boolean },
-  slots: TransformerSlots,
-): GateSpec[] {
-  if (input.validate === true) {
-    // Read-only, and judged on its own answer: a Gate here would be reading a
-    // workspace validate never touches.
-    return [];
-  }
-  return input.stage === "assembly" && input.produce === false
-    ? slots.assembly.gates
-    : slots.builder.gates;
-}
-
-/**
  * How long the agent of this pass may run.
  *
  * A Subtask names its producer. An assembly names a fix, and only when something
@@ -166,37 +148,53 @@ function attemptBudget(
   return stage.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 }
 
-function producersFor(
+type RoleWiring = {
+  builderArgv?: string[];
+  repairArgv?: string[];
+  repairTimeoutMs?: number;
+  gates: GateSpec[];
+  /** Judges the Attempt that ran `repairArgv`, when present. Ignored otherwise. */
+  repairGates: GateSpec[];
+};
+
+/**
+ * Which command runs, and which Gate sequence judges it — decided together,
+ * so the two can never fall out of sync (see DECISIONS.md: every role gated
+ * independently, no shared list, no dispatch choosing between two buckets).
+ */
+function roleWiring(
   input: { stage?: string; produce?: boolean; validate?: boolean },
   slots: TransformerSlots,
-):
-  | {
-      builderArgv: string[];
-      repairArgv?: string[];
-      repairTimeoutMs?: number;
-    }
-  | undefined {
+): RoleWiring {
   if (input.validate === true) {
     const validate = slots.assembly.validate;
-    return validate === undefined ? undefined : { builderArgv: validate.cmd };
+    return validate === undefined
+      ? { gates: [], repairGates: [] }
+      : { builderArgv: validate.cmd, gates: validate.gates, repairGates: [] };
   }
   if (input.produce === false) {
-    return undefined;
+    // The one remaining judgement-only pass: re-checking the assembled
+    // feature with no producer of its own. No named role maps to it; it is
+    // judged by `assembly.gates`, its own sequence, untouched by any of the
+    // five roles' own lists (see AssemblySpec's doc comment).
+    return { gates: slots.assembly.gates, repairGates: [] };
   }
   if (input.stage === "assembly") {
     const fix = slots.assembly.fix;
     if (fix === undefined) {
-      return undefined;
+      return { gates: [], repairGates: [] };
     }
     // Implementer picks repairArgv only when a report is present, and Conductor
     // never produces at assembly without one. The fix command is the producer.
-    return { builderArgv: fix.cmd };
+    return { builderArgv: fix.cmd, gates: fix.gates, repairGates: [] };
   }
   const { producer, repair } = slots.builder;
   return {
     builderArgv: producer.cmd,
     repairArgv: repair.cmd,
     repairTimeoutMs: repair.timeoutMs,
+    gates: producer.gates,
+    repairGates: repair.gates,
   };
 }
 
@@ -228,6 +226,11 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           maxUnits: slots.maxUnits,
           plannerArgv: slots.planner.cmd,
           plannerDurationMs: slots.planner.timeoutMs,
+          // Not where the Planner agent itself reads from (that is the
+          // Project's own --read convention, untouched) — only where a
+          // planner Gate looks, once a Plan is otherwise accepted.
+          workspace: slots.workLineStable,
+          gates: slots.planner.gates,
         },
         featureJson: input.featureJson,
         write,
@@ -264,7 +267,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
     },
 
     async implement(input): Promise<ImplementResult> {
-      const producers = producersFor(input, slots);
+      const wiring = roleWiring(input, slots);
       const result = await runImplementer({
         invocation: {
           id: input.id,
@@ -279,8 +282,13 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           ...(input.reportFrom === undefined ? {} : { reportFrom: input.reportFrom }),
           ...(input.context === undefined ? {} : { context: input.context }),
           ...(input.stage === undefined ? {} : { stage: input.stage }),
-          ...(producers === undefined ? {} : producers),
-          gates: gatesFor(input, slots),
+          ...(wiring.builderArgv === undefined ? {} : { builderArgv: wiring.builderArgv }),
+          ...(wiring.repairArgv === undefined ? {} : { repairArgv: wiring.repairArgv }),
+          ...(wiring.repairTimeoutMs === undefined
+            ? {}
+            : { repairTimeoutMs: wiring.repairTimeoutMs }),
+          gates: wiring.gates,
+          repairGates: wiring.repairGates,
           // A pass that makes nothing cannot make a different result on a second
           // try: whoever asked for the judgement owns the retrying.
           maxAttempts: attemptBudget(input, slots),

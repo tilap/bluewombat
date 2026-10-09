@@ -185,9 +185,16 @@ function blockingGates(): GateSpec[] {
 
 function blockingBuilder(): HostOptions["builder"] {
   return {
-    producer: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
-    repair: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
-    gates: blockingGates(),
+    producer: {
+      cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+      timeoutMs: 30_000,
+      gates: blockingGates(),
+    },
+    repair: {
+      cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+      timeoutMs: 30_000,
+      gates: [],
+    },
   };
 }
 
@@ -203,11 +210,22 @@ function optionsFor(paths: Paths, stub: Stub, over: Partial<HostOptions> = {}): 
     workLineIsolation: "@bluewombat/isolation-copy",
     workspaceRoot: paths.workspaceRoot,
     ledgerRoot: paths.ledgerRoot,
-    planner: { cmd: [node, join(fixtures, "planner-one-subtask.mjs")], timeoutMs: 30_000 },
+    planner: {
+      cmd: [node, join(fixtures, "planner-one-subtask.mjs")],
+      timeoutMs: 30_000,
+      gates: [],
+    },
     builder: {
-      producer: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
-      repair: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
-      gates: passingGates(),
+      producer: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates: passingGates(),
+      },
+      repair: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates: [],
+      },
     },
     assembly: { gates: [] },
     authority: {
@@ -351,7 +369,11 @@ describe("host with an Authority", () => {
       optionsFor(paths, stub, {
         maxRefusals: 3,
         assembly: {
-          fix: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
+          fix: {
+            cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+            timeoutMs: 30_000,
+            gates: [],
+          },
           gates: [
             // The Authority's judge: refuses the first round, takes the next.
             {
@@ -399,7 +421,11 @@ describe("host with an Authority", () => {
       optionsFor(paths, stub, {
         maxRefusals: 3,
         assembly: {
-          fix: { cmd: [node, join(fixtures, "builder-write-marker.mjs")], timeoutMs: 30_000 },
+          fix: {
+            cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+            timeoutMs: 30_000,
+            gates: [],
+          },
           gates: [
             {
               id: "ci",

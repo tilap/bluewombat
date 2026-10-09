@@ -224,4 +224,97 @@ describe("parseArgs", () => {
     assert.equal(result.ok, false);
     assert.match(result.ok ? "" : result.reason, /needs a --builder to fall back to/);
   });
+
+  it("parses --repair-gate independently of --gate", () => {
+    const result = parseArgs(
+      args([
+        "--builder",
+        "--",
+        "echo",
+        "build",
+        "--repair-builder",
+        "--",
+        "echo",
+        "repair",
+        "--builder-timeout-ms",
+        "1000",
+        "--repair-builder-timeout-ms",
+        "1000",
+        "--gate-timeout-ms",
+        "100",
+        "--gate",
+        "lint",
+        "--",
+        "node",
+        "lint.js",
+        "--repair-gate-timeout-ms",
+        "100",
+        "--repair-gate",
+        "retest",
+        "--",
+        "node",
+        "retest.js",
+      ]),
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      return;
+    }
+    assert.deepEqual(
+      result.invocation.gates.map((g) => g.id),
+      ["lint"],
+    );
+    assert.deepEqual(
+      result.invocation.repairGates.map((g) => g.id),
+      ["retest"],
+    );
+  });
+
+  it("rejects duplicate repair Gate ids", () => {
+    const result = parseArgs(
+      args([
+        "--builder",
+        "--",
+        "echo",
+        "--repair-gate-timeout-ms",
+        "1",
+        "--repair-gate",
+        "retest",
+        "--",
+        "echo",
+        "--repair-gate-timeout-ms",
+        "1",
+        "--repair-gate",
+        "retest",
+        "--",
+        "echo",
+        "--builder-timeout-ms",
+        "1000",
+      ]),
+    );
+    assert.equal(result.ok, false);
+    assert.match(result.ok ? "" : result.reason, /Duplicate repair Gate id "retest"/);
+  });
+
+  it("refuses a repair Gate that carries no ceiling, because nothing else would bound it", () => {
+    const result = parseArgs(
+      args(["--builder-timeout-ms", "1000", "--repair-gate", "retest", "--", "echo", "ok"]),
+    );
+    assert.equal(result.ok, false);
+    assert.match(
+      result.ok ? "" : result.reason,
+      /Repair Gate "retest" has no --repair-gate-timeout-ms/,
+    );
+  });
+
+  it("defaults repairGates to empty when no --repair-gate was given", () => {
+    const result = parseArgs(
+      args(["--builder", "--", "echo", "ok", "--builder-timeout-ms", "1000"]),
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      return;
+    }
+    assert.deepEqual(result.invocation.repairGates, []);
+  });
 });

@@ -188,16 +188,23 @@ and the Gate sequence starts empty. Example Gates live in
 `@bluewombat/slots/gates/` (`parent-clean`, `sensitive-path`,
 `workspace-changed`, `ci-green`).
 
-Two Gate sequences: `builder.gates` is judged on each Subtask, `assembly.gates`
-on the feature they assemble into. A check that is right for one can be wrong for the
-other — `workspace-changed` says an Attempt that changed nothing did nothing,
-which is true of a Subtask and false of an assembly whose correct outcome is that
-nothing was left to do. The assembly produces nothing unless something refused it
-first: it is a judgement, and a refusal is `assembly.fix`, not a second first-pass.
-Two things may judge it: the Gate sequence (`assembly.gates`, and an Authority's
-own checks on what was published) and, optionally, `assembly.validate` — a local,
-read-only pass that runs before either. Both send a refusal to the same `fix`
-and spend the same `maxRefusals` budget.
+Five independent Gate sequences, one per role — `planner.gates`,
+`builder.producer.gates`, `builder.repair.gates`, `assembly.fix.gates`,
+`assembly.validate.gates` — plus `assembly.gates` for the one judgement-only
+pass with no producer of its own. No sequence is shared and nothing is
+dispatched between buckets: a check that is right for one pass can be wrong
+for another, even within the same stage — `workspace-changed` says an Attempt
+that changed nothing did nothing, which is true of `builder.producer`/`repair`
+and false of `assembly.gates`'s pass, whose correct outcome is that nothing
+was left to do. `builder.repair` does not inherit `builder.producer.gates`: a
+repair Attempt with no Gate of its own runs ungated. The assembly's
+judgement-only pass produces nothing unless something refused it first: it is
+a judgement, and a refusal is `assembly.fix`, not a second first-pass. Two
+things may judge it: `assembly.gates` (and an Authority's own checks on what
+was published) and, optionally, `assembly.validate` — a local, read-only pass
+that runs before either, judged by its own `assembly.validate.gates`, not
+`assembly.gates`. Both send a refusal to the same `fix` and spend the same
+`maxRefusals` budget.
 
 Every child of a Task carries its own ceiling and no other. Every `cmd` names
 its own `timeoutMs`, and none is inherited from a neighbour — nothing else
