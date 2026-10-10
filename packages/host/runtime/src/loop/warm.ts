@@ -56,7 +56,9 @@ export function openWarm(input: {
           ...(detail.length > 0 ? { detail } : {}),
         });
         input.trace?.(
-          detail.length > 0 ? `warm       failed (exit ${run.status}): ${detail}` : `warm       failed (exit ${run.status})`,
+          detail.length > 0
+            ? `warm       failed (exit ${run.status}): ${detail}`
+            : `warm       failed (exit ${run.status})`,
         );
         return { outcome: "failed" };
       }

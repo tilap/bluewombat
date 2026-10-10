@@ -185,9 +185,9 @@ export async function reportAfterRun(
           ...((aggregate.escalation?.report ?? aggregate.submission?.last_report) === undefined
             ? {}
             : {
-              trace: (aggregate.escalation?.report ??
-                aggregate.submission?.last_report) as string,
-            }),
+                trace: (aggregate.escalation?.report ??
+                  aggregate.submission?.last_report) as string,
+              }),
         },
       });
       return;

@@ -220,17 +220,17 @@ export async function handleCancel(
 export type CancelResult =
   | { ok: true }
   | {
-    ok: false;
-    code: "not-found" | "point-of-no-return" | "already-cancelled" | "done";
-  };
+      ok: false;
+      code: "not-found" | "point-of-no-return" | "already-cancelled" | "done";
+    };
 
 export type ReleaseResult =
   | { ok: true; freed: boolean }
   | {
-    ok: false;
-    code: "not-found" | "illegal-transition";
-    state?: string;
-  };
+      ok: false;
+      code: "not-found" | "illegal-transition";
+      state?: string;
+    };
 
 /**
  * Drop a held Subtask (or planning) by key — without waiting for the bail clock.

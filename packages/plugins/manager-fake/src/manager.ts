@@ -4,7 +4,7 @@ import { runAdapter } from "./adapter/run/run-adapter.js";
 import { runEmitter } from "./emitter/run/run-emitter.js";
 import { runListener } from "./listener/run/run-listener.js";
 
-const silent = (): void => { };
+const silent = (): void => {};
 const MANAGER = "fake";
 const UNKNOWN_PROJECT = "unknown";
 const DEFAULT_PRIORITY = 50;

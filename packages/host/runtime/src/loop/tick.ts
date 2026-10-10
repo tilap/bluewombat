@@ -172,7 +172,7 @@ export async function run(input: HostRunInput): Promise<HostTickResult> {
     listenerOutcome: "completed",
     reported: [],
   };
-  for (; ;) {
+  for (;;) {
     if (interruptFlag.interrupted) {
       journal.append({ event: "paused" });
       conductor.pause();

@@ -26,7 +26,7 @@ import {
 } from "./submission/submission.js";
 import { writtenFingerprint } from "./written-fingerprint.js";
 
-const silent = (): void => { };
+const silent = (): void => {};
 const MANAGER = "github";
 const UNKNOWN_PROJECT = "unknown";
 const DEFAULT_MAX_EVENTS = 10_000;

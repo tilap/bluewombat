@@ -73,7 +73,7 @@ function harness(answer = true): Harness {
           journal.push(line);
         },
       },
-      trace: () => { },
+      trace: () => {},
       watcher: {},
       said: new Set<string>(),
       reported,
@@ -348,94 +348,94 @@ describe("reporting after a pass", () => {
       stage: string;
       fields: Record<string, unknown>;
     }[] = [
-        {
-          aggregate: aggregateOf({
-            escalation: { kind: "plan", born_in_merging: false },
-            invalid: { code: "plan", reason: "two subtasks share an id" },
-          }),
-          stage: "plan",
-          fields: { reason: "two subtasks share an id" },
-        },
-        {
-          // Frozen for an intention edited in flight: the ledger's sentence, not a refusal.
-          aggregate: aggregateOf({
-            escalation: {
-              kind: "plan",
-              born_in_merging: false,
-              report: "The intention was edited while the work was in flight (now fingerprint fp-2).",
-            },
-          }),
-          stage: "plan",
-          fields: {
-            reason: "The intention was edited while the work was in flight (now fingerprint fp-2).",
+      {
+        aggregate: aggregateOf({
+          escalation: { kind: "plan", born_in_merging: false },
+          invalid: { code: "plan", reason: "two subtasks share an id" },
+        }),
+        stage: "plan",
+        fields: { reason: "two subtasks share an id" },
+      },
+      {
+        // Frozen for an intention edited in flight: the ledger's sentence, not a refusal.
+        aggregate: aggregateOf({
+          escalation: {
+            kind: "plan",
+            born_in_merging: false,
+            report: "The intention was edited while the work was in flight (now fingerprint fp-2).",
           },
+        }),
+        stage: "plan",
+        fields: {
+          reason: "The intention was edited while the work was in flight (now fingerprint fp-2).",
         },
-        {
-          aggregate: aggregateOf({ escalation: { kind: "plan", born_in_merging: false } }),
-          stage: "plan",
-          fields: { reason: "The Plan was refused." },
-        },
-        {
-          aggregate: aggregateOf({ escalation: { kind: "merging", born_in_merging: true } }),
-          stage: "merging",
-          fields: {},
-        },
-        {
-          aggregate: aggregateOf({
-            escalation: { kind: "assembly", born_in_merging: false, report: "lint: 3 errors" },
-          }),
-          stage: "integrating",
-          fields: { trace: "lint: 3 errors" },
-        },
-        {
-          aggregate: aggregateOf({
-            attempts_used: 2,
-            escalation: { kind: "submitted", born_in_merging: false },
-            submission: { reference: "pr-1", submitted_at: 1, refusals: 2, last_report: "CI red" },
-          }),
-          stage: "submitting",
-          fields: { trace: "CI red" },
-        },
-        {
-          aggregate: aggregateOf({
-            escalation: { kind: "subtask", born_in_merging: false, subtask_id: "B" },
-            attempts: [
-              { subtask_id: "A", number: 1, trace: { ended: "validated" } },
-              { subtask_id: "B", number: 1, trace: { ended: "fail-blocking" } },
-              { subtask_id: "B", number: 2 },
-            ],
-          }),
-          stage: "unit",
-          fields: { unit: "B", trace: "fail-blocking" },
-        },
-        {
-          // An escalation the ledger did not describe is a Subtask one, with
-          // nothing to point at.
-          aggregate: aggregateOf(),
-          stage: "unit",
-          fields: { unit: "unknown", trace: "No Trace recorded." },
-        },
-        {
-          // A fold conflict: the unit passed, no Attempt refused it, so the
-          // ledger's own sentence is what the reader gets.
-          aggregate: aggregateOf({
-            escalation: {
-              kind: "subtask",
-              born_in_merging: false,
-              subtask_id: "B",
-              report: "Folding B into the feature hit a conflict.",
-            },
-            attempts: [{ subtask_id: "B", number: 1, trace: { ended: "validated" } }],
-          }),
-          stage: "unit",
-          fields: {
-            unit: "B",
-            trace: "Folding B into the feature hit a conflict.",
-            reason:
-              "B — Folding B into the feature hit a conflict. On resume, B starts again from zero; what already landed is kept.",
+      },
+      {
+        aggregate: aggregateOf({ escalation: { kind: "plan", born_in_merging: false } }),
+        stage: "plan",
+        fields: { reason: "The Plan was refused." },
+      },
+      {
+        aggregate: aggregateOf({ escalation: { kind: "merging", born_in_merging: true } }),
+        stage: "merging",
+        fields: {},
+      },
+      {
+        aggregate: aggregateOf({
+          escalation: { kind: "assembly", born_in_merging: false, report: "lint: 3 errors" },
+        }),
+        stage: "integrating",
+        fields: { trace: "lint: 3 errors" },
+      },
+      {
+        aggregate: aggregateOf({
+          attempts_used: 2,
+          escalation: { kind: "submitted", born_in_merging: false },
+          submission: { reference: "pr-1", submitted_at: 1, refusals: 2, last_report: "CI red" },
+        }),
+        stage: "submitting",
+        fields: { trace: "CI red" },
+      },
+      {
+        aggregate: aggregateOf({
+          escalation: { kind: "subtask", born_in_merging: false, subtask_id: "B" },
+          attempts: [
+            { subtask_id: "A", number: 1, trace: { ended: "validated" } },
+            { subtask_id: "B", number: 1, trace: { ended: "fail-blocking" } },
+            { subtask_id: "B", number: 2 },
+          ],
+        }),
+        stage: "unit",
+        fields: { unit: "B", trace: "fail-blocking" },
+      },
+      {
+        // An escalation the ledger did not describe is a Subtask one, with
+        // nothing to point at.
+        aggregate: aggregateOf(),
+        stage: "unit",
+        fields: { unit: "unknown", trace: "No Trace recorded." },
+      },
+      {
+        // A fold conflict: the unit passed, no Attempt refused it, so the
+        // ledger's own sentence is what the reader gets.
+        aggregate: aggregateOf({
+          escalation: {
+            kind: "subtask",
+            born_in_merging: false,
+            subtask_id: "B",
+            report: "Folding B into the feature hit a conflict.",
           },
+          attempts: [{ subtask_id: "B", number: 1, trace: { ended: "validated" } }],
+        }),
+        stage: "unit",
+        fields: {
+          unit: "B",
+          trace: "Folding B into the feature hit a conflict.",
+          reason:
+            "B — Folding B into the feature hit a conflict. On resume, B starts again from zero; what already landed is kept.",
         },
-      ];
+      },
+    ];
     for (const { aggregate, stage, fields } of cases) {
       const { input, reports } = harness();
       await reportAfterRun(input, ESCALATED, aggregate);
