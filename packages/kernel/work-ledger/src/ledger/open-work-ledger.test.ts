@@ -369,10 +369,7 @@ describe("openWorkLedger (test-double Port)", () => {
     assert.equal(after.state, "running");
     assert.equal(after.bail, undefined);
     assert.equal(after.attempts_used, 1);
-    assert.equal(
-      after.plan?.subtasks.find((st) => st.id === "A")?.state,
-      "runnable",
-    );
+    assert.equal(after.plan?.subtasks.find((st) => st.id === "A")?.state, "runnable");
     assert.equal(after.plan?.subtasks.find((st) => st.id === "B")?.state, "pending");
     assert.deepEqual(after.workspaces, { feature: "/tmp/ws-feature" });
   });

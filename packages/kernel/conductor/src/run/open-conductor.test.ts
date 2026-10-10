@@ -576,9 +576,9 @@ describe("openConductor", () => {
         if (input.id.endsWith(":judgement")) {
           return refuse
             ? {
-              outcome: "escalated",
-              traces: [{ ended: "fail-retryable", report: "the check went red" }],
-            }
+                outcome: "escalated",
+                traces: [{ ended: "fail-retryable", report: "the check went red" }],
+              }
             : { outcome: "validated", traces: [{ ended: "validated" }] };
         }
         if (input.id.endsWith(":assembly")) {
@@ -699,11 +699,11 @@ describe("openConductor", () => {
         if (input.id.endsWith(":judgement")) {
           return refuse
             ? {
-              outcome: "escalated",
-              traces: [
-                { ended: "fail-retryable", report: "the check went red", refusedBy: "ci-green" },
-              ],
-            }
+                outcome: "escalated",
+                traces: [
+                  { ended: "fail-retryable", report: "the check went red", refusedBy: "ci-green" },
+                ],
+              }
             : { outcome: "validated", traces: [{ ended: "validated" }] };
         }
         if (input.id.endsWith(":assembly")) {
@@ -1075,15 +1075,15 @@ describe("openConductor", () => {
           if (input.validate === true) {
             return refuse
               ? {
-                outcome: "escalated",
-                traces: [
-                  {
-                    ended: "fail-retryable",
-                    report: "drops the CLI flag",
-                    refusedBy: "reviewer",
-                  },
-                ],
-              }
+                  outcome: "escalated",
+                  traces: [
+                    {
+                      ended: "fail-retryable",
+                      report: "drops the CLI flag",
+                      refusedBy: "reviewer",
+                    },
+                  ],
+                }
               : { outcome: "validated", traces: [{ ended: "validated" }] };
           }
           if (input.id.endsWith(":assembly")) {
@@ -1309,9 +1309,7 @@ describe("openConductor", () => {
     await ledger.recordPlan({
       key: "fake:42",
       plannedAt: "2026-01-01T00:00:00.000Z",
-      subtasks: [
-        { id: "A", intention: "first", definition_of_done: "A done", depends_on: [] },
-      ],
+      subtasks: [{ id: "A", intention: "first", definition_of_done: "A done", depends_on: [] }],
     });
     await ledger.startSubtask({ key: "fake:42", subtaskId: "A" });
     await ledger.recordAttempt({
@@ -1374,11 +1372,7 @@ describe("warm Feature", () => {
     assert.equal(result.outcome, "done");
     assert.deepEqual(
       order.slice(0, 3),
-      [
-        "isolate:feature",
-        `warm:${featureWorkspacePath(root, "fake:42")}`,
-        "isolate:subtask",
-      ],
+      ["isolate:feature", `warm:${featureWorkspacePath(root, "fake:42")}`, "isolate:subtask"],
       "warm sits between Feature and Subtask Isolation",
     );
   });

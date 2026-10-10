@@ -97,12 +97,12 @@ export type OpenConductorOptions = {
 export type ConductorMoment =
   | { kind: "planned"; key: string }
   | {
-    kind: "subtask-integrated";
-    key: string;
-    subtaskId: string;
-    integrated: number;
-    total: number;
-  }
+      kind: "subtask-integrated";
+      key: string;
+      subtaskId: string;
+      integrated: number;
+      total: number;
+    }
   | { kind: "submitted"; key: string; reference: string };
 
 export type Conductor = {
