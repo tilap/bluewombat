@@ -1,7 +1,6 @@
-# A v* tag on main publishes every @bluewombat/* package. Authentication is
-# npm trusted publishing (this workflow's OIDC identity), not a token.
-# The first version of each package is published by hand so the publisher
-# can be registered — docs/RUNBOOKS.md.
+# A v* tag on main publishes every @bluewombat/* package.
+# Push the tag. Do not npm publish from a machine — docs/RUNBOOKS.md § Deploy.
+# Authentication is npm trusted publishing (this workflow's OIDC identity), not a token.
 
 name: Release
 

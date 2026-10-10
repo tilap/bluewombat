@@ -15,32 +15,33 @@ Read this first when starting a session on this project.
 one-line summary and a freshness status. Read it, pick the one or two documents that
 answer your question, and open only those. Do not load the whole `docs/` set.
 
-| You need                                                            | Go to                                                                                   |
-| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Domain vocabulary, user roles, business rules                       | `docs/PRODUCT.md`                                                                       |
-| Structure, entry points, where to add code                          | `docs/ARCHITECTURE.md`                                                                  |
-| Why something is the way it is                                      | `docs/DECISIONS.md`                                                                     |
-| Theoretically normal but easy to get wrong                          | `docs/FOR_DUMMIES.md`                                                                   |
-| What is **not** settled, or was never proved                        | `docs/RESERVATIONS.md`                                                                  |
-| How to run, test, deploy                                            | `docs/DEVELOPMENT.md`, `docs/TESTING.md`, `docs/RUNBOOKS.md`                            |
-| A Transformer's binary or CLI                                       | That Transformer's own docs under `packages/kernel/` — not root `docs/`                 |
-| The repository toolchain                                            | `docs/DEVELOPMENT.md`                                                                   |
-| Host and its kits                                                   | [`packages/host/README.md`](./packages/host/README.md)                                  |
-| A manager, an isolation, a persistence backend, a slot              | [`packages/plugins/README.md`](./packages/plugins/README.md)                            |
-| Kernel packages that are not Transformers                           | [`packages/kernel/README.md`](./packages/kernel/README.md)                              |
-| The workflow, its rules, the human surface, the words               | `docs/PRODUCT.md`                                                                       |
-| What no unit suite proves, and what was deleted with `integration/` | `docs/RESERVATIONS.md` § U11                                                            |
-| Who exists, who may import whom                                     | `packages/README.md`                                                                    |
-| Operator live view (`mason watch`), the journal, streams            | `packages/host/runtime/SPECS.md` § 8; what it still lacks: `docs/RESERVATIONS.md` § I10, I12–I15 |
-| Implementer Transformer specification                               | `packages/kernel/implementer/SPECS.md`                                                  |
-| Isolator Transformer specification                                  | `packages/kernel/isolator/SPECS.md`                                                     |
-| Integrator Transformer specification                                | `packages/kernel/integrator/SPECS.md`                                                   |
-| FeatureBreakdown Transformer specification                          | `packages/kernel/feature-breakdown/SPECS.md`                                            |
-| Transformer contract (all of them)                                  | `packages/kernel/README.md` (§ Transformers)                                            |
-| WorkLedger specification                                            | `packages/kernel/work-ledger/SPECS.md`                                                  |
-| Conductor specification                                             | `packages/kernel/conductor/SPECS.md`                                                    |
-| Host specification                                                  | `packages/host/runtime/SPECS.md`                                                        |
-| Planner / Builder / Gate contract                                   | `packages/host/slot-kit/README.md`; the behaviour is in the caller's SPECS              |
+| You need                                                            | Go to                                                                                                                                  |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain vocabulary, user roles, business rules                       | `docs/PRODUCT.md`                                                                                                                      |
+| Structure, entry points, where to add code                          | `docs/ARCHITECTURE.md`                                                                                                                 |
+| Why something is the way it is                                      | `docs/DECISIONS.md`                                                                                                                    |
+| Theoretically normal but easy to get wrong                          | `docs/FOR_DUMMIES.md`                                                                                                                  |
+| What is **not** settled, or was never proved                        | `docs/RESERVATIONS.md`                                                                                                                 |
+| How to run, test, deploy                                            | `docs/DEVELOPMENT.md`, `docs/TESTING.md`, `docs/RUNBOOKS.md`                                                                           |
+| How `@bluewombat/*` reaches npm                                     | `docs/RUNBOOKS.md` § Deploy. Push a `v*` tag on `main`; `.github/workflows/release.yml` publishes. Do not `npm publish` from a machine |
+| A Transformer's binary or CLI                                       | That Transformer's own docs under `packages/kernel/` — not root `docs/`                                                                |
+| The repository toolchain                                            | `docs/DEVELOPMENT.md`                                                                                                                  |
+| Host and its kits                                                   | [`packages/host/README.md`](./packages/host/README.md)                                                                                 |
+| A manager, an isolation, a persistence backend, a slot              | [`packages/plugins/README.md`](./packages/plugins/README.md)                                                                           |
+| Kernel packages that are not Transformers                           | [`packages/kernel/README.md`](./packages/kernel/README.md)                                                                             |
+| The workflow, its rules, the human surface, the words               | `docs/PRODUCT.md`                                                                                                                      |
+| What no unit suite proves, and what was deleted with `integration/` | `docs/RESERVATIONS.md` § U11                                                                                                           |
+| Who exists, who may import whom                                     | `packages/README.md`                                                                                                                   |
+| Operator live view (`mason watch`), the journal, streams            | `packages/host/runtime/SPECS.md` § 8; what it still lacks: `docs/RESERVATIONS.md` § I10, I12–I15                                       |
+| Implementer Transformer specification                               | `packages/kernel/implementer/SPECS.md`                                                                                                 |
+| Isolator Transformer specification                                  | `packages/kernel/isolator/SPECS.md`                                                                                                    |
+| Integrator Transformer specification                                | `packages/kernel/integrator/SPECS.md`                                                                                                  |
+| FeatureBreakdown Transformer specification                          | `packages/kernel/feature-breakdown/SPECS.md`                                                                                           |
+| Transformer contract (all of them)                                  | `packages/kernel/README.md` (§ Transformers)                                                                                           |
+| WorkLedger specification                                            | `packages/kernel/work-ledger/SPECS.md`                                                                                                 |
+| Conductor specification                                             | `packages/kernel/conductor/SPECS.md`                                                                                                   |
+| Host specification                                                  | `packages/host/runtime/SPECS.md`                                                                                                       |
+| Planner / Builder / Gate contract                                   | `packages/host/slot-kit/README.md`; the behaviour is in the caller's SPECS                                                             |
 
 Project-specific conventions (design, domain rules): `.cursor/rules/` and `CLAUDE.md`
 when present — they override generic defaults.

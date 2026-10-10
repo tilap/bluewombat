@@ -58,18 +58,18 @@ package reads belongs in that package's own README, not here.
 
 From the repository root:
 
-| Task                | Command                                                                                                               |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Build everything    | `npm run build`                                                                                                       |
-| Test everything     | `npm test`                                                                                                            |
-| Lint                | `npm run lint`                                                                                                        |
-| Format              | `npm run format`                                                                                                      |
-| Typecheck           | `npm run tsc`                                                                                                         |
-| One package         | `npx turbo run test --filter=@bluewombat/implementer`                                                                 |
-| Start a Transformer | that Transformer's CLI — see its README                                                                               |
-| Put `mason` on PATH | `npm run dev:link` (undo: `npm run dev:unlink`)                                                                       |
-| Cut a release       | [RUNBOOKS.md](./RUNBOOKS.md) § Deploy — a `v*` tag on `main`; first version by hand                                   |
-| Run it for real     | `mason init` in a Project, then `mason run` — [`packages/host/runtime/README.md`](../packages/host/runtime/README.md) |
+| Task                | Command                                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build everything    | `npm run build`                                                                                                                                                         |
+| Test everything     | `npm test`                                                                                                                                                              |
+| Lint                | `npm run lint`                                                                                                                                                          |
+| Format              | `npm run format`                                                                                                                                                        |
+| Typecheck           | `npm run tsc`                                                                                                                                                           |
+| One package         | `npx turbo run test --filter=@bluewombat/implementer`                                                                                                                   |
+| Start a Transformer | that Transformer's CLI — see its README                                                                                                                                 |
+| Put `mason` on PATH | `npm run dev:link` (undo: `npm run dev:unlink`)                                                                                                                         |
+| Cut a release       | [RUNBOOKS.md](./RUNBOOKS.md) § Deploy — push a `v*` tag on `main`. The Release workflow publishes. Do not run `npm publish` or `npm run release:publish` from a machine |
+| Run it for real     | `mason init` in a Project, then `mason run` — [`packages/host/runtime/README.md`](../packages/host/runtime/README.md)                                                   |
 
 `npm test` (and `npm run build`) wait for workspace dependencies via
 Turborepo `^build`. There is no per-package `pretest`. From a package
@@ -121,13 +121,13 @@ Two things to know:
 
 ## Debugging
 
-| Symptom                               | Look at                                                                                                                                                             |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unclear product rule                  | [PRODUCT.md](./PRODUCT.md)                                                                                                                                          |
-| Unclear where code belongs            | [ARCHITECTURE.md](./ARCHITECTURE.md) — `kernel` vs `host` vs `plugins`; then [`packages/README.md`](../packages/README.md)                                          |
+| Symptom                               | Look at                                                                                                                                                                                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unclear product rule                  | [PRODUCT.md](./PRODUCT.md)                                                                                                                                                                                                         |
+| Unclear where code belongs            | [ARCHITECTURE.md](./ARCHITECTURE.md) — `kernel` vs `host` vs `plugins`; then [`packages/README.md`](../packages/README.md)                                                                                                         |
 | Unclear how an operator watches a run | [`packages/host/runtime/README.md`](../packages/host/runtime/README.md) — `mason watch` / `status`, and `observability.streams` for what each child says; what it still lacks: [RESERVATIONS.md](./RESERVATIONS.md) § I10, I12–I15 |
-| A Transformer will not start          | that Transformer's own docs                                                                                                                                         |
-| Tests fail on missing `dist/`         | `npm run build` — or just `npm test`, which runs `^build` first                                                                                                     |
+| A Transformer will not start          | that Transformer's own docs                                                                                                                                                                                                        |
+| Tests fail on missing `dist/`         | `npm run build` — or just `npm test`, which runs `^build` first                                                                                                                                                                    |
 
 ## Known traps
 

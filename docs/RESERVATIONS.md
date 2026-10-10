@@ -512,14 +512,6 @@ until the pull request does, the failing log states it, the second round
 passes. That rule is now the trial repository's own CI, so every run there
 pays one refusal round.
 
-### U12 · Trusted publishing, never fired
-
-`.github/workflows/release.yml`, `scripts/release.mjs` `publish`
-
-The workflow, the skip-if-already-published loop, and the GitHub Release step
-have never run. `npm trust github` has never been run for the sixteen
-packages. The by-hand first publish has never been done from this repository.
-
 ### U13 · A fold from a copy of the directory's index
 
 `packages/plugins/isolation-git/src/git-merge.ts` — `writeWorkingTreeCommit`,

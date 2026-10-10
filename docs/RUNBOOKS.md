@@ -26,54 +26,54 @@ plus how this repository's packages reach npm.
 This is how `@bluewombat/*` reaches the npm registry. It is not bluewombat folding a
 Feature into WorkLineStable — that has no production target.
 
-The tag is the trigger. `v0.1.0` publishes every workspace package at `0.1.0`.
-The workflow authenticates with npm trusted publishing (OIDC), not a secret.
+A release is a `v*` tag on `main`. Pushing that tag runs
+[`.github/workflows/release.yml`](../.github/workflows/release.yml). The workflow
+checks that the tag matches every workspace package and is reachable from `main`,
+runs lint, typecheck, and tests, then `node scripts/release.mjs publish`, then
+opens the GitHub Release. Authentication is npm trusted publishing (the
+workflow's OIDC identity). There is no `NPM_TOKEN`.
 
-**Once, at the first release.** The publisher is configured *on each package*,
-so the package has to exist before the workflow can publish it. From a machine
-where `npm login` succeeded (2FA prompts for a one-time code):
+`npm publish`, `npm run release:publish`, and `node scripts/release.mjs publish`
+are that workflow's step. Running any of them from a machine publishes without
+the guard, the test job, or the GitHub Release. A version is cut by pushing the
+tag.
 
-```bash
-nvm use
-npm ci
-npm test
-npm run build
-npm publish --workspaces --access public
-```
+`X.Y.Z` below is the version every workspace `package.json` already carries.
+The tag name is `v` plus that version.
 
-Then register the workflow as the publisher of every package. `npm trust` is
-unaware of workspaces and resolves the repository root even from a package
-directory, so each call names its package (npm ≥ 11.15; 2FA prompts on the
-first call only):
-
-```bash
-for d in packages/*/*/; do npm trust github "$(node -p "require('./$d/package.json').name")" --file release.yml --repo tilap/bluewombat --allow-publish -y; done
-```
-
-No token is stored anywhere. Every later release is the tag alone.
-
-**Verify** — `npm view @bluewombat/runtime version` prints `0.1.0`, and
-`npm trust list @bluewombat/runtime` shows `tilap/bluewombat` / `release.yml`.
-
-**Later releases.**
-
-1. On `main`, every workspace package already carries the version you will tag
-   (`npm run release:check -- 0.1.0`). To bump: `npm run version:set -- 0.2.0`
-   then `npm install --package-lock-only`.
-2. Push `main`. Wait until CI on that commit is green.
-3. Tag the same commit and push the tag:
+1. On `main`, `npm run release:check -- X.Y.Z` passes. To bump:
+   `npm run version:set -- X.Y.Z`, then `npm install --package-lock-only`.
+   Commit that and push `main`.
+2. Wait until CI on that commit is green.
+3. Tag that same commit and push the tag:
 
 ```bash
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
 4. **Verify** — the Release workflow is green; `npm view @bluewombat/runtime version`
-   matches the tag; a GitHub Release exists for `v0.1.0`.
+   prints `X.Y.Z`; a GitHub Release exists for `vX.Y.Z`.
 
 **If it failed** — a version npm already has is skipped, not overwritten. Fix
 the workflow or the trusted-publisher settings, then re-run the job. Do not
 move the tag.
+
+**A package that has never been on npm.** Trusted publishing is registered on
+each package, and the package has to exist before `npm trust` can name it. The
+packages already on the registry (`0.1.0` was that hand publish) do not need
+this again. For a new package, from a machine where `npm login` succeeded
+(2FA prompts for a one-time code):
+
+```bash
+npm publish --workspace <name> --access public
+npm trust github <name> --file release.yml --repo tilap/bluewombat --allow-publish -y
+```
+
+`npm trust` is unaware of workspaces and resolves the repository root even from
+a package directory, so the call names the package (npm ≥ 11.15). After that,
+the tag publishes it with the others. This path does not cut a version of a
+package that is already on the registry.
 
 ## Rollback
 

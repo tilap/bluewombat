@@ -8,7 +8,9 @@
  *
  *   node scripts/release.mjs set 0.2.0       write the version everywhere
  *   node scripts/release.mjs check 0.2.0     fail unless it is already there
- *   node scripts/release.mjs publish 0.2.0   publish each package missing from the registry
+ *   node scripts/release.mjs publish 0.2.0   CI only. The Release workflow calls this
+ *                                            after a v* tag. It is not a local release —
+ *                                            docs/RUNBOOKS.md § Deploy.
  */
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
