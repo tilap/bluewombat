@@ -1251,7 +1251,7 @@ describe("openConductor", () => {
     const { stable, root } = tempPair();
     const { transformers } = recordingTransformers({
       async implement() {
-        return { outcome: "interrupted" };
+        return { outcome: "interrupted", traces: [] };
       },
     });
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
