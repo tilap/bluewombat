@@ -53,6 +53,7 @@
     "test": "tsx --test $(find test -name '*.test.ts')"
   },
   "dependencies": {
-    "@bluewombat/slot-kit": "^0.6.0"
+    "@bluewombat/slot-kit": "^0.6.0",
+    "@pinkpuma/deck": "1.0.0"
   }
 }

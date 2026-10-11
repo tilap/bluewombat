@@ -9,6 +9,7 @@ import type { GatedPassSpec, HostInvocation } from "../config/types.js";
 import { inspectWorkLine, resolveWorkLine, type WorkLineResolution } from "../loop/work-line.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
 import { contextOf, loadManagerModule } from "../plugins/manager.js";
+import { agentPluginFindings } from "./agent-plugins.js";
 import { remoteNames } from "./git-remote.js";
 
 export type DoctorInput = {
@@ -87,16 +88,26 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
         }
       : { level: "ok", label: "streams", detail: "off — the journal alone" },
   );
-  findings.push(...gatedPassFindings("Planner", invocation.planner, input.env));
-  findings.push(...gatedPassFindings("Builder producer", invocation.builder.producer, input.env));
-  findings.push(...gatedPassFindings("Builder repair", invocation.builder.repair, input.env));
+  findings.push(...gatedPassFindings("Planner", invocation.planner, input.env, stable));
+  findings.push(
+    ...gatedPassFindings("Builder producer", invocation.builder.producer, input.env, stable),
+  );
+  findings.push(
+    ...gatedPassFindings("Builder repair", invocation.builder.repair, input.env, stable),
+  );
   if (invocation.assembly.fix !== undefined) {
-    findings.push(...gatedPassFindings("Assembly fix", invocation.assembly.fix, input.env));
+    findings.push(...gatedPassFindings("Assembly fix", invocation.assembly.fix, input.env, stable));
   }
   if (invocation.assembly.validate !== undefined) {
     findings.push(
-      ...gatedPassFindings("Assembly validate", invocation.assembly.validate, input.env),
+      ...gatedPassFindings("Assembly validate", invocation.assembly.validate, input.env, stable),
     );
+  }
+  const describeArgv = invocation.authority?.enabled
+    ? invocation.authority.describeArgv
+    : undefined;
+  if (describeArgv !== undefined) {
+    findings.push(...agentPluginFindings("Describer", describeArgv, stable));
   }
   // The judgement-only pass's own sequence — never shared with fix or validate.
   for (const gate of invocation.assembly.gates) {
@@ -364,8 +375,10 @@ function gatedPassFindings(
   label: string,
   pass: GatedPassSpec,
   env: Record<string, string | undefined>,
+  workLine: string | undefined,
 ): Finding[] {
   const findings = [commandFinding(label, pass.cmd, env)];
+  findings.push(...agentPluginFindings(label, pass.cmd, workLine));
   for (const gate of pass.gates) {
     findings.push(commandFinding(`${label} gate ${gate.id}`, gate.argv, env));
   }

@@ -572,6 +572,27 @@ the two paths when both are set; collapsing them into one config key the
 Project sets once, with Host threading it to both the Planner's `--read` and
 `--workspace`.
 
+### U17 · Deck profiles for agents were never run in a Mason run
+
+`packages/plugins/slots/agents/agent-plugins.mjs`; `packages/host/runtime/src/operator/agent-plugins.ts`
+
+`--profile` was run against deck 1.0.0 on a scratch project (base
+`git-workflow`, profile `builder` with `impeccable`): the wrapper passed three
+`--plugin-dir` in order and appended the profile's prompt. It was not run in a
+`mason run`, so what `cursor-agent` does with those folders is unseen — in
+particular `impeccable`'s hooks, which deck keeps in Claude's format
+(`${CLAUDE_PLUGIN_ROOT}`, `PostToolUse`) and Cursor may ignore, and its
+launcher, which downloads a binary into the isolated `HOME` on first use.
+
+Two calls made here. A lock that does not pin a request makes the wrapper
+refuse before the vendor starts, on every Attempt of the role, until the
+Subtask escalates — cheap (no model call) but noisy; `mason doctor` reads the
+locks in the work line first. That check is offline, so it approximates deck's
+own: it compares ids, not whole requests, and an edited request deck would
+refuse can pass it. **Instead:** refuse at warm, once per Feature, through
+`freeze` (`open-conductor.ts` `ensureFeatureIsolated`), and let doctor call
+`deck materialize` when an `--online` check exists.
+
 ## I — Working, and worse than it could be
 
 ### I4 · `ci-green` polling has no backoff

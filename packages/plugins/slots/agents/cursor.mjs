@@ -14,6 +14,7 @@ import {
   transcriptFor,
   writeContract,
 } from "@bluewombat/slot-kit";
+import { loadPlugins, pluginDirArgs, withProfilePrompt } from "./agent-plugins.mjs";
 import { extrasFromCursor } from "./cursor-extras.mjs";
 
 // Cursor CLI as a vendor agent. The prompt is already filled: this command
@@ -29,6 +30,8 @@ import { extrasFromCursor } from "./cursor-extras.mjs";
 //   --agent-home DIR      isolate this process: HOME is DIR, not the operator's
 //   --api-key-env NAME    required with --agent-home. Read process.env[NAME];
 //                         the value is never put on the argv
+//   --plugin-dir / --profile / --plugins-out / --deck-bin   plugin folders,
+//                         see agent-plugins.mjs
 //   --id / --attempt / --context   how a transcript is filed
 
 const NAME = "Cursor CLI";
@@ -47,7 +50,15 @@ const loaded = readAgentPrompt(options);
 if (!loaded.ok) {
   refuse(loaded.reason);
 }
-const prompt = loaded.prompt;
+const loadedPlugins = loadPlugins(options, cwd);
+if (!loadedPlugins.ok) {
+  refuse(loadedPlugins.reason);
+}
+for (const note of loadedPlugins.notes) {
+  process.stderr.write(`${note}\n`);
+}
+const plugins = loadedPlugins.plugins;
+const prompt = withProfilePrompt(loaded.prompt, loadedPlugins.prompt);
 
 const bin = textOption(options, "bin") ?? findExecutable(CLI_NAMES, INSTALL_DIRS);
 if (bin === undefined) {
@@ -70,6 +81,7 @@ const args = [
   "--output-format",
   outputFormat,
   ...(model === undefined ? [] : ["--model", model]),
+  ...pluginDirArgs(plugins),
   ...listOption(options, "agentArg"),
   prompt,
 ];
@@ -84,6 +96,7 @@ const transcript = transcriptFor(process.argv, options, {
   bin,
   args,
   prompt,
+  plugins,
 });
 const run = await runAgent({
   file: bin,
@@ -224,6 +237,7 @@ function answer(run, binPath, extras) {
         skills: extras.skills,
         usage: extras.usage,
         tools: extras.tools,
+        plugins,
       }),
     )}\n`,
   );

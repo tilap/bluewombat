@@ -2,6 +2,13 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { GateSpec } from "@bluewombat/implementer";
 import { parse as parseYaml } from "yaml";
+import {
+  type AgentRole,
+  type Agents,
+  expandAgentPass,
+  readAgents,
+  SHORT_PASS_KEYS,
+} from "./agent-shorthand.js";
 import type {
   AssemblySpec,
   AuthoritySpec,
@@ -20,6 +27,7 @@ const KNOWN_KEYS = new Set([
   "workspaceRoot",
   "ledger",
   "persist",
+  "agents",
   "planner",
   "builder",
   "assembly",
@@ -147,8 +155,17 @@ export function loadConfig(path: string): LoadedConfig {
     invocation.persist = persist.value;
   }
 
+  let agents: Agents = new Map();
+  if (object.agents !== undefined) {
+    const read = readAgents(object.agents, configDir);
+    if (read.ok === false) {
+      return read;
+    }
+    agents = read.value;
+  }
+
   if (object.planner !== undefined) {
-    const planner = readGatedPass(object.planner, configDir, "planner");
+    const planner = readGatedPass(object.planner, configDir, "planner", agents);
     if (planner.ok === false) {
       return planner;
     }
@@ -156,7 +173,7 @@ export function loadConfig(path: string): LoadedConfig {
   }
 
   if (object.builder !== undefined) {
-    const builder = readBuilder(object.builder, configDir);
+    const builder = readBuilder(object.builder, configDir, agents);
     if (builder.ok === false) {
       return builder;
     }
@@ -164,7 +181,7 @@ export function loadConfig(path: string): LoadedConfig {
   }
 
   if (object.assembly !== undefined) {
-    const assembly = readAssembly(object.assembly, configDir);
+    const assembly = readAssembly(object.assembly, configDir, agents);
     if (assembly.ok === false) {
       return assembly;
     }
@@ -172,7 +189,7 @@ export function loadConfig(path: string): LoadedConfig {
   }
 
   if (object.authority !== undefined) {
-    const authority = readAuthority(object.authority, configDir);
+    const authority = readAuthority(object.authority, configDir, agents);
     if (authority.ok === false) {
       return authority;
     }
@@ -346,6 +363,7 @@ function readWorkLine(
 function readAuthority(
   value: unknown,
   configDir: string,
+  agents: Agents,
 ): { ok: true; value: AuthoritySpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: 'Config "authority" must be a YAML mapping.' };
@@ -394,7 +412,25 @@ function readAuthority(
   };
   // Optional: the Project's own words for what it submits.
   const describe = object.describe;
-  if (describe !== undefined) {
+  if (describe !== null && typeof describe === "object" && !Array.isArray(describe)) {
+    const short = describe as Record<string, unknown>;
+    for (const name of Object.keys(short)) {
+      if (!SHORT_PASS_KEYS.has(name)) {
+        return { ok: false, reason: `Config "authority.describe" has unknown key "${name}".` };
+      }
+    }
+    const argv = expandAgentPass(
+      short,
+      "authority.describe",
+      agents,
+      configDir,
+      "authority.describe",
+    );
+    if (argv.ok === false) {
+      return argv;
+    }
+    spec.describeArgv = argv.value;
+  } else if (describe !== undefined) {
     if (
       !Array.isArray(describe) ||
       describe.length === 0 ||
@@ -402,7 +438,8 @@ function readAuthority(
     ) {
       return {
         ok: false,
-        reason: 'Config "authority.describe" must be a non-empty array of strings.',
+        reason:
+          'Config "authority.describe" must be a non-empty array of strings, or an agent pass ({ agent: … }).',
       };
     }
     spec.describeArgv = resolveArgv(describe as string[], configDir);
@@ -592,23 +629,41 @@ function readPass(
 function readGatedPass(
   value: unknown,
   configDir: string,
-  key: string,
+  key: AgentRole,
+  agents: Agents,
 ): { ok: true; value: GatedPassSpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {
       ok: false,
-      reason: `Config "${key}" must be a YAML mapping with "cmd" and "timeoutMs".`,
+      reason: `Config "${key}" must be a YAML mapping with "cmd" (or "agent") and "timeoutMs".`,
     };
   }
   const object = value as Record<string, unknown>;
+  const short = object.agent !== undefined;
   for (const name of Object.keys(object)) {
-    if (!GATED_PASS_KEYS.has(name)) {
+    const known =
+      GATED_PASS_KEYS.has(name) ||
+      (short && (SHORT_PASS_KEYS.has(name) || (name === "read" && key === "planner")));
+    if (!known) {
       return { ok: false, reason: `Config "${key}" has unknown key "${name}".` };
     }
   }
-  const cmd = stringArrayField(object, "cmd");
-  if (cmd.ok === false || cmd.value === undefined) {
-    return { ok: false, reason: `Config "${key}.cmd" must be a non-empty array of strings.` };
+  let cmd: string[];
+  if (short) {
+    const expanded = expandAgentPass(object, key, agents, configDir, key);
+    if (expanded.ok === false) {
+      return expanded;
+    }
+    cmd = expanded.value;
+  } else {
+    const written = stringArrayField(object, "cmd");
+    if (written.ok === false || written.value === undefined) {
+      return {
+        ok: false,
+        reason: `Config "${key}.cmd" must be a non-empty array of strings, or "${key}.agent" an agent of "agents".`,
+      };
+    }
+    cmd = resolveArgv(written.value, configDir);
   }
   const timeoutMs = positiveIntField(object, "timeoutMs");
   if (timeoutMs.ok === false || timeoutMs.value === undefined) {
@@ -625,10 +680,7 @@ function readGatedPass(
     }
     gates = read.value;
   }
-  return {
-    ok: true,
-    value: { cmd: resolveArgv(cmd.value, configDir), timeoutMs: timeoutMs.value, gates },
-  };
+  return { ok: true, value: { cmd, timeoutMs: timeoutMs.value, gates } };
 }
 
 /**
@@ -637,6 +689,7 @@ function readGatedPass(
 function readBuilder(
   value: unknown,
   configDir: string,
+  agents: Agents,
 ): { ok: true; value: StageSpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: 'Config "builder" must be a YAML mapping.' };
@@ -653,11 +706,11 @@ function readBuilder(
   if (object.repair === undefined) {
     return { ok: false, reason: 'Config "builder" needs a "repair".' };
   }
-  const readProducer = readGatedPass(object.producer, configDir, "builder.producer");
+  const readProducer = readGatedPass(object.producer, configDir, "builder.producer", agents);
   if (readProducer.ok === false) {
     return readProducer;
   }
-  const readRepair = readGatedPass(object.repair, configDir, "builder.repair");
+  const readRepair = readGatedPass(object.repair, configDir, "builder.repair", agents);
   if (readRepair.ok === false) {
     return readRepair;
   }
@@ -682,6 +735,7 @@ function readBuilder(
 function readAssembly(
   value: unknown,
   configDir: string,
+  agents: Agents,
 ): { ok: true; value: AssemblySpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: 'Config "assembly" must be a YAML mapping.' };
@@ -702,14 +756,14 @@ function readAssembly(
   }
   const spec: AssemblySpec = { gates: [] };
   if (object.fix !== undefined) {
-    const read = readGatedPass(object.fix, configDir, "assembly.fix");
+    const read = readGatedPass(object.fix, configDir, "assembly.fix", agents);
     if (read.ok === false) {
       return read;
     }
     spec.fix = read.value;
   }
   if (object.validate !== undefined) {
-    const read = readGatedPass(object.validate, configDir, "assembly.validate");
+    const read = readGatedPass(object.validate, configDir, "assembly.validate", agents);
     if (read.ok === false) {
       return read;
     }
@@ -744,9 +798,17 @@ function readAssembly(
  *
  * `--transcript-dir` and `--agent-home` are Host-owned write paths (films, and
  * the vendor's isolated HOME). Both must resolve against the config directory
- * even before the directory exists.
+ * even before the directory exists. So must `--plugins-out`, where a deck
+ * profile is built. `--plugin-dir` is read, not written, but a relative one
+ * left as a word would be looked up in the Task workspace — never where the
+ * operator's plugin is.
  */
-const WRITTEN_PATH_FLAGS = new Set(["--transcript-dir", "--agent-home"]);
+const WRITTEN_PATH_FLAGS = new Set([
+  "--transcript-dir",
+  "--agent-home",
+  "--plugins-out",
+  "--plugin-dir",
+]);
 
 function resolveArgv(argv: string[], configDir: string): string[] {
   return argv.map((token, at) =>

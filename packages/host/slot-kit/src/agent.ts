@@ -167,6 +167,18 @@ export type AgentTools = {
 };
 
 /**
+ * A plugin folder the agent was started with: one of the operator's own
+ * (`local`, a `--plugin-dir`), or one a deck profile of the project resolved
+ * and pinned (`deck`, with the integrity its lock recorded).
+ */
+export type AgentPlugin = {
+  id: string;
+  path: string;
+  from: "local" | "deck";
+  integrity: string | null;
+};
+
+/**
  * Optional facts a vendor wrapper extracted from the run. Always present on
  * the serialized line: `null` means the wrapper did not learn them (unknown),
  * an empty `skills` array means it looked and found none.
@@ -197,6 +209,8 @@ export type SerializedRun = {
   skills: string[] | null;
   usage: AgentUsage | null;
   tools: AgentTools | null;
+  /** Absent when the wrapper loads no plugin folder. */
+  plugins?: AgentPlugin[];
 };
 
 export type SerializeAbout = {
@@ -205,6 +219,7 @@ export type SerializeAbout = {
   skills?: string[] | null;
   usage?: AgentUsage | null;
   tools?: AgentTools | null;
+  plugins?: readonly AgentPlugin[] | undefined;
 };
 
 /** The JSON an agent CLI writes after a vendor run. */
@@ -224,6 +239,9 @@ export function serializeRun(run: AgentRun, about: SerializeAbout): SerializedRu
     skills: about.skills === undefined ? null : about.skills,
     usage: about.usage === undefined ? null : about.usage,
     tools: about.tools === undefined ? null : about.tools,
+    ...(about.plugins === undefined || about.plugins.length === 0
+      ? {}
+      : { plugins: [...about.plugins] }),
   };
 }
 

@@ -112,16 +112,59 @@ isolated yet, and starting it would keep the operator's own config.
 | `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                          |
 | `--agent-home DIR`                 | Isolate the vendor process: its `HOME` is this directory. Cursor only; Claude refuses |
 | `--api-key-env NAME`               | With `--agent-home`, read `process.env[NAME]` for the vendor key. Never the value itself |
+| `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first |
+| `--profile NAME`                   | The project's deck profile for this role, read in the working directory. Cursor only; Claude refuses |
+| `--plugins-out DIR`                | Where `--profile` is built, one folder per profile. Required with `--profile`; never the workspace |
+| `--deck-bin PATH`                  | The deck CLI. Default: the `@pinkpuma/deck` this package depends on |
 | `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                 |
 
+### Plugins
+
+An agent starts with plugin folders, each passed to the vendor as
+`--plugin-dir`: first the `--plugin-dir` folders, in order, then what the
+project's [deck](https://github.com/tilap/pinkpuma-deck) profile resolves to.
+
+`--profile builder` runs `deck materialize -C <cwd> --profile builder --out
+<plugins-out>/builder --json` before the vendor starts. The working directory
+is the checkout the agent works on, so a role gets what the project committed
+at that commit — the base `ai-plugin.json` and `.ai/profiles/builder/`, as their
+locks pin them — never what the operator has installed. deck refuses a request
+no committed lock pins, and the wrapper then refuses before the vendor starts
+(`Run deck install in the project and commit its locks`). Every Attempt of the
+role refuses the same way until the project is fixed; `mason doctor` says so
+first.
+
+| The project has                         | The agent gets                       |
+| --------------------------------------- | ------------------------------------ |
+| `.ai/profiles/<name>/ai-plugin.json`    | the base and that profile            |
+| only a base `ai-plugin.json`            | the base, and a note on stderr       |
+| no deck file at all                     | the `--plugin-dir` folders only      |
+
+A non-empty `.ai/profiles/<name>/prompt.md` is appended to the filled prompt
+under `## Project instructions for this role`: what the project wants from that
+role, next to what Mason asks.
+
+The plugins keep their hooks. deck writes a plugin's `hooks/hooks.json` as its
+author did, so a Claude-format hook (`${CLAUDE_PLUGIN_ROOT}`) may not run under
+Cursor.
+
+deck's cache (`~/.cache/pinkpuma-deck`, or `DECK_CACHE`) has no lock, and
+`--plugins-out` holds one folder per profile: both rely on a Mason run starting
+one agent at a time, which it does.
+
+`claude.mjs` takes `--plugin-dir` but refuses `--profile`: not isolated, Claude
+also loads the operator's plugins and the project's `.claude/settings.json`, so
+a role's profile would not be all it gets.
+
 The agent CLI prints **one JSON line** — a `SerializedRun` from
-`@bluewombat/slot-kit` — with the vendor's raw streams plus three extras the
+`@bluewombat/slot-kit` — with the vendor's raw streams plus the extras the
 wrapper fills when it can:
 
 | Field    | Meaning                                                                                                                                              |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `skills` | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                         |
 | `usage`  | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost) |
+| `plugins` | Absent when no plugin folder was loaded. Otherwise each folder: `id`, `path`, `from` (`local` or `deck`), and `integrity` (deck's, `null` for a local one) |
 | `tools`  | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`, plus `getMcpTools` when the agent only listed a server's tools), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
 
 Cursor extracts skills from `stream-json` `readToolCall` paths ending in
@@ -134,8 +177,8 @@ Claude's `tool_use` blocks (`WebFetch`, `WebSearch`, `Bash`, `Task`,
 future vendor agent (`codex.mjs`, …) uses the same fields: leave them `null`
 when it cannot tell.
 
-When `--transcript-dir` is set, the transcript header repeats `skills`,
-`usage` and the tools — `tools`, `web`, `mcp`, `subagents`, `outside the
+When `--transcript-dir` is set, the transcript header lists the `plugins` and
+repeats `skills`, `usage` and the tools — `tools`, `web`, `mcp`, `subagents`, `outside the
 workspace` — each `unknown`, `(none)`, or the values. "Did it read the page I
 linked?" is answered there, without reading the stream.
 

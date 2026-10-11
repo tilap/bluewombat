@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentExtras, AgentRun, AgentTools, AgentUsage } from "./agent.js";
+import type { AgentExtras, AgentPlugin, AgentRun, AgentTools, AgentUsage } from "./agent.js";
 
 /**
  * One file per turn of the loop, written only when a Project asks for one.
@@ -36,6 +36,8 @@ export type TranscriptSpec = {
   bin?: string | undefined;
   args?: readonly string[] | undefined;
   prompt?: string | undefined;
+  /** Plugin folders the agent was started with; a header fact like the slot. */
+  plugins?: readonly AgentPlugin[] | undefined;
 };
 
 export type Transcript = { write: (run: AgentRun, extras?: AgentExtras) => void };
@@ -74,6 +76,7 @@ function page(
     ["context", spec.context],
     ["slot", spec.slot],
     ["agent", spec.bin],
+    ["plugins", pluginsLabel(spec.plugins)],
   ];
   if (parts.has("timing")) {
     facts.push(
@@ -112,6 +115,16 @@ function page(
     lines.push("", "## stderr", "", block(run.stderr ?? ""));
   }
   return `${lines.join("\n")}\n`;
+}
+
+/** `core-builder, impeccable (deck)`; nothing when no plugin was loaded. */
+export function pluginsLabel(plugins: readonly AgentPlugin[] | undefined): string | undefined {
+  if (plugins === undefined || plugins.length === 0) {
+    return undefined;
+  }
+  return plugins
+    .map((plugin) => (plugin.from === "deck" ? `${plugin.id} (deck)` : plugin.id))
+    .join(", ");
 }
 
 /** A fence longer than any run of backticks inside, so agent output survives it. */

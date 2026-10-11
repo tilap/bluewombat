@@ -178,6 +178,7 @@ pollIntervalMs: 10000
 | `workspaceRoot`             | Isolated feature / Subtask directories (created). Default `<home>/workspaces`                                                                                                                                                                                                                                                                                                |
 | `ledger`                    | WorkLedger root (created). The Cursor is a file inside it. Default `<home>/ledger`                                                                                                                                                                                                                                                                                           |
 | `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
+| `agents`                    | Agents a pass names instead of writing `cmd` (§ Agent passes written short)                                                                                                                                                                                                                                                                                                 |
 | `planner`                   | `cmd` / `timeoutMs` / `gates`. FeatureStandard in, a Plan out. Its own `gates` judges `workLineStable` once a Plan is otherwise accepted — not where the Planner agent itself reads from                                                                                                                                                                                   |
 | `builder.producer`          | `cmd` / `timeoutMs` / `gates`. Spawned in the Subtask workspace. Exit 0 runs its own `gates`                                                                                                                                                                                                                                                                                 |
 | `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited — including its `gates`: a repair with none of its own runs ungated, even when `builder.producer.gates` is not empty                                                                                                                                                                               |
@@ -200,9 +201,65 @@ runs after align, before the Authority sees the work (or before the final
 fold, with none). Its refusal is repaired by `assembly.fix` exactly as an
 Authority's is, and shares the same `maxRefusals` budget.
 
-Paths a slot **writes** — `--transcript-dir` and `--agent-home` — always resolve
-against the config file's directory, even before that directory exists. Left
-relative they would land inside the Task worktree (published, then destroyed).
+Paths a slot **writes** — `--transcript-dir`, `--agent-home` and
+`--plugins-out` — always resolve against the config file's directory, even
+before that directory exists. Left relative they would land inside the Task
+worktree (published, then destroyed). So does `--plugin-dir`, which is read: a
+relative one left as a word would be looked up in the Task worktree.
+
+### Agent passes written short
+
+A pass that drives an agent through the shipped slots can name the agent
+instead of writing its `cmd`. `agents` declares each agent once; a pass names
+one, its prompt, and the plugins its agent starts with:
+
+```yaml
+agents:
+  cursor:
+    adapter: cursor                 # or claude, or the path of an agent wrapper
+    home: ./.mason/agent-home       # with apiKeyEnv: isolate the vendor (Cursor only)
+    apiKeyEnv: CURSOR_API_KEY
+    transcripts: ./.mason/transcripts
+    pluginsOut: ./.mason/plugins    # where deck profiles are built
+planner:
+  agent: cursor
+  prompt: ./prompts/planner.md
+  read: ./.mason/work-line          # planner only
+  plugins: [./ai-plugins/core/planner]
+  profile: planner
+  args: [--plan]                    # the vendor CLI's own flags
+  timeoutMs: 600000
+builder:
+  producer:
+    agent: cursor
+    prompt: ./prompts/builder.md
+    plugins: [./ai-plugins/core/builder]
+    profile: builder
+    timeoutMs: 1200000
+    gates: { defaultTimeoutMs: 120000, gates: [] }
+```
+
+Host writes the `cmd` it stands for — `node <slots>/<role>.mjs --prompt-file …
+-- node <slots>/agents/cursor.mjs --transcript-dir … --plugin-dir … --profile
+… --plugins-out … --agent-arg …` — with `<slots>` the
+`node_modules/@bluewombat/slots` next to the config. Nothing past the config
+knows a pass was written short. The roles: `planner`, `builder.producer`,
+`builder.repair`, `assembly.fix`, `assembly.validate`, and `authority.describe`
+(an argv as before, or `{ agent, prompt?, plugins?, profile?, args? }`).
+
+| Key       | Meaning                                                                                                   |
+| --------- | --------------------------------------------------------------------------------------------------------- |
+| `agent`   | A name `agents` declares. With `cmd` beside it, the pass is refused                                       |
+| `prompt`  | `--prompt-file` of the role slot. Absent: the role's built-in template                                    |
+| `rules`   | `--rules-file` of the role slot                                                                           |
+| `read`    | Planner only: the directory the Planner agent reads (`--read`)                                            |
+| `plugins` | Plugin folders of the Mason home, each a `--plugin-dir`                                                   |
+| `profile` | The project's deck profile for this role. Needs the agent's `pluginsOut`. See the slots' § Agents/Plugins |
+| `args`    | Appended to the agent's own `args`, each an `--agent-arg`                                                 |
+
+A `profile` is read in the project, not in the Mason home: the role gets the
+base plugins and that profile, as the project's committed deck locks pin them.
+`mason doctor` checks those locks in the work line without the network.
 
 Every tracker field lives in `managerOptions`. Host does not read them.
 
