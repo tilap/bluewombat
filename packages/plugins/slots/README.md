@@ -144,9 +144,10 @@ A non-empty `.ai/profiles/<name>/prompt.md` is appended to the filled prompt
 under `## Project instructions for this role`: what the project wants from that
 role, next to what Mason asks.
 
-The plugins keep their hooks. deck writes a plugin's `hooks/hooks.json` as its
-author did, so a Claude-format hook (`${CLAUDE_PLUGIN_ROOT}`) may not run under
-Cursor.
+The plugins keep their hooks: deck writes a plugin's `hooks/hooks.json` as its
+author did. `cursor-agent` ran a Claude-format one (`${CLAUDE_PLUGIN_ROOT}`,
+`PostToolUse` on edits) on a real run; a hook that runs is part of the agent's
+time and of what it reads back.
 
 deck's cache (`~/.cache/pinkpuma-deck`, or `DECK_CACHE`) has no lock, and
 `--plugins-out` holds one folder per profile: both rely on a Mason run starting

@@ -572,17 +572,18 @@ the two paths when both are set; collapsing them into one config key the
 Project sets once, with Host threading it to both the Planner's `--read` and
 `--workspace`.
 
-### U17 · Deck profiles for agents were never run in a Mason run
+### U17 · Deck profiles for agents: one real run, one calls left open
 
 `packages/plugins/slots/agents/agent-plugins.mjs`; `packages/host/runtime/src/operator/agent-plugins.ts`
 
-`--profile` was run against deck 1.0.0 on a scratch project (base
-`git-workflow`, profile `builder` with `impeccable`): the wrapper passed three
-`--plugin-dir` in order and appended the profile's prompt. It was not run in a
-`mason run`, so what `cursor-agent` does with those folders is unseen — in
-particular `impeccable`'s hooks, which deck keeps in Claude's format
-(`${CLAUDE_PLUGIN_ROOT}`, `PostToolUse`) and Cursor may ignore, and its
-launcher, which downloads a binary into the isolated `HOME` on first use.
+Run once for real (2026-10-11, tilap/orangemonkey-site#23, Cursor): the
+planner got its core plugin and the project's base, the builder the base and
+its profile's `impeccable`, `assembly.validate` the base only — each
+transcript's `plugins` and `skills` say so. `impeccable`'s hooks, written in
+Claude's format (`${CLAUDE_PLUGIN_ROOT}`, `PostToolUse` on edits), did run
+under `cursor-agent`: its design hook scanned every file the builder edited.
+Not seen yet: a repair or `assembly.fix` with a profile, and `impeccable`'s
+binary download into the isolated `HOME` on a fresh agent home.
 
 Two calls made here. A lock that does not pin a request makes the wrapper
 refuse before the vendor starts, on every Attempt of the role, until the
