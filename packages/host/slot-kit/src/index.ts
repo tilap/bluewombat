@@ -11,6 +11,7 @@
 export type {
   AgentExtras,
   AgentInvocation,
+  AgentPlugin,
   AgentRun,
   AgentTools,
   AgentUsage,
@@ -80,6 +81,7 @@ export {
 export type { Transcript, TranscriptPart, TranscriptSpec } from "./transcript.js";
 export {
   openTranscript,
+  pluginsLabel,
   skillsLabel,
   TRANSCRIPT_PARTS,
   toolsFacts,

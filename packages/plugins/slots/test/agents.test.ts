@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -311,6 +312,215 @@ process.stdout.write(${JSON.stringify(body)});
     assert.equal(env.GIT_CONFIG_GLOBAL, undefined);
     assert.equal(env.COREPACK_HOME, undefined);
     assert.equal(env.npm_config_cache, join(parentHome, ".npm"));
+  });
+});
+
+describe("agent plugin folders", () => {
+  const deckFake = join(fixtures, "deck-fake.mjs");
+
+  function localPlugin(root: string, name: string): string {
+    const dir = join(root, "home", "ai-plugins", name);
+    mkdirSync(join(dir, ".cursor-plugin"), { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name: `core-${name}` }));
+    return dir;
+  }
+
+  function project(root: string, { base, profile }: { base: boolean; profile?: string }): string {
+    const cwd = join(root, "workspace");
+    mkdirSync(cwd, { recursive: true });
+    if (base) {
+      writeFileSync(join(cwd, "ai-plugin.json"), JSON.stringify({ plugins: [] }));
+    }
+    if (profile !== undefined) {
+      mkdirSync(join(cwd, ".ai", "profiles", profile), { recursive: true });
+      writeFileSync(
+        join(cwd, ".ai", "profiles", profile, "ai-plugin.json"),
+        JSON.stringify({ plugins: [] }),
+      );
+    }
+    return cwd;
+  }
+
+  function runCursor(cwd: string, extra: string[], env: NodeJS.ProcessEnv = process.env) {
+    return spawnSync(
+      node,
+      [cursor, "--bin", agentEchoArgv, "--prompt", "do the task", "--deck-bin", deckFake, ...extra],
+      { cwd, encoding: "utf8", env },
+    );
+  }
+
+  function pluginDirs(cwd: string): string[] {
+    const argv = JSON.parse(readFileSync(join(cwd, "argv.json"), "utf8")) as string[];
+    return argv.flatMap((arg, at) => (argv[at - 1] === "--plugin-dir" ? [arg] : []));
+  }
+
+  it("loads local plugin folders first, then the base and the profile deck built", () => {
+    const root = sandbox();
+    const core = localPlugin(root, "builder");
+    const cwd = project(root, { base: true, profile: "builder" });
+    const out = join(root, "plugins");
+    const result = runCursor(cwd, [
+      "--plugin-dir",
+      core,
+      "--profile",
+      "builder",
+      "--plugins-out",
+      out,
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(pluginDirs(cwd), [
+      core,
+      join(out, "builder", "git-workflow"),
+      join(out, "builder", "builder-kit"),
+    ]);
+    const deckArgs = JSON.parse(readFileSync(join(cwd, "deck-args.json"), "utf8")) as string[];
+    assert.deepEqual(deckArgs, [
+      "materialize",
+      "-C",
+      realpathSync(cwd),
+      "--out",
+      join(out, "builder"),
+      "--json",
+      "--profile",
+      "builder",
+    ]);
+    const payload = lastPayload(result.stdout);
+    assert.deepEqual(payload.plugins, [
+      { id: "core-builder", path: core, from: "local", integrity: null },
+      {
+        id: "git-workflow",
+        path: join(out, "builder", "git-workflow"),
+        from: "deck",
+        integrity: "sha256-git-workflow",
+      },
+      {
+        id: "builder-kit",
+        path: join(out, "builder", "builder-kit"),
+        from: "deck",
+        integrity: "sha256-builder-kit",
+      },
+    ]);
+  });
+
+  it("adds the profile's prompt after the filled one, and only when it says something", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: true, profile: "builder" });
+    const out = join(root, "plugins");
+    const empty = runCursor(cwd, ["--profile", "builder", "--plugins-out", out]);
+    assert.equal(empty.status, 0, empty.stderr);
+    let argv = JSON.parse(readFileSync(join(cwd, "argv.json"), "utf8")) as string[];
+    assert.equal(argv.at(-1), "do the task");
+
+    writeFileSync(
+      join(cwd, ".ai", "profiles", "builder", "prompt.md"),
+      "Use /impeccable polish.\n",
+    );
+    const said = runCursor(cwd, ["--profile", "builder", "--plugins-out", out]);
+    assert.equal(said.status, 0, said.stderr);
+    argv = JSON.parse(readFileSync(join(cwd, "argv.json"), "utf8")) as string[];
+    assert.equal(
+      argv.at(-1),
+      "do the task\n\n## Project instructions for this role\n\nUse /impeccable polish.\n",
+    );
+  });
+
+  it("falls back to the base when the project has no such profile", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: true });
+    const out = join(root, "plugins");
+    const result = runCursor(cwd, ["--profile", "reviewer", "--plugins-out", out]);
+    assert.equal(result.status, 0, result.stderr);
+    const deckArgs = JSON.parse(readFileSync(join(cwd, "deck-args.json"), "utf8")) as string[];
+    assert.equal(deckArgs.includes("--profile"), false);
+    assert.deepEqual(pluginDirs(cwd), [join(out, "reviewer", "git-workflow")]);
+    assert.match(result.stderr, /no deck profile reviewer: base plugins only/);
+  });
+
+  it("loads no project plugin when the project has no deck setup", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: false });
+    const result = runCursor(cwd, ["--profile", "builder", "--plugins-out", join(root, "plugins")]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(cwd, "deck-args.json")), false);
+    assert.deepEqual(pluginDirs(cwd), []);
+    assert.equal(lastPayload(result.stdout).plugins, undefined);
+  });
+
+  it("refuses before starting the vendor when deck refuses the profile", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: true, profile: "builder" });
+    const result = runCursor(
+      cwd,
+      ["--profile", "builder", "--plugins-out", join(root, "plugins")],
+      {
+        ...process.env,
+        DECK_FAKE_MODE: "fail",
+      },
+    );
+    assert.notEqual(result.status, 0);
+    const payload = JSON.parse(result.stdout.trim()) as { error: string };
+    assert.match(payload.error, /deck materialize refused profile builder: .*not pinned/);
+    assert.match(payload.error, /commit its locks/);
+    assert.equal(existsSync(join(cwd, "argv.json")), false);
+  });
+
+  it("refuses --profile without --plugins-out, and a name that is not a profile's", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: true, profile: "builder" });
+    const noOut = runCursor(cwd, ["--profile", "builder"]);
+    assert.notEqual(noOut.status, 0);
+    assert.match((JSON.parse(noOut.stdout.trim()) as { error: string }).error, /--plugins-out/);
+    const traversal = runCursor(cwd, ["--profile", "../x", "--plugins-out", join(root, "plugins")]);
+    assert.notEqual(traversal.status, 0);
+    assert.match(
+      (JSON.parse(traversal.stdout.trim()) as { error: string }).error,
+      /not a deck profile/,
+    );
+    assert.equal(existsSync(join(cwd, "argv.json")), false);
+  });
+
+  it("refuses a --plugin-dir that is not a folder", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: false });
+    const result = runCursor(cwd, ["--plugin-dir", join(root, "missing")]);
+    assert.notEqual(result.status, 0);
+    assert.match((JSON.parse(result.stdout.trim()) as { error: string }).error, /is not a folder/);
+  });
+
+  it("gives Claude local plugin folders but refuses a deck profile", () => {
+    const root = sandbox();
+    const core = localPlugin(root, "planner");
+    const cwd = project(root, { base: true, profile: "planner" });
+    const ok = spawnSync(
+      node,
+      [claude, "--bin", agentEchoArgv, "--prompt", "hi", "--plugin-dir", core],
+      { cwd, encoding: "utf8" },
+    );
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.deepEqual(pluginDirs(cwd), [core]);
+    rmSync(join(cwd, "argv.json"));
+    const refused = spawnSync(
+      node,
+      [
+        claude,
+        "--bin",
+        agentEchoArgv,
+        "--prompt",
+        "hi",
+        "--profile",
+        "planner",
+        "--plugins-out",
+        join(root, "plugins"),
+      ],
+      { cwd, encoding: "utf8" },
+    );
+    assert.notEqual(refused.status, 0);
+    assert.match(
+      (JSON.parse(refused.stdout.trim()) as { error: string }).error,
+      /does not isolate/,
+    );
+    assert.equal(existsSync(join(cwd, "argv.json")), false);
+    assert.equal(existsSync(join(cwd, "deck-args.json")), false);
   });
 });
 

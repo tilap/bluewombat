@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { AgentPlugin } from "./agent.js";
 import { take } from "./argv.js";
 import { type OptionSpec, type OptionValues, textOption } from "./options.js";
 import { openTranscript, TRANSCRIPT_PARTS, type Transcript } from "./transcript.js";
@@ -116,6 +117,10 @@ export const AGENT_OPTIONS: OptionSpec = {
   "--agent-arg": { many: true },
   "--agent-home": {},
   "--api-key-env": {},
+  "--plugin-dir": { many: true },
+  "--profile": {},
+  "--plugins-out": {},
+  "--deck-bin": {},
   "--id": {},
   "--attempt": {},
   "--context": {},
@@ -155,6 +160,7 @@ export type TranscriptSubject = {
   bin?: string | undefined;
   args?: readonly string[] | undefined;
   prompt?: string | undefined;
+  plugins?: readonly AgentPlugin[] | undefined;
 };
 
 /** The turn's transcript, filed under what this Task belongs to. */
