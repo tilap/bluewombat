@@ -75,7 +75,7 @@ function profileFinding(label: string, profile: string, workLine: string | undef
     return {
       level: "fail",
       label: at,
-      detail: `${profile} — ${unpinned.join("; ")}. Run deck install in the project and commit its locks, or every attempt of this role refuses`,
+      detail: `${profile} — ${unpinned.join("; ")} in the work line as last refreshed. Run deck install in the project and commit its locks, or every attempt of this role refuses`,
     };
   }
   if (own === undefined) {
