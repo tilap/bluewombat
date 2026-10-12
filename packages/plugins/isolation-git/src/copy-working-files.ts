@@ -32,6 +32,25 @@ export async function trackedPaths(directory: string): Promise<ReadonlySet<strin
   }
 }
 
+/**
+ * The working files git sees in `directory`: tracked, plus untracked and not
+ * ignored, as `/`-separated paths from its root. `undefined` where git cannot
+ * list it. What `.gitignore` leaves out (`node_modules/`, build output) is not
+ * in it, and a git fold never writes there.
+ */
+export async function workingPaths(directory: string): Promise<readonly string[] | undefined> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", directory, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+      { timeout: LS_FILES_TIMEOUT_MS, maxBuffer: LS_FILES_MAX_BUFFER, encoding: "utf8" },
+    );
+    return stdout.split("\0").filter((path) => path.length > 0);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Whether `path` or anything below it is tracked. */
 function holdsTracked(path: string, tracked: ReadonlySet<string>): boolean {
   if (tracked.has(path)) {

@@ -30,7 +30,8 @@ export async function fold(input: {
 }): Promise<FoldResult> {
   const { parent, child, backend, id, subject, mergeSubject, deadlineMs, now, shouldInterrupt } =
     input;
-  const backup = await snapshotWorkingFiles(parent);
+  const saved = await backend.snapshotPaths?.(parent);
+  const backup = await snapshotWorkingFiles(parent, saved);
 
   const shouldStop = (): FoldStop | undefined => {
     if (shouldInterrupt()) {
@@ -43,7 +44,9 @@ export async function fold(input: {
   };
 
   const fail = async (result: FoldResult): Promise<FoldResult> => {
-    await restoreWorkingFiles(parent, backup);
+    // What is in scope now includes what the fold created.
+    const current = saved === undefined ? undefined : await backend.snapshotPaths?.(parent);
+    await restoreWorkingFiles(parent, backup, saved, current);
     await removeSnapshot(backup);
     return result;
   };

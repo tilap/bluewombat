@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -336,6 +337,44 @@ describe("isolation-git fold", () => {
     ]);
     assert.equal(gitLog(parent)[0], "Merge main into the feature");
     assert.ok(existsSync(join(parent, "b.txt")) && existsSync(join(parent, "c.txt")));
+  });
+});
+
+describe("isolation-git fold: snapshotPaths", () => {
+  it("lists tracked and untracked files, not what .gitignore leaves out, not .git", async () => {
+    const { parent } = gitPair({ ".gitignore": "node_modules\n", "src/a.ts": "a" });
+    writeTree(parent, { "notes.txt": "untracked", "node_modules/dep/index.js": "ignored" });
+    const paths = await strategy.fold.snapshotPaths?.(parent);
+    assert.deepEqual([...(paths ?? [])].sort(), [".gitignore", "notes.txt", "src/a.ts"]);
+  });
+
+  it("is undefined where git cannot list, so the snapshot copies everything", async () => {
+    const root = sandbox();
+    writeTree(root, { "a.txt": "a" });
+    assert.equal(await strategy.fold.snapshotPaths?.(root), undefined);
+  });
+
+  it("a conflict restores the Parent without reading what .gitignore leaves out", async () => {
+    const { parent, child } = gitPair({ ".gitignore": "node_modules\n", "a.txt": "base" });
+    writeTree(parent, { "node_modules/dep/locked.js": "ignored", "notes.txt": "loose" });
+    const locked = join(parent, "node_modules/dep/locked.js");
+    // A snapshot of everything would fail on this unreadable file.
+    chmodSync(locked, 0o000);
+    try {
+      writeFileSync(join(parent, "a.txt"), "parent-only");
+      writeFileSync(join(child, "a.txt"), "child-only");
+      const result = await runIntegrator({
+        backend: strategy.fold,
+        invocation: { id: "feat-1", parent, child, durationMs: 30_000 },
+        write: () => {},
+      });
+      assert.equal(result.outcome, "conflict");
+      assert.equal(readFileSync(join(parent, "a.txt"), "utf8"), "parent-only");
+      assert.equal(readFileSync(join(parent, "notes.txt"), "utf8"), "loose");
+      assert.equal(existsSync(locked), true);
+    } finally {
+      chmodSync(locked, 0o644);
+    }
   });
 });
 

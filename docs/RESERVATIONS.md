@@ -332,19 +332,51 @@ that quietly got worse. What rode along uninvited — secrets — is settled:
 **Measured** on a real `node_modules` (11 654 files, 214 MB): the hand copy took
 6 s; the `cp -c` clone the plugin now uses takes 3.7 s and **0 MB** on APFS —
 the bytes are shared. So the disk cost is gone where the file system clones,
-and the time is per-file syscalls, 2n + 2 times per Feature: one Isolation
-into the Feature workspace, one Isolation and one fold snapshot per Subtask,
-one fold snapshot of the work line. The Integrator's snapshot is the kernel's
-own hand copy and knows nothing of `cp`.
+and the time is per-file syscalls, once per Isolation: one into the Feature
+workspace and one per Subtask. The Integrator used to add a fold snapshot per
+Integration, the kernel's own hand copy of the whole Parent (~29 s on 44 385
+files, `node_modules` included, measured 2026-10-12); the git strategy no longer
+copies what `.gitignore` leaves out (DECISIONS, F31), and that part is settled.
 
 Excluding `node_modules` through the list is not the answer as it stands: the
 Gates run in the Child, and a Child with no dependencies fail-blocks on
 `npm-test` (I5). It becomes one the day a Project can say how a Child gets
 its dependencies (an install step, a link to the Parent's).
 
-**Instead:** let the fold backend restore the Parent itself (git can), and drop
-the kernel snapshot for the git strategy; then a way for a Project to exclude
-`node_modules` and still run its Gates.
+**Instead:** a way for a Project to exclude `node_modules` from the Child and
+still run its Gates.
+
+### F31 · A fold's restore list is a promise the kernel cannot check
+
+`packages/kernel/integrator/src/fold/working-files.ts` — `snapshotWorkingFiles`,
+`restoreWorkingFiles`; `packages/plugins/isolation-git/src/copy-working-files.ts`
+— `workingPaths`
+
+A failed fold restores only the Parent files the backend listed, and git lists
+what it sees: tracked, plus untracked and not ignored. What it leaves out is
+neither copied nor put back. Three cases that the old whole-tree copy covered
+and this does not:
+
+- **An ignored file the incoming side tracks.** If the Child has a tracked file
+  at a path where the Parent holds an *ignored, untracked* one, `git read-tree
+  -u --reset` overwrites it and a failure after that cannot bring it back.
+  **Reproduced** on a two-commit repository (`cache/` ignored: `LOCAL-IGNORED`
+  became `FROM-CHILD`). It needs a Child that force-adds a path the Parent
+  ignores, and what is lost is an ignored (regenerable) file; a test pins that
+  nothing outside the list is rolled back.
+- **A directory the fold creates and the failure empties** stays, empty: the
+  list names files.
+- **A submodule** is a directory in git's list and is skipped by the snapshot;
+  the old copy took its files. Never run against a repository with submodules.
+
+**Measured** on 2026-10-12 with the integrator CLI on a 44 576-file workspace
+(`node_modules` installed): 36 s before, 1.15 s after. **Not yet seen in a real
+`mason run`**: the Mason home installs the published packages, so the end-to-end
+gain (two to three Integrations a run) is expected, not observed.
+
+**Instead:** add the paths the incoming tree tracks to the list (`git ls-tree`
+on the Child's tree) so a collision is snapshotted too, and handle gitlinks
+explicitly.
 
 ### F25 · A cancel during `submitted` leaves the pull request open
 
