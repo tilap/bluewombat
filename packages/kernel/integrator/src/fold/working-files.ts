@@ -1,6 +1,6 @@
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readlink, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export type FoldStop = "clock" | "interrupt";
 
@@ -93,8 +93,19 @@ export async function wipeWorkingFiles(
   }
 }
 
-export async function snapshotWorkingFiles(directory: string): Promise<string> {
+/**
+ * Copy the working files of `directory` aside. `paths` limits the copy to what
+ * the backend says a failed fold must restore; without it, everything.
+ */
+export async function snapshotWorkingFiles(
+  directory: string,
+  paths?: readonly string[],
+): Promise<string> {
   const backup = await mkdtemp(join(tmpdir(), "integrator-parent-"));
+  if (paths !== undefined) {
+    await copyPaths(directory, backup, paths);
+    return backup;
+  }
   await copyWorkingFiles({
     from: directory,
     to: backup,
@@ -104,7 +115,25 @@ export async function snapshotWorkingFiles(directory: string): Promise<string> {
   return backup;
 }
 
-export async function restoreWorkingFiles(directory: string, backup: string): Promise<void> {
+/**
+ * Put `directory` back as the snapshot found it. Given `saved` (the paths the
+ * snapshot was limited to), only working files in scope are touched: those
+ * listed now (`current`, which includes what the fold created) are removed,
+ * then `saved` is copied back. Whatever the backend left out is not touched.
+ */
+export async function restoreWorkingFiles(
+  directory: string,
+  backup: string,
+  saved?: readonly string[],
+  current?: readonly string[],
+): Promise<void> {
+  if (saved !== undefined) {
+    for (const path of current ?? saved) {
+      await rm(join(directory, path), { recursive: true, force: true });
+    }
+    await copyPaths(backup, directory, saved);
+    return;
+  }
   await wipeWorkingFiles(directory, () => undefined);
   await copyWorkingFiles({
     from: backup,
@@ -112,6 +141,28 @@ export async function restoreWorkingFiles(directory: string, backup: string): Pr
     skipGitAtRoot: true,
     shouldStop: () => undefined,
   });
+}
+
+/**
+ * Copy each of `paths` from `from` to `to`, creating directories as needed. A
+ * path that is not there, or is a directory (a submodule), is skipped: the
+ * list names files.
+ */
+async function copyPaths(from: string, to: string, paths: readonly string[]): Promise<void> {
+  for (const path of paths) {
+    const src = join(from, path);
+    const kind = await pathKind(src);
+    if (kind !== "file" && kind !== "symlink") {
+      continue;
+    }
+    const dest = join(to, path);
+    await mkdir(dirname(dest), { recursive: true });
+    if (kind === "symlink") {
+      await symlink(await readlink(src), dest);
+    } else {
+      await copyFile(src, dest);
+    }
+  }
 }
 
 export async function removeSnapshot(backup: string): Promise<void> {

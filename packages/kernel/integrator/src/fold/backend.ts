@@ -11,6 +11,14 @@ export type FoldBackendResult =
  * Integrator does not choose a strategy or know git versus copy.
  */
 export type FoldBackend = {
+  /**
+   * The working files of `directory` a failed fold has to put back, as
+   * `/`-separated paths from its root. Absent, or `undefined` for a directory
+   * the backend cannot list: all of them. A backend that never writes a path
+   * (git never writes one it ignores) leaves it out, and the snapshot never
+   * copies it.
+   */
+  snapshotPaths?(directory: string): Promise<readonly string[] | undefined>;
   fold(input: {
     parent: string;
     child: string;
