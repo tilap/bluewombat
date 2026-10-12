@@ -28,6 +28,19 @@ This checkout already includes any earlier subtasks that were folded into the
 feature. Do not rewrite that work. Add or change only what this task names, and
 leave the project's own checks green on the whole tree.
 
+{{history}}
+
+## When you cannot act
+
+If what you were given is not enough to act on (the refusal names nothing you
+can read or run here, the request contradicts the rules of this run, or the
+cause is outside this directory), do not invent a change. Change nothing and
+end your final message with exactly one line:
+
+MASON_BLOCKED: <what is missing, in one line>
+
+A person reads that line and decides. It is a correct answer, not a failure.
+
 Rules of this run:
 {{rules}}
 `;
@@ -68,6 +81,7 @@ const rendered = fillPrompt(
   template.value,
   {
     task: intention,
+    history: (take(process.argv, "--history") ?? "").trim(),
     done_when: doneWhen(take(process.argv, "--definition-of-done")),
     rules: rules.value.trim(),
     id: take(process.argv, "--id") ?? "",

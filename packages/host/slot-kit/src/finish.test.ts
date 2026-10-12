@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AgentRun } from "./agent.js";
-import { failureOf } from "./finish.js";
+import { blockedReason, failureOf, judgeRun } from "./finish.js";
 
 function ran(over: Partial<AgentRun> = {}): AgentRun {
   const startedAt = new Date(0);
@@ -73,5 +73,72 @@ describe("failureOf", () => {
     const report = failureOf(ran({ output: `${"x".repeat(3000)}END` }), "/bin/x", "CLI").report;
     assert.equal(report.length, 2000);
     assert.ok(report.endsWith("END"));
+  });
+});
+
+function said(text: string): AgentRun {
+  return ran({ code: 0, stdout: `${JSON.stringify({ type: "result", result: text })}\n` });
+}
+
+describe("blockedReason", () => {
+  it("reads the last MASON_BLOCKED line of a final message", () => {
+    assert.equal(
+      blockedReason("I looked.\nMASON_BLOCKED: the report is only a link"),
+      "the report is only a link",
+    );
+    assert.equal(blockedReason("MASON_BLOCKED: first\nthen more\nMASON_BLOCKED: last"), "last");
+  });
+
+  it("is absent when the agent did not say it, or said it mid-sentence", () => {
+    assert.equal(blockedReason("All done."), undefined);
+    assert.equal(blockedReason("I will not write MASON_BLOCKED: here"), undefined);
+    assert.equal(blockedReason(""), undefined);
+  });
+
+  it("still blocks when the agent gave no reason", () => {
+    assert.equal(blockedReason("MASON_BLOCKED:"), "it did not say what is missing");
+  });
+});
+
+describe("judgeRun", () => {
+  it("is done on a clean exit, and keeps what the agent said", () => {
+    assert.deepEqual(judgeRun(said("Added the tabs."), "/bin/x", "CLI"), {
+      done: true,
+      said: "Added the tabs.",
+    });
+  });
+
+  it("is blocked, not retryable, when the agent says it cannot act", () => {
+    const judged = judgeRun(
+      said("Nothing to fix here.\nMASON_BLOCKED: no log to read"),
+      "/bin/x",
+      "CLI",
+    );
+    assert.deepEqual(judged, {
+      done: false,
+      outcome: "fail-blocking",
+      report: "The agent stopped without changing anything: no log to read",
+    });
+  });
+
+  it("keeps failing as before when the run itself failed", () => {
+    const judged = judgeRun(ran({ output: "the tests are still red" }), "/bin/x", "CLI");
+    assert.deepEqual(judged, {
+      done: false,
+      outcome: "fail-retryable",
+      report: "the tests are still red",
+    });
+  });
+
+  it("does not trust a blocked line in a run that errored", () => {
+    const run = ran({
+      code: 0,
+      stdout: `${JSON.stringify({ is_error: true, error: "rate limited", result: "MASON_BLOCKED: x" })}\n`,
+    });
+    assert.deepEqual(judgeRun(run, "/bin/x", "CLI"), {
+      done: false,
+      outcome: "fail-retryable",
+      report: "rate limited",
+    });
   });
 });

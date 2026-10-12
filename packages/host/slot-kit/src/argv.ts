@@ -23,6 +23,7 @@ export const BUILDER_FLAGS: ReadonlySet<string> = new Set([
   "--definition-of-done",
   "--report",
   "--report-from",
+  "--history",
   "--context",
 ]);
 

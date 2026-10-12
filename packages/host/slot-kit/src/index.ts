@@ -52,8 +52,8 @@ export {
   writeContract,
   writeDiagnostic,
 } from "./emit.js";
-export type { FinishedRun } from "./finish.js";
-export { failureOf, finishRun } from "./finish.js";
+export type { FinishedRun, RunJudgement } from "./finish.js";
+export { blockedReason, failureOf, finishRun, judgeRun } from "./finish.js";
 export { pathMatchesGlob } from "./glob.js";
 export type { OptionRule, OptionSpec, OptionValues, ParsedOptions } from "./options.js";
 export { listOption, parseOptions, textOption } from "./options.js";

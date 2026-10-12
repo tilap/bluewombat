@@ -39,6 +39,8 @@ export type BuilderInput = {
 
 export type BuilderResult = {
   kind: BuilderResultKind;
+  /** What a completed producer said last, when it said it (a `{ "said": … }` on stdout). */
+  said?: string;
   /** fail-retryable or fail-blocking when kind is failed / refused / timed_out */
   outcome?: "fail-retryable" | "fail-blocking";
   detail?: string;

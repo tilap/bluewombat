@@ -1,6 +1,7 @@
 import { runBuilder } from "../child/run-builder.js";
 import { runGate } from "../child/run-gate.js";
 import { decideAfterAttempt } from "../loop/decide-after-attempt.js";
+import { buildHistory } from "../loop/history.js";
 import { keyedWriter, type ProgressWriter } from "../progress/emit.js";
 import { announceStatus } from "../status/announce.js";
 import { makeStatus } from "../status/make-status.js";
@@ -162,6 +163,11 @@ async function runLoop(input: {
             attempt,
             previousReport,
             previousRefusedBy,
+            history: buildHistory({
+              report: invocation.report,
+              refusedBy: invocation.reportFrom,
+              traces,
+            }),
             timeoutMs: producer.timeoutMs,
             shouldInterrupt,
             onChild: input.onChild,

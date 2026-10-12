@@ -44,6 +44,16 @@ export function parseBuilderFailureJson(stdout: string): BuilderFailureJson | nu
   return { outcome, report };
 }
 
+/** A producer's own last words on exit 0, when it gives them: `{ "said": "…" }`. */
+export function parseBuilderSaid(stdout: string): string | undefined {
+  const value = firstJsonObject(stdout);
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
+  const said = (value as Record<string, unknown>).said;
+  return typeof said === "string" && said.trim().length > 0 ? said.trim() : undefined;
+}
+
 export function parseGateVerdictJson(stdout: string): GateVerdictJson | null {
   const value = firstJsonObject(stdout);
   if (value === null || typeof value !== "object") {
