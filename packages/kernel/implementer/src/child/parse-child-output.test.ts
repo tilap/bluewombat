@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseBuilderFailureJson, parseGateVerdictJson } from "./parse-child-output.js";
+import {
+  parseBuilderFailureJson,
+  parseBuilderSaid,
+  parseGateVerdictJson,
+} from "./parse-child-output.js";
 
 describe("parseBuilderFailureJson", () => {
   it("reads fail-retryable and fail-blocking", () => {
@@ -33,5 +37,14 @@ describe("parseGateVerdictJson", () => {
 
   it("rejects malformed stdout", () => {
     assert.equal(parseGateVerdictJson("not json"), null);
+  });
+});
+
+describe("parseBuilderSaid", () => {
+  it("reads a producer's own last words, and nothing else", () => {
+    assert.equal(parseBuilderSaid('noise\n{"said":"  done and checked  "}\n'), "done and checked");
+    assert.equal(parseBuilderSaid('{"said":""}'), undefined);
+    assert.equal(parseBuilderSaid('{"outcome":"fail-retryable","report":"x"}'), undefined);
+    assert.equal(parseBuilderSaid(""), undefined);
   });
 });

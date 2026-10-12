@@ -41,6 +41,64 @@ function collectLines(): {
   };
 }
 
+describe("runImplementer history", () => {
+  const loggingBuilder = join(fixtures, "builder-log-argv.mjs");
+
+  function calls(ws: string): string[][] {
+    return readFileSync(join(ws, "argv.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+  }
+
+  const argOf = (argv: string[], flag: string): string | undefined => {
+    const at = argv.indexOf(flag);
+    return at === -1 ? undefined : argv[at + 1];
+  };
+
+  it("h1. gives the next Attempt the refusal the Task came with, after a producer killed at its clock", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: {
+        ...baseInvocation({
+          workspace: ws,
+          builderArgv: [node, loggingBuilder, "hang-first"],
+          builderTimeoutMs: 400,
+        }),
+        report: "Deployment has failed",
+        reportFrom: "ci-green",
+      },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "validated");
+    const [first, second] = calls(ws);
+    assert.equal(argOf(first ?? [], "--history"), undefined, "nothing to add on a first Attempt");
+    const history = argOf(second ?? [], "--history") ?? "";
+    assert.match(history, /Refused by ci-green/);
+    assert.match(history, /Deployment has failed/);
+    assert.match(history, /Attempt 1 — the producer was killed at its time limit \(400ms\)/);
+    // The report is still the latest word, as before.
+    assert.match(argOf(second ?? [], "--report") ?? "", /^killed after 400ms/);
+  });
+
+  it("h2. carries what a producer said and what a Gate answered into the next Attempt", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: baseInvocation({
+        workspace: ws,
+        builderArgv: [node, loggingBuilder, "say:I added the tabs"],
+        gates: [{ id: "ci", argv: [node, join(fixtures, "gate-fail-once.mjs")], timeoutMs: 5_000 }],
+      }),
+      write: () => {},
+    });
+    assert.equal(result.outcome, "validated");
+    const history = argOf(calls(ws)[1] ?? [], "--history") ?? "";
+    assert.match(history, /Attempt 1 — the producer finished\./);
+    assert.match(history, /It said: I added the tabs/);
+    assert.match(history, /Gate ci: fail-retryable/);
+  });
+});
+
 describe("runImplementer acceptance", () => {
   it("00. a Gate that never stops writing is a broken Gate, and the process survives", async () => {
     const { write, lines } = collectLines();

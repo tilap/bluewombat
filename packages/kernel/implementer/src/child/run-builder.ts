@@ -1,5 +1,5 @@
 import type { BuilderResult, Invocation, OpenChildSink } from "../types.js";
-import { parseBuilderFailureJson } from "./parse-child-output.js";
+import { parseBuilderFailureJson, parseBuilderSaid } from "./parse-child-output.js";
 import { combinedOutput, runChild, type SpawnOutcome } from "./run-child.js";
 
 export type BuilderRunResult = {
@@ -22,6 +22,8 @@ export async function runBuilder(input: {
   previousReport: string | undefined;
   /** Which Gate refused, when one did. Absent when the producer itself failed. */
   previousRefusedBy: string | undefined;
+  /** Everything that happened before this Attempt, oldest first. Absent on a first Attempt. */
+  history: string | undefined;
   timeoutMs: number;
   shouldInterrupt: () => boolean;
   /** Whoever films this child's output. Absent: it is not filmed. */
@@ -33,6 +35,7 @@ export async function runBuilder(input: {
     attempt,
     previousReport,
     previousRefusedBy,
+    history,
     timeoutMs,
     shouldInterrupt,
   } = input;
@@ -53,6 +56,9 @@ export async function runBuilder(input: {
   }
   if (previousRefusedBy !== undefined) {
     argv.push("--report-from", previousRefusedBy);
+  }
+  if (history !== undefined) {
+    argv.push("--history", history);
   }
   if (invocation.context !== undefined) {
     argv.push("--context", invocation.context);
@@ -118,8 +124,9 @@ function interpretBuilderOutcome(outcome: SpawnOutcome, timeoutMs: number): Buil
 
   // exited
   if (outcome.exitCode === 0) {
+    const said = parseBuilderSaid(outcome.stdout);
     return {
-      result: { kind: "completed" },
+      result: said === undefined ? { kind: "completed" } : { kind: "completed", said },
     };
   }
 

@@ -239,13 +239,31 @@ assembly, so `assembly/fix` does not fill it at all.
 
 | Role                | Required                              | Also fills                                                 |
 | ------------------- | ------------------------------------- | ---------------------------------------------------------- |
-| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{done_when}}`, `{{id}}`, `{{attempt}}`                   |
-| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}` |
-| `assembly/fix`      | `{{task}}`, `{{report}}`, `{{rules}}` | `{{refused_by}}`, `{{id}}`, `{{attempt}}`                  |
+| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}`    |
+| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}` |
+| `assembly/fix`      | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
 | `assembly/validate` | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
 
 A first-pass command that receives `--report` is `fail-blocking`: that report
 belongs to the repair command. A repair or fix command without `--report` is the same.
+
+`{{history}}` is what the Task went through before this Attempt, oldest first (the
+refusal it came with, each Attempt, each Gate's answer; see Implementer's SPECS §
+History). It is empty on a first Attempt and vanishes whole then, so a template
+that does not place it works as before.
+
+### The way out
+
+Every shipped producer prompt ends with the same exit: when what the agent was
+given is not enough to act on, it changes nothing and ends its final message with
+one line, `MASON_BLOCKED: <what is missing>`. The slot reads the last such line
+in the agent's final message, and answers `fail-blocking` with that reason, so the
+Task stops as `escalated` and a person reads it instead of another Attempt
+inventing a change. This is the same kind of signal as `assembly/validate`'s
+`MASON_VERDICT:` line, and it is not tied to any refuser. A clean exit prints
+`{ "said": "<the agent's final message, clipped>" }` on stdout, which the Task
+keeps for its History. A Project's own template should keep a paragraph that
+tells the agent about the line, or the agent has no way to use it.
 
 ### The repair prompt
 

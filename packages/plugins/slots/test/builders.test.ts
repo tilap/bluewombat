@@ -20,6 +20,7 @@ const agentFail = join(fixtures, "agent-fail.mjs");
 const agentRefused = join(fixtures, "agent-refused.mjs");
 const agentUnauthorized = join(fixtures, "agent-unauthorized.mjs");
 const agentEchoArgv = join(fixtures, "agent-echo-argv.mjs");
+const agentBlocked = join(fixtures, "agent-blocked.mjs");
 const agentOauthExpired = join(fixtures, "agent-oauth-expired.mjs");
 const agentReviewValidated = join(fixtures, "agent-review-validated.mjs");
 const agentReviewRefused = join(fixtures, "agent-review-refused.mjs");
@@ -637,5 +638,77 @@ describe("builder transcript", () => {
     assert.notEqual(result.status, 0);
     const page = readFileSync(transcripts(dir)[0] as string, "utf8");
     assert.match(page, /- exit: 1/);
+  });
+});
+
+describe("what the Task went through, and the way out", () => {
+  const history =
+    "History of this Task, oldest first:\n\nRefused by ci-green, before this Task's first attempt:\n   Deployment has failed";
+
+  it("places the history in a repair prompt and in an assembly fix prompt", () => {
+    for (const role of [repair, assemblyFix]) {
+      const cwd = sandbox();
+      const result = runRole(
+        role,
+        cursor,
+        cwd,
+        ["--bin", agentEchoArgv],
+        [],
+        ["--attempt", "2", "--report", "killed", "--report-from", "ci-green", "--history", history],
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        echoedPrompt(cwd),
+        /History of this Task, oldest first:[\s\S]*Deployment has failed/,
+      );
+    }
+  });
+
+  it("places no history on a first attempt, and does not leave the word in the prompt", () => {
+    const cwd = sandbox();
+    const result = run(cwd, ["--bin", agentEchoArgv]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(echoedPrompt(cwd), /History of this Task|\{\{history\}\}/);
+  });
+
+  it("tells every producer it may stop with MASON_BLOCKED", () => {
+    for (const role of [producer, repair, assemblyFix]) {
+      const cwd = sandbox();
+      const result = runRole(
+        role,
+        cursor,
+        cwd,
+        ["--bin", agentEchoArgv],
+        [],
+        role === producer ? [] : ["--report", "red", "--report-from", "ci"],
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(echoedPrompt(cwd), /When you cannot act[\s\S]*MASON_BLOCKED: <what is missing/);
+    }
+  });
+
+  it("answers fail-blocking, with the agent's reason, when it says it cannot act", () => {
+    for (const role of [producer, repair, assemblyFix]) {
+      const cwd = sandbox();
+      const result = runRole(
+        role,
+        cursor,
+        cwd,
+        ["--bin", agentBlocked],
+        [],
+        role === producer ? [] : ["--report", "red", "--report-from", "ci"],
+      );
+      assert.notEqual(result.status, 0);
+      const answer = failureOf(result.stdout);
+      assert.equal(answer.outcome, "fail-blocking");
+      assert.match(answer.report, /report is only a link, no log to read/);
+    }
+  });
+
+  it("gives what a finished agent said on stdout, for the history", () => {
+    const cwd = sandbox();
+    const result = run(cwd, ["--bin", agentOk]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), { said: "done" });
   });
 });

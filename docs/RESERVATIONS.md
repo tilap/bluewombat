@@ -346,6 +346,28 @@ its dependencies (an install step, a link to the Parent's).
 the kernel snapshot for the git strategy; then a way for a Project to exclude
 `node_modules` and still run its Gates.
 
+### F33 · The History tells what an Attempt claimed, not what it did
+
+`packages/kernel/implementer/src/loop/history.ts`; `packages/host/slot-kit/src/finish.ts` — `judgeRun`
+
+The History an Attempt receives holds the refusal the Task came with, how each
+producer ended, what it *said* last (clipped to 2 KiB, then 800 in the History)
+and each Gate's answer. It does not hold what the producer *did*: no commands, no
+files changed. A producer killed at its clock leaves no words at all, and the
+History says only that it was killed. The film of the run (`observability.streams`,
+off by default in the Mason home until 2026-10-12) has the stream; nothing turns
+it into a summary a later Attempt can read.
+
+`MASON_BLOCKED:` is read only on a clean exit of the agent CLI, and only on the
+last such line of its final message. An agent that writes it and keeps working,
+or writes it in a code block, is taken at its word either way. **Not yet seen in
+a real `mason run`**: the slots, Implementer and kit are tested with stand-in
+agents.
+
+**Instead:** a summary of the tools an Attempt ran, taken from the agent's own
+stream (the Cursor slot already reads tools and skills out of it), kept in the
+trace for the History.
+
 ### F25 · A cancel during `submitted` leaves the pull request open
 
 `packages/host/runtime/src/loop/deliveries.ts` — `handleCancel`;

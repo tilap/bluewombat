@@ -176,10 +176,13 @@ inherits the environment).
 | `--definition-of-done` | The `--definition-of-done` given to Implementer                                                                                                  |
 | `--report`             | Previous Attempt's failure report (JSON `report` from that child's stdout), or `--report` given to Implementer. **Omitted** when neither exists. |
 | `--report-from`        | Present when a Gate produced that report.                                                                                                        |
+| `--history`            | Present from the second Attempt on: what the Task went through before this one, oldest first (§ History). |
 | `--context`            | Present when `--context` was given to Implementer.                                                                                               |
 
 Exit 0: the Builder finished its pass. Implementer does not inspect the
-workspace.
+workspace. Its stdout may carry one JSON object `{ "said": "…" }`, the
+producer's own last words; Implementer keeps it in the Attempt's trace
+(`builder.result.said`) and in the History, and reads nothing else from it.
 
 | What happened                                                     | Attempt `ended`      | `--report` on the next Builder, if any |
 | ----------------------------------------------------------------- | -------------------- | -------------------------------------- |
@@ -195,7 +198,26 @@ workspace.
 Exit 0 is completion; there is no `pass` object. Other fields are ignored.
 
 A Builder that cannot proceed returns `fail-blocking` with the reason in
-`report`.
+`report`. That ends the Task as `escalated` without another Attempt: the reason
+is what a person reads.
+
+### History
+
+The report a Builder receives is the latest word only, and the latest word can be
+a producer killed at its clock, which says nothing of why the Task is here. From
+the second Attempt on, Implementer also passes `--history`: the refusal the Task
+came with (`--report`, `--report-from`), then each Attempt in order. An Attempt
+reads as how its producer ended (finished, failed, killed at its time limit,
+could not start), what the producer said when it said anything, and each Gate's
+verdict with the report of those that refused. What a killed producer wrote is
+not repeated: it is noise, and the film of the run (Host's `observability.streams`)
+keeps it.
+
+The History is bounded (about 6 KiB; one report or answer at most 1.5 KiB). The
+refusal the Task came with and the latest Attempt always stay; when the rest does
+not fit, the oldest Attempts are left out and the History says how many. A Task
+that has not been through an Attempt has no History, and the argument is
+absent.
 
 ## 6. Gates
 
@@ -387,5 +409,8 @@ No partial validation. Implementer never deletes `--workspace`.
 9. Entering the Builder on Attempt 1 of `--max-attempts 3` announces `label` `building:attempt-1:3` on stdout, and via `--on-status` when that argument is set.
 10. `--on-status` exiting non-zero does not change a `validated` run.
 11. A `--repair-builder` Attempt is judged by `--repair-gate`'s list, not `--gate`'s, in both directions: a `--gate` that always refuses does not stop a repair Attempt with no `--repair-gate` of its own, and a `--repair-gate` that always refuses does stop one even when `--gate` is empty.
+12. A Task that came with a refusal, whose first Attempt's producer is killed at its clock → the second Attempt's `--history` names that refusal and its refuser, and says the first producer was killed at its time limit without repeating what it wrote; `--report` is still the latest word.
+13. A producer that exits 0 with `{ "said": "…" }` and a Gate that refuses → the next Attempt's `--history` carries what it said and the Gate's verdict and report.
+14. A first Attempt carries no `--history`.
 
 How to build and run this Transformer: [README.md](./README.md).
