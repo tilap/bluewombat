@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { emitVerdict, GATE_FLAGS, ownArgv } from "@bluewombat/slot-kit";
+import { emitVerdict, GATE_FLAGS, ownArgv, take } from "@bluewombat/slot-kit";
 
 // The work line's own checks, on the work this workspace published: GitHub
 // Actions' check runs, and the commit statuses CI outside Actions reports
@@ -20,6 +20,12 @@ import { emitVerdict, GATE_FLAGS, ownArgv } from "@bluewombat/slot-kit";
 //                        to it failed only at the first assembly of a real run
 //   --require-checks     wait for a check to appear; without it, a commit with no
 //                        check at all passes
+//
+// It also receives `--timeout-ms` from Implementer: the ceiling it will be
+// killed at. A Gate that waits on a CI it does not run must not wait to be cut
+// off: a kill reads as "refused", and a refusal sends the work to an agent that
+// has nothing to fix. Near that ceiling it says so itself, `fail-blocking`, with
+// what it was waiting for.
 
 // What the runner writes at the top of every step it runs.
 const STEP_OPEN = "##[group]Run ";
@@ -63,8 +69,10 @@ if (pull === undefined) {
   process.exit(0);
 }
 
-// Ask again until the answer settles. The ceiling is this Gate's own timeout:
-// reaching it ends the Attempt, and the next one asks from scratch.
+// Ask again until the answer settles, or until just before Implementer would
+// kill this Gate (`--timeout-ms`); without that flag, until it does.
+const startedAt = Date.now();
+const stopAt = stopTime(startedAt, take(process.argv, "--timeout-ms"));
 for (;;) {
   const checks = await readChecks(pull.sha);
   if (checks === undefined) {
@@ -77,16 +85,61 @@ for (;;) {
   }
   if (checks.total === 0 && options.requireChecks) {
     // Just after a push there is a window where the checks are not created
-    // yet, and an empty list then says nothing. Ask again; the Gate's timeout
-    // is what ends the wait on a commit no check ever picks up.
-    await sleep(options.pollMs);
+    // yet, and an empty list then says nothing. Ask again, until the wait
+    // runs out: a commit no check ever picks up is not a refusal of the work.
+    if (Date.now() >= stopAt) {
+      stopWaiting(pull, "no check has appeared");
+    }
+    await sleep(Math.min(options.pollMs, Math.max(0, stopAt - Date.now())));
     continue;
   }
   if (checks.running === 0) {
     emitVerdict("pass");
     process.exit(0);
   }
-  await sleep(options.pollMs);
+  if (Date.now() >= stopAt) {
+    stopWaiting(
+      pull,
+      `${checks.running} check${checks.running === 1 ? " was" : "s were"} still running`,
+    );
+  }
+  await sleep(Math.min(options.pollMs, Math.max(0, stopAt - Date.now())));
+}
+
+/**
+ * The moment to stop waiting: a margin before Implementer's ceiling (5 %, between
+ * 2 and 30 seconds, and at most half of it), so the verdict is out before the
+ * kill. `Infinity` when Implementer gave no ceiling.
+ *
+ * @param {number} from
+ * @param {string | undefined} raw
+ */
+function stopTime(from, raw) {
+  const ceiling = Number.parseInt(raw ?? "", 10);
+  if (!Number.isInteger(ceiling) || ceiling <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const margin = Math.min(Math.max(2_000, ceiling * 0.05), 30_000, ceiling / 2);
+  return from + ceiling - margin;
+}
+
+/**
+ * The CI did not answer. That says nothing of the work, and nothing the work
+ * could change: blocking, so a person reads it instead of an agent being sent
+ * to repair what was never judged.
+ *
+ * @param {{ number: number; sha: string }} pr
+ * @param {string} what
+ * @returns {never}
+ */
+function stopWaiting(pr, what) {
+  const seconds = Math.round((Date.now() - startedAt) / 1000);
+  const lasted = seconds >= 120 ? `${Math.round(seconds / 60)} min` : `${seconds} s`;
+  emitVerdict(
+    "fail-blocking",
+    `ci-green stopped waiting after ${lasted}: ${what} on ${pr.sha.slice(0, 7)} (pull request #${pr.number}). The CI did not answer in time; this is not a refusal of the work, and no change to it can make the CI answer.`,
+  );
+  process.exit(0);
 }
 
 /**

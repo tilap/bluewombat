@@ -233,7 +233,11 @@ describe("ci-green", () => {
   }
 
   /** The Gate, spawned without blocking: the fake GitHub lives in this process. */
-  function judge(cwd: string, base: string): Promise<{ verdict: string; report: string }> {
+  function judge(
+    cwd: string,
+    base: string,
+    extra: string[] = [],
+  ): Promise<{ verdict: string; report: string }> {
     return new Promise((resolve, reject) => {
       const child = spawn(
         node,
@@ -256,6 +260,7 @@ describe("ci-green", () => {
           "i",
           "--definition-of-done",
           "d",
+          ...extra,
         ],
         { cwd, env: { ...process.env, CI_GREEN_TEST_TOKEN: "t0ken" } },
       );
@@ -315,6 +320,56 @@ describe("ci-green", () => {
     try {
       assert.equal((await judge(onFeatureBranch(), github.base)).verdict, "pass");
       assert.ok(reads >= 3, `read ${reads} times`);
+    } finally {
+      github.close();
+    }
+  });
+
+  it("stops waiting for a check that never appears, and blocks instead of refusing", {
+    timeout: 20_000,
+  }, async () => {
+    // Seen when Vercel deployed fifty minutes late: no check at all, and the Gate
+    // waited to be killed. A kill reads as a refusal and sends the work to an agent
+    // with nothing to fix. With the ceiling it was given, it says so itself.
+    const github = await fakeGitHub([], () => []);
+    try {
+      const started = Date.now();
+      const result = await judge(onFeatureBranch(), github.base, ["--timeout-ms", "3000"]);
+      assert.equal(result.verdict, "fail-blocking");
+      assert.match(result.report, /stopped waiting after \d+ s: no check has appeared on abc/);
+      assert.match(result.report, /pull request #7/);
+      assert.match(result.report, /not a refusal of the work/);
+      assert.ok(Date.now() - started < 3_000, "out before the ceiling it was given");
+    } finally {
+      github.close();
+    }
+  });
+
+  it("stops waiting for checks that never finish, and says how many", {
+    timeout: 20_000,
+  }, async () => {
+    const github = await fakeGitHub([{ id: 1, name: "test", status: "in_progress" }], () => [
+      { context: "Vercel", state: "pending" },
+    ]);
+    try {
+      const result = await judge(onFeatureBranch(), github.base, ["--timeout-ms", "3000"]);
+      assert.equal(result.verdict, "fail-blocking");
+      assert.match(result.report, /2 checks were still running on abc/);
+    } finally {
+      github.close();
+    }
+  });
+
+  it("still refuses a failed check when it has a ceiling: that one has a reason", {
+    timeout: 20_000,
+  }, async () => {
+    const github = await fakeGitHub([], () => [
+      { context: "Vercel", state: "failure", description: "Build failed" },
+    ]);
+    try {
+      const result = await judge(onFeatureBranch(), github.base, ["--timeout-ms", "3000"]);
+      assert.equal(result.verdict, "fail-retryable");
+      assert.match(result.report, /^Vercel: failure\nBuild failed/);
     } finally {
       github.close();
     }

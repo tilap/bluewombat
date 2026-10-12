@@ -437,6 +437,23 @@ agents.
 stream (the Cursor slot already reads tools and skills out of it), kept in the
 trace for the History.
 
+### F34 · A CI that does not answer escalates to a person; nothing re-judges it later
+
+`packages/plugins/slots/gates/ci-green.mjs` — `stopWaiting`
+
+When no check appears, or checks stay running, until the Gate's ceiling, `ci-green`
+answers `fail-blocking`: the Feature is `escalated` with a clear reason and waits
+for a person (a `ready` label resumes it). That is honest, and it replaces a fix
+agent sent after nothing. It is also heavy for a CI that is only late: Vercel
+deployed about fifty minutes after the push on 2026-10-12, and an escalated Feature
+holds the queue of its project until someone acts. **Not yet seen in a real
+`mason run`**: tested with a stand-in GitHub.
+
+**Instead:** a third answer, "not judged", that leaves the Feature `submitted` and
+asks again on a later pass, with a budget, without a producer, and escalates only
+when the budget is spent. It changes Implementer and Conductor (a new verdict and
+a counter), which is why it was not done with this fix.
+
 ### F25 · A cancel during `submitted` leaves the pull request open
 
 `packages/host/runtime/src/loop/deliveries.ts` — `handleCancel`;

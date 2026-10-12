@@ -239,6 +239,7 @@ command. No `--report`: the Gate judges the workspace.
 | `--gate-id`            | This Gate's `id`                      |
 | `--intention`          | Same as the Builder                   |
 | `--definition-of-done` | Same as the Builder                   |
+| `--timeout-ms`         | The ceiling this Gate is killed at, in milliseconds. A Gate that waits on others (a CI) uses it to answer before the kill, because a kill reads as a refusal of the work |
 | `--stage`              | `unit` or `assembly` (default `unit`) |
 
 Stdout: one JSON object.

@@ -12,6 +12,7 @@ export const GATE_FLAGS: ReadonlySet<string> = new Set([
   "--gate-id",
   "--intention",
   "--definition-of-done",
+  "--timeout-ms",
   "--stage",
 ]);
 

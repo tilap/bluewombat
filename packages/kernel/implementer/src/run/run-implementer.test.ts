@@ -203,6 +203,22 @@ describe("runImplementer acceptance", () => {
     assert.deepEqual(argv.slice(-2), ["--stage", "assembly"]);
   });
 
+  it("2d. a Gate is told the ceiling it will be killed at", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: baseInvocation({
+        workspace: ws,
+        gates: [
+          { id: "echo", argv: [node, join(fixtures, "gate-echo-argv.mjs")], timeoutMs: 7_500 },
+        ],
+      }),
+      write: () => {},
+    });
+    assert.equal(result.outcome, "validated");
+    const argv = JSON.parse(readFileSync(join(ws, "gate-argv.json"), "utf8")) as string[];
+    assert.equal(argv[argv.indexOf("--timeout-ms") + 1], "7500");
+  });
+
   it("3. a Gate that passed on Attempt 1 runs again on Attempt 2", async () => {
     const ws = workspace();
     const track = join(fixtures, "gate-track-and-retry.mjs");

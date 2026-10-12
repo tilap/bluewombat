@@ -446,7 +446,7 @@ the work in front of the checks did that before the Gate ran; a workspace
 with nothing published is `fail-blocking`, because no Attempt of that Task
 can change it.
 
-It waits while checks are running, so give it a ceiling of its own. On a red
+It waits while checks are running, so give it a ceiling of its own (the Gate's `timeoutMs`, which Implementer passes to it as `--timeout-ms`). A CI that does not answer is not a refusal of the work: a Gate killed by its clock reads as one, and a refusal sends the work to a producer with nothing to fix. So a few seconds before the ceiling, with no check yet or checks still running, `ci-green` answers `fail-blocking` itself, saying what it was waiting for and for how long, and a person reads it. A check that failed still refuses at once, with its reason. On a red
 check the report carries the failing job's log, cut at the error the runner
 marked — a check name and the word "failure" tell the next Attempt nothing it
 can act on. Right after a push the checks may not be created yet, and an empty

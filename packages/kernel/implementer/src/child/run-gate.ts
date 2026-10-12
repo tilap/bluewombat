@@ -31,6 +31,10 @@ export async function runGate(input: {
     invocation.intention,
     "--definition-of-done",
     invocation.definitionOfDone,
+    // A Gate that waits on others needs to know when it will be killed, to say
+    // it did not get an answer instead of being cut off without a word.
+    "--timeout-ms",
+    String(timeoutMs),
     "--stage",
     invocation.stage ?? "unit",
   ];
