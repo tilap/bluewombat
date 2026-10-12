@@ -197,4 +197,47 @@ describe("agent passes written short", () => {
     assert.equal(bare.loaded.ok, false);
     assert.match(bare.loaded.ok ? "" : bare.loaded.reason, /needs an "adapter"/);
   });
+
+  it("passes the environment variables and denied commands an agent names to its adapter", () => {
+    const { loaded } = load({
+      agents: {
+        cursor: {
+          ...cursorAgent,
+          passEnv: ["DATABASE_URL", "AUTH_SECRET"],
+          denyShell: ["gh", "vercel"],
+        },
+      },
+      planner: { agent: "cursor", prompt: "./prompts/planner.md", timeoutMs: 600000 },
+    });
+    assert.equal(loaded.ok, true);
+    const cmd = loaded.ok ? (loaded.invocation.planner?.cmd ?? []) : [];
+    const at = cmd.indexOf("--api-key-env");
+    assert.deepEqual(cmd.slice(at, at + 10), [
+      "--api-key-env",
+      "CURSOR_API_KEY",
+      "--pass-env",
+      "DATABASE_URL",
+      "--pass-env",
+      "AUTH_SECRET",
+      "--deny-shell",
+      "gh",
+      "--deny-shell",
+      "vercel",
+    ]);
+  });
+
+  it("refuses passEnv and denyShell on an agent that is not isolated, or that is not a list of strings", () => {
+    const open = load({ agents: { cursor: { adapter: "cursor", passEnv: ["A"] } } });
+    assert.equal(open.loaded.ok, false);
+    assert.match(open.loaded.ok ? "" : open.loaded.reason, /passEnv.*isolated agent/);
+    const openDeny = load({ agents: { cursor: { adapter: "cursor", denyShell: ["gh"] } } });
+    assert.equal(openDeny.loaded.ok, false);
+    assert.match(openDeny.loaded.ok ? "" : openDeny.loaded.reason, /denyShell.*isolated agent/);
+    const wrong = load({ agents: { cursor: { ...cursorAgent, passEnv: "A" } } });
+    assert.equal(wrong.loaded.ok, false);
+    assert.match(
+      wrong.loaded.ok ? "" : wrong.loaded.reason,
+      /passEnv" must be an array of strings/,
+    );
+  });
 });

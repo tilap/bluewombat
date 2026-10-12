@@ -378,6 +378,43 @@ gain (two to three Integrations a run) is expected, not observed.
 on the Child's tree) so a collision is snapshotted too, and handle gitlinks
 explicitly.
 
+### F32 · Agent isolation lowers a risk; it does not confine the agent
+
+`packages/plugins/slots/agents/cursor.mjs` — `isolatedVendorEnv`,
+`denyShellCommands`; `packages/host/runtime/src/config/agent-shorthand.ts`
+
+The agent runs as the operator, with `--force` and the vendor sandbox off. What
+this change does: a short environment (no `MASON_GITHUB_TOKEN`, no
+`SSH_AUTH_SOCK`), git's credential helpers cleared, and `Shell(ssh)`,
+`Shell(scp)` plus the commands a Project lists in `agents.<name>.denyShell`
+(`gh`, `security`, `vercel`…) denied in the vendor's own config, rewritten every
+pass. Nothing else is denied unless the Project lists it. What it does not do:
+
+- **The deny list is names.** `python -c`, `node -e`, `env gh`, an absolute path
+  to the binary: not tried, not promised. Under `--force` the vendor honoured
+  `Shell(gh)` and `Shell(curl)` in one run each, on 2026-10-12.
+- **The operator's files stay readable.** In S3 a repair read the Mason config
+  (`mason.config.yaml`) from outside its workspace and used what it found.
+  `Read(...)` denials do not cover shell commands (measured).
+- **The login keychain is still there.** `gh` reaches it whatever `HOME` is; only
+  a `denyShell` entry for `gh` (and `security` on macOS) stands between an agent
+  and that account, and it is the Project that has to write it.
+- **`CURSOR_API_KEY` is visible to the agent**; the vendor needs it.
+- **A Project's own environment is gone** unless it lists it (`passEnv`): a
+  build that needed `AUTH_SECRET` from the operator's shell now fails in the
+  agent, as it would in CI.
+- **Claude** is not isolated (C23) and gets none of this.
+- **Not yet seen in a real `mason run`**: unit tests use a stand-in vendor; one
+  run of the adapter against the real `cursor-agent` (2026-10-12) started with the
+  short environment, had `gh` refused, and saw neither `MASON_GITHUB_TOKEN` nor
+  `SSH_AUTH_SOCK`. A pass with `pnpm`, git and the project's checks is the open part.
+
+**Instead:** run the agents in a container or as another OS user, with only the
+workspace mounted and a network limited to GitHub, the vendor API and the
+registry. Independent of that, give `MASON_GITHUB_TOKEN` the fewest rights
+(contents and pull requests on one repository) and protect `main` with required
+checks.
+
 ### F25 · A cancel during `submitted` leaves the pull request open
 
 `packages/host/runtime/src/loop/deliveries.ts` — `handleCancel`;

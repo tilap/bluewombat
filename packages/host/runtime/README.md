@@ -219,6 +219,8 @@ agents:
     adapter: cursor                 # or claude, or the path of an agent wrapper
     home: ./.mason/agent-home       # with apiKeyEnv: isolate the vendor (Cursor only)
     apiKeyEnv: CURSOR_API_KEY
+    passEnv: []                     # operator variables the agent also gets; it otherwise has a short list
+    denyShell: []                   # commands refused to the agent, e.g. [gh, vercel]; ssh and scp always are
     transcripts: ./.mason/transcripts
     pluginsOut: ./.mason/plugins    # where deck profiles are built
 planner:

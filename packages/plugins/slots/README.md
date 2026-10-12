@@ -95,7 +95,13 @@ or `--report`. A role slot after `--` is what names one:
 `cursor.mjs` needs `cursor-agent` on PATH. Without `--agent-home` it uses the
 CLI's own login (`cursor-agent login`). With `--agent-home DIR` and
 `--api-key-env NAME` the vendor process gets that directory as `HOME` and
-`CURSOR_API_KEY` from `NAME`; the value never appears on the argv. `claude.mjs`
+`CURSOR_API_KEY` from `NAME`; the value never appears on the argv. It also gets
+a short environment (`PATH`, locale, proxy and certificate variables and a few
+others, plus the names given with `--pass-env`), not the operator's whole
+shell; git's credential helpers are cleared for it; and `ssh`, `scp` plus the
+commands given with `--deny-shell` are denied in its own `cli-config.json`,
+rewritten every run. That
+lowers a risk and confines nothing (RESERVATIONS F32). `claude.mjs`
 needs `claude`, signed in once, and refuses those two flags: Claude is not
 isolated yet, and starting it would keep the operator's own config.
 
@@ -112,6 +118,8 @@ isolated yet, and starting it would keep the operator's own config.
 | `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                          |
 | `--agent-home DIR`                 | Isolate the vendor process: its `HOME` is this directory. Cursor only; Claude refuses |
 | `--api-key-env NAME`               | With `--agent-home`, read `process.env[NAME]` for the vendor key. Never the value itself |
+| `--pass-env NAME`                  | With `--agent-home`, also hand the vendor this environment variable. Repeatable |
+| `--deny-shell NAME`                | With `--agent-home`, also refuse this command to the vendor (`gh`, `vercel`…). `ssh` and `scp` always are. Repeatable |
 | `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first |
 | `--profile NAME`                   | The project's deck profile for this role, read in the working directory. Cursor only; Claude refuses |
 | `--plugins-out DIR`                | Where `--profile` is built, one folder per profile. Required with `--profile`; never the workspace |
