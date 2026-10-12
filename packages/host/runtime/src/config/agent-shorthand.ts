@@ -44,6 +44,8 @@ const AGENT_KEYS = new Set([
   "model",
   "home",
   "apiKeyEnv",
+  "passEnv",
+  "denyShell",
   "transcripts",
   "pluginsOut",
   "args",
@@ -59,6 +61,8 @@ export type AgentDecl = {
   model?: string;
   home?: string;
   apiKeyEnv?: string;
+  passEnv: string[];
+  denyShell: string[];
   transcripts?: string;
   pluginsOut?: string;
   args: string[];
@@ -117,12 +121,33 @@ export function readAgents(value: unknown, configDir: string): Read<Map<string, 
     if (args.ok === false) {
       return args;
     }
+    const passEnv = stringList(object.passEnv, `${key}.passEnv`);
+    if (passEnv.ok === false) {
+      return passEnv;
+    }
+    const denyShell = stringList(object.denyShell, `${key}.denyShell`);
+    if (denyShell.ok === false) {
+      return denyShell;
+    }
+    for (const [field, list] of [
+      ["passEnv", passEnv.value],
+      ["denyShell", denyShell.value],
+    ] as const) {
+      if (list.length > 0 && fields.home === undefined) {
+        return {
+          ok: false,
+          reason: `Config "${key}.${field}" only applies to an isolated agent: set "home" and "apiKeyEnv".`,
+        };
+      }
+    }
     const at = (path: string | undefined) =>
       path === undefined ? undefined : resolve(configDir, path);
     const decl: AgentDecl = {
       adapter: ADAPTERS.has(adapter)
         ? resolve(configDir, SLOTS_PACKAGE, "agents", `${adapter}.mjs`)
         : resolve(configDir, adapter),
+      passEnv: passEnv.value,
+      denyShell: denyShell.value,
       args: args.value,
     };
     // A binary named bare is looked up on PATH; one written as a path is next to the config.
@@ -231,6 +256,12 @@ export function expandAgentPass(
   }
   if (agent.home !== undefined && agent.apiKeyEnv !== undefined) {
     argv.push("--agent-home", agent.home, "--api-key-env", agent.apiKeyEnv);
+    for (const name of agent.passEnv) {
+      argv.push("--pass-env", name);
+    }
+    for (const name of agent.denyShell) {
+      argv.push("--deny-shell", name);
+    }
   }
   for (const dir of plugins.value) {
     argv.push("--plugin-dir", resolve(configDir, dir));

@@ -285,6 +285,137 @@ process.stdout.write(${JSON.stringify(body)});
     assert.equal(argv.includes("test-key-not-real"), false);
   });
 
+  function isolatedRun(
+    cwd: string,
+    parentHome: string,
+    extraArgs: string[],
+    extraEnv: Record<string, string>,
+  ) {
+    return spawnSync(
+      node,
+      [
+        cursor,
+        "--bin",
+        agentEchoArgv,
+        "--prompt",
+        "hi",
+        "--agent-home",
+        join(cwd, "agent-home"),
+        "--api-key-env",
+        "MASON_TEST_AGENT_KEY",
+        ...extraArgs,
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        env: parentEnv(parentHome, { MASON_TEST_AGENT_KEY: "test-key-not-real", ...extraEnv }),
+      },
+    );
+  }
+
+  it("hands the vendor a short environment, not the operator's", () => {
+    const cwd = sandbox();
+    const result = isolatedRun(cwd, sandbox(), [], {
+      LANG: "C.UTF-8",
+      SSH_AUTH_SOCK: "/tmp/operator-agent.sock",
+      MASON_TEST_SECRET: "operator-token",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const env = readPickedEnv(cwd);
+    assert.equal(env.LANG, "C.UTF-8");
+    assert.equal(env.PATH, process.env.PATH);
+    assert.equal(env.SSH_AUTH_SOCK, undefined);
+    assert.equal(env.MASON_TEST_SECRET, undefined);
+  });
+
+  it("--pass-env hands the vendor one more variable, and refuses a name that is not one", () => {
+    const cwd = sandbox();
+    const passed = isolatedRun(cwd, sandbox(), ["--pass-env", "MASON_TEST_PASS"], {
+      MASON_TEST_PASS: "wanted",
+      MASON_TEST_SECRET: "operator-token",
+    });
+    assert.equal(passed.status, 0, passed.stderr);
+    const env = readPickedEnv(cwd);
+    assert.equal(env.MASON_TEST_PASS, "wanted");
+    assert.equal(env.MASON_TEST_SECRET, undefined);
+
+    const other = sandbox();
+    const refused = isolatedRun(other, sandbox(), ["--pass-env", "not a name"], {});
+    assert.notEqual(refused.status, 0);
+    assert.match((JSON.parse(refused.stdout.trim()) as { error: string }).error, /--pass-env/);
+    assert.equal(existsSync(join(other, "argv.json")), false);
+  });
+
+  it("clears the operator's git credential helpers for the vendor", () => {
+    const cwd = sandbox();
+    const result = isolatedRun(cwd, sandbox(), [], {});
+    assert.equal(result.status, 0, result.stderr);
+    const env = readPickedEnv(cwd);
+    assert.equal(env.GIT_CONFIG_COUNT, "1");
+    assert.equal(env.GIT_CONFIG_KEY_0, "credential.helper");
+    assert.equal(env.GIT_CONFIG_VALUE_0, "");
+    assert.equal(env.GIT_TERMINAL_PROMPT, "0");
+  });
+
+  it("denies the credential-carrying tools in the vendor's config, keeping what else is there", () => {
+    const cwd = sandbox();
+    const configFile = join(cwd, "agent-home", ".cursor", "cli-config.json");
+    mkdirSync(dirname(configFile), { recursive: true });
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        version: 7,
+        model: "kept",
+        permissions: { allow: ["Shell(ls)"], deny: ["Shell(rm)"] },
+      }),
+    );
+    for (const _ of [1, 2]) {
+      const result = isolatedRun(cwd, sandbox(), [], {});
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const config = JSON.parse(readFileSync(configFile, "utf8")) as {
+      version: number;
+      model: string;
+      permissions: { allow: string[]; deny: string[] };
+    };
+    assert.equal(config.version, 7);
+    assert.equal(config.model, "kept");
+    assert.deepEqual(config.permissions.allow, ["Shell(ls)"]);
+    assert.deepEqual(config.permissions.deny, ["Shell(rm)", "Shell(ssh)", "Shell(scp)"]);
+  });
+
+  it("--deny-shell adds the Project's own commands, and refuses a name that is not one", () => {
+    const cwd = sandbox();
+    const added = isolatedRun(cwd, sandbox(), ["--deny-shell", "gh", "--deny-shell", "vercel"], {});
+    assert.equal(added.status, 0, added.stderr);
+    const config = JSON.parse(
+      readFileSync(join(cwd, "agent-home", ".cursor", "cli-config.json"), "utf8"),
+    ) as { permissions: { deny: string[] } };
+    assert.deepEqual(config.permissions.deny, [
+      "Shell(ssh)",
+      "Shell(scp)",
+      "Shell(gh)",
+      "Shell(vercel)",
+    ]);
+
+    const other = sandbox();
+    const refused = isolatedRun(other, sandbox(), ["--deny-shell", "gh;rm"], {});
+    assert.notEqual(refused.status, 0);
+    assert.match((JSON.parse(refused.stdout.trim()) as { error: string }).error, /--deny-shell/);
+    assert.equal(existsSync(join(other, "argv.json")), false);
+  });
+
+  it("writes the denials when the vendor has no config yet", () => {
+    const cwd = sandbox();
+    const result = isolatedRun(cwd, sandbox(), [], {});
+    assert.equal(result.status, 0, result.stderr);
+    const config = JSON.parse(
+      readFileSync(join(cwd, "agent-home", ".cursor", "cli-config.json"), "utf8"),
+    ) as { permissions: { allow: string[]; deny: string[] } };
+    assert.deepEqual(config.permissions.allow, []);
+    assert.deepEqual(config.permissions.deny, ["Shell(ssh)", "Shell(scp)"]);
+  });
+
   it("omits git and corepack redirects when the parent has neither", () => {
     const cwd = sandbox();
     const parentHome = sandbox();

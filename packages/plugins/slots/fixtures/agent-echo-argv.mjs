@@ -11,6 +11,14 @@ const PICKED = [
   "COREPACK_HOME",
   "GIT_CONFIG_GLOBAL",
   "npm_config_cache",
+  "LANG",
+  "SSH_AUTH_SOCK",
+  "MASON_TEST_SECRET",
+  "MASON_TEST_PASS",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_KEY_0",
+  "GIT_CONFIG_VALUE_0",
+  "GIT_TERMINAL_PROMPT",
 ];
 const env = {};
 for (const key of PICKED) {

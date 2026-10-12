@@ -117,6 +117,8 @@ export const AGENT_OPTIONS: OptionSpec = {
   "--agent-arg": { many: true },
   "--agent-home": {},
   "--api-key-env": {},
+  "--pass-env": { many: true },
+  "--deny-shell": { many: true },
   "--plugin-dir": { many: true },
   "--profile": {},
   "--plugins-out": {},
