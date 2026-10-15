@@ -17,7 +17,7 @@ import { resolve } from "node:path";
  *     node <slots>/agents/cursor.mjs --transcript-dir … --agent-home … --api-key-env …
  *       --plugin-dir <core> --profile builder --plugins-out …
  *
- * The expansion is the whole feature: nothing downstream knows a pass was
+ * The expansion is the whole ticket: nothing downstream knows a pass was
  * written short, so `cmd` stays the one shape the rest of Host reads, and a
  * pass that needs something the short form cannot say still writes `cmd`.
  */
@@ -27,7 +27,6 @@ const SLOTS_PACKAGE = "node_modules/@bluewombat/slots";
 
 /** The shipped role slot behind each pass that drives an agent. */
 export const ROLE_SCRIPTS = {
-  planner: "planners/producer.mjs",
   "builder.producer": "builders/producer.mjs",
   "builder.repair": "builders/repair.mjs",
   "assembly.fix": "assembly/fix.mjs",
@@ -211,10 +210,6 @@ export function expandAgentPass(
   if (rules.ok === false) {
     return rules;
   }
-  const read = pathField(object, "read", key, configDir);
-  if (read.ok === false) {
-    return read;
-  }
   const plugins = stringList(object.plugins, `${key}.plugins`);
   if (plugins.ok === false) {
     return plugins;
@@ -240,9 +235,6 @@ export function expandAgentPass(
   }
   if (rules.value !== undefined) {
     argv.push("--rules-file", rules.value);
-  }
-  if (read.value !== undefined) {
-    argv.push("--read", read.value);
   }
   argv.push("--", "node", agent.adapter);
   if (agent.bin !== undefined) {

@@ -175,17 +175,23 @@ describe("gitReference copy", () => {
     }
   });
 
-  it("reports a copy on another branch as a mismatch", async () => {
+  it("matches a copy on another branch: the Refresher moves it", async () => {
     const { remote, root } = remoteWith();
     const copy = join(root, "copy");
     const made = await parsedOrFail({ remote, branch: "main" }).materialize(copy);
     assert.equal(made.ok, true);
     execFileSync("git", ["checkout", "-b", "elsewhere"], { cwd: copy });
+    assert.deepEqual(parsedOrFail({ remote, branch: "main" }).inspect(copy), { kind: "matches" });
+  });
+
+  it("reports a detached HEAD as a mismatch", async () => {
+    const { remote, root } = remoteWith();
+    const copy = join(root, "copy");
+    const made = await parsedOrFail({ remote, branch: "main" }).materialize(copy);
+    assert.equal(made.ok, true);
+    execFileSync("git", ["checkout", "--detach"], { cwd: copy });
     const state = parsedOrFail({ remote, branch: "main" }).inspect(copy);
     assert.equal(state.kind, "mismatch");
-    if (state.kind === "mismatch") {
-      assert.match(state.reason, /on "elsewhere", not "main"/);
-    }
   });
 
   it("treats .git and a trailing slash as the same remote", async () => {

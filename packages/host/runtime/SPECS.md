@@ -1,11 +1,11 @@
 # Host
 
 The composition root, not a Transformer. It is the process you run: Cursor, admission,
-Conductor, report. It is not a FeatureStandard transformer and it is not a
+Conductor, report. It is not a TicketStandard transformer and it is not a
 sequencer — Conductor sequences; this package calls it.
 
-Host does not know a tracker. It resolves one FeatureManager package, hands it
-the options it never reads, and drives the `ManagerPort` that package returns.
+Host does not know a tracker. It resolves one TicketTracker package, hands it
+the options it never reads, and drives the `Manager` (a FeatureTracker and a TicketTracker) that package returns.
 Adding GitLab or Jira changes nothing here.
 
 ## 1. Job
@@ -19,7 +19,7 @@ Adding GitLab or Jira changes nothing here.
     persist)                     no longer lists                     Publisher / Refresher slots
   the work line copy           refresh the work line copy
                                one Delivery at a time:
-                                 admit / ready / cancel,
+                                 admit / resume / cancel,
                                  reconcile, drive, report,
                                  save Cursor
                                sweep: drive what is in flight
@@ -29,7 +29,7 @@ Adding GitLab or Jira changes nothing here.
 
 **In:** WorkLineStable, how to isolate and fold it (`workLine.isolation`),
 workspace root, ledger root, a manager specifier and its opaque options,
-Planner / Builder / Gate argv.
+Builder / Gate argv.
 **Out:** a typed result. The CLI maps that to an exit code.
 
 ## 2. Faces
@@ -37,12 +37,12 @@ Planner / Builder / Gate argv.
 | Face   | Entry                                                                                 | Must not                                      |
 | ------ | ------------------------------------------------------------------------------------- | --------------------------------------------- |
 | Import | `openHost(options)` then `runOnce` / `run`                                            | Live inside Conductor `src/run/`              |
-| CLI    | `mason run \| watch \| status \| log \| cancel \| release \| init \| setup \| doctor` | Interpret a FeatureStandard; pick Child paths |
+| CLI    | `mason run \| watch \| status \| log \| cancel \| release \| init \| setup \| doctor` | Interpret a TicketStandard; pick Child paths |
 
 `src/loop/` is the process: `open-host.ts` opens packages (composition),
 `tick.ts` runs the listen / probe / Cursor / sweep loop, `deliveries.ts` handles one
-Delivery, `drive.ts` runs one Project and reports on the Feature that ran,
-`report.ts` maps Conductor outcomes to FeatureManager Events,
+Delivery, `drive.ts` runs one Project and reports on the Ticket that ran,
+`report.ts` maps Conductor outcomes to TicketTracker Events,
 `journal.ts` and `trace.ts` are its film and its stdout. `loop/` may import
 Transformer packages: this package **is** the composition root for the
 execution Transformers. Conductor still must not. Host must not import a
@@ -55,11 +55,11 @@ import rule between them are in [README.md](./README.md) § Layers.
 `mason.config.yaml`, found by walking up from the working directory, or the
 file `--config` names. Relative paths in the file resolve against the file;
 relative paths in a flag resolve against the working directory. Flags override
-the file. `--manager-option key=value` merges per key, so overriding one option
+the file. `--feature-tracker-option key=value` (and `--ticket-tracker-option`) merges per key, so overriding one option
 does not drop the others; a repeated key becomes an array.
 
 Host validates only its own keys, against a closed list: an unknown key is a
-refusal, not something ignored. `managerOptions` is copied through untouched:
+refusal, not something ignored. Each side's `options` is copied through untouched:
 a tracker's fields are that package's business, and its errors are that
 package's words.
 
@@ -71,7 +71,7 @@ See § 8.
 
 ## 4. Loading a manager
 
-`manager` is a package name or a path. Resolution imports the bare specifier
+`featureTracker.package` and `ticketTracker.package` are each a package name or a path. The two sides may name the same package or two different ones: a package asked for a side it does not answer is refused by name. One package with the same options on both sides is built once. `doctor` and `setup` run each distinct manager once; the reference work line is named by the ticket tracker, which holds the Authority. Resolution imports the bare specifier
 first — mason and its managers installed side by side in one project — then
 walks up from the config file's directory, which covers a global `mason`
 driving a locally installed manager. A module without `createManager` is
@@ -95,41 +95,68 @@ not losing an Event.
 
 ## 6. One Delivery
 
+The FeatureTracker's `listen` delivers Features whose specification is final.
 `adapt` first. Then:
 
-| Adapter                                     | Host                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid` (new, or the intention changed)   | `recordInvalid`, emit `invalid`                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `invalid` (same fingerprint as recorded)    | leave it; the tracker was told, and telling it is what delivered it again                                                                                                                                                                                                                                                                                                                                                                            |
-| `upsert` (new/invalid)                      | `admit`, emit `accepted`, then `runProject` when the Project is free; a Project frozen by an escalation queues the Feature (journal `queued`, one `progress` Event) and the sweep starts it once the Project is free. Post-run Events (`planned` / `done` / `escalated`) are reported on the Feature that was driven, not on the delivered key. `progress` (once per refusal) when the Authority sent the Submission back and a repair is on its way |
-| `upsert` (in-flight / terminal)             | leave it; do not restart. In-flight is `planning`, `running`, `escalated`, `integrating`, `submitted`; terminal is `merging`, `done`, `cancelled`. An echo of a Host report (Submitted, a progress comment) is this row: do not admit it                                                                                                                                                                                                             |
-| `upsert` (`received`)                       | same drive as a new upsert (no second `accepted`)                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `upsert` + `signalsReady` while `escalated` | same as `ready` — a poll snapshot has no `labeled` edge                                                                                                                                                                                                                                                                                                                                                                                              |
-| `ready`                                     | `resumeReady`, emit `resumed`, `runProject`, then the same post-run Events                                                                                                                                                                                                                                                                                                                                                                           |
-| `cancel`                                    | `conductor.cancel`. `cancelled`, or `reject_late` when the ledger says point of no return; nothing on `done` (the issue closing is the Submission's own doing) or `cancelled`                                                                                                                                                                                                                                                                        |
-| `unavailable` / interrupt                   | stop the tick                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Adapter                                     | Host                                                                                                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid` (new, or the intention changed)   | emit `invalid` on the Feature, keyed by fingerprint                                                                                                                                                                 |
+| `invalid` (same fingerprint as recorded)    | leave it; the tracker was told, and telling it is what delivered it again                                                                                                                                           |
+| `upsert` (absent or `waiting`)              | `admitFeature`, emit `accepted`. Nothing is driven here: the sweep does it                                                                                                                                          |
+| `upsert` (any other state)                  | leave it; journal `skipped`. An echo of a Host report is this row                                                                                                                                                   |
+| `upsert` + `signalsResume` while `escalated` | same as `resume` — a poll snapshot has no `labeled` edge                                                                                                                                                             |
+| `resume`                                     | resume the Feature, emit `resumed`                                                                                                                                                                                  |
+| `cancel`                                    | `cancelFeatureFlow`: the Tickets not done are cancelled, the line is dropped, the Project is free                                                                                                                    |
+| `unavailable` / interrupt                   | stop the tick                                                                                                                                                                                                       |
 
-`runProject` is always preceded by `reconcile` on that Project. Host never
-drives an `escalated` Feature: that state is frozen until a human `ready`.
+A Ticket is never delivered: the sweep reads the Tickets of the open Feature
+from the TicketTracker (`tickets`). A `resume` on an escalated Ticket, an edit of
+a Ticket not yet started, a Ticket closed on the tracker are read there
+(`syncTickets`) and acted on the same way as for a Feature. A Ticket in flight is
+not admitted again on each pass; only a `received` Ticket whose fingerprint
+changed is.
+
+### The sweep: one Feature per Project
+
+Every pass, each Project with a `waiting`, `open` or `submitted` Feature is
+advanced (`advanceProject`):
+
+1. No active Feature: open the next one that may. A Feature may open when every
+   Feature blocking it is `done`, and every one of its Tickets
+   (`tickets`) is `task_ready`. Order: priority, then age. The Feature is then
+   `open`: with an Authority, its line `feature/<id>` is cut from the final
+   branch (`openLine`); the Tickets are admitted with their Feature and their
+   blockers.
+2. `open`: the work line copy is refreshed onto the line, then Tickets are
+   driven one at a time (a Ticket whose blockers are not `done` is skipped; the
+   next by priority then age is taken). Each Ticket's Submission targets the line. When every Ticket
+   is `done` or `cancelled` the Feature is closed: the line goes to the
+   Authority (`submit`). With no Authority the Feature is `done` at once.
+3. `submitted`: the Feature waits. Without `merge-when-ready` a human folds it;
+   `settled` says `folded` (done) or `closed` (escalated). With
+   `merge-when-ready` the assembly judgement runs on the line and the Authority
+   folds it. No other Feature opens on the Project meanwhile.
+4. A Feature whose Tickets are all blocked escalates; one that cannot be
+   settled because the Authority lacks `settled` waits.
+
+Host never drives an `escalated` unit: that state is frozen until a human `resume`.
 
 Every Event Host emits is a write to the tracker, and a tracker that lists by
 "last updated" delivers the intention again on the next pass because of that
 write. No row above may emit on that echo: `invalid` is keyed by fingerprint,
 `accepted` by the ledger not knowing the key (or knowing it `invalid`), the
-queued `progress` by `eventId`, the post-run Events by the Feature that was
-driven, `resumed` by taking the signal back, `cancelled` by the ledger
-refusing a second cancel, an in-flight Feature (including `submitted`) by
+post-run Events by the Ticket that was driven, `resumed` by taking the signal back, `cancelled` by the ledger
+refusing a second cancel, an in-flight Ticket (including `submitted`) by
 leaving the upsert.
 
 On top of that, every Event that states a fact carries an `eventId`, so a
 manager that already has it says nothing — after a restart as much as within
 a pass. The id names the fact: `<key>:accepted:<fingerprint>` and
-`<key>:invalid:<fingerprint>` (an edit is a new fact), `<key>:planned:<planned_at>`,
-`<key>:integrated:<subtask>`, `<key>:submitted:<reference>`,
-`<key>:refused:<n>`, `<key>:queued:<blocker>`, `<key>:resumed:<round>`,
-`<key>:escalated:<round>:<kind>[:<subtask>]`, `<key>:done`,
+`<key>:invalid:<fingerprint>` (an edit is a new fact), `<key>:submitted:<reference>`,
+`<key>:refused:<n>`, `<key>:resumed:<round>`,
+`<key>:escalated:<round>:<kind>`, `<key>:done`,
 `<key>:cancelled`, `<key>:reject_late:…`. The round is the ledger's count of
-`ready` taken: a Plan refused, resumed and refused again has the same Attempt
+`resume` taken: an escalation resumed and escalated again has the same Attempt
 count both times, and only the round tells the two escalations apart.
 `escalation_reminder` alone would carry none, repetition being its point.
 
@@ -147,7 +174,7 @@ than waited for; the Transformer then answers `interrupted`. `mason run` exits
 
 Each pass appends JSON lines to `<ledgerRoot>/events.jsonl` (listen, probed,
 Transformer progress, admitted, reported, queued, idle, a heartbeat while
-`submitted`, one `held` while a Subtask waits on a bail that has not expired).
+`submitted`, one `held` while a unit waits on a bail that has not expired).
 Every report to the tracker is filmed with how long it took (`ms`): `reported`
 when the manager took it (including a Thread that already carried that eventId
 — a duplicate is already said), `report-declined` when it failed. That file is
@@ -156,7 +183,7 @@ the ledger is still right. `mason run` still writes a human Trace on stdout.
 The journal is how another process attaches.
 
 An offer the work could not get past is journaled `submit-refused`, with the
-Feature's `key`, `by` (`publisher` when the work could not be placed,
+Ticket's `key`, `by` (`publisher` when the work could not be placed,
 `authority` when the Authority would not open a Submission) and the refuser's
 own `reason`. The same reason becomes the escalation's Trace; the line is so
 `mason log --problems` and a watcher see why a run stopped, not only that it
@@ -164,32 +191,28 @@ did.
 
 After listen, if the manager declares `probe` and the listen reached the source
 (`completed`, `listened` — not `source-lost` / `interrupted` / `invalid-invocation`),
-Host asks `probe` of every Feature abandon is still legal for (`received`,
-`planning`, `running`, `escalated`, `integrating`, `submitted`). `gone` is the
+Host asks the FeatureTracker's `probe` of every Feature, and the
+TicketTracker's of every Ticket, abandon is still legal for. `gone` is the
 same abandon as a `cancel` delivery, so a deleted item a poll can never list
 still frees the Project; `unavailable` is not abandon. Probe runs before the
 work-line refresh and the deliveries, so a cancel in this pass can start the
 `received` queue on a copy that was just fast-forwarded.
 
-The sweep after the deliveries drives every Project that has work in flight
-**or** `received`, once per tick. The result is reported on the Feature that
-was driven. A `received` Feature behind an escalation is journaled `queued`
-and left; the next sweep that finds the Project free claims it. The same set
-(`in-flight ∪ received`) decides whether this pass refreshes the work line
-copy: starting a queued Feature on a copy that was not fast-forwarded this
-tick would build on a version that no longer exists.
+The sweep after the deliveries advances every Project that has a `waiting`,
+`open` or `submitted` Feature, once per tick (§ 6). The result is reported on
+the Ticket that was driven. The work line copy is refreshed onto the Feature's
+line before a Ticket starts: starting on a copy that was not fast-forwarded
+would build on a version that no longer exists.
 
 ## 8. init, setup, doctor, watch, status, log, cancel and release
 
-`init` writes a config that already runs: the Planner is the bootstrap one from
-`@bluewombat/slots/planners/`, the Builder is a stub that says what to replace
+`init` writes a config that already runs: the Builder is a stub that says what to replace
 (example Cursor CLI and Claude Code Builders live in `@bluewombat/slots/builders/`),
 and the Gate sequence starts empty. Example Gates live in
 `@bluewombat/slots/gates/` (`parent-clean`, `sensitive-path`,
 `workspace-changed`, `ci-green`).
 
-Five independent Gate sequences, one per role — `planner.gates`,
-`builder.producer.gates`, `builder.repair.gates`, `assembly.fix.gates`,
+Four independent Gate sequences, one per role — `builder.producer.gates`, `builder.repair.gates`, `assembly.fix.gates`,
 `assembly.validate.gates` — plus `assembly.gates` for the one judgement-only
 pass with no producer of its own. No sequence is shared and nothing is
 dispatched between buckets: a check that is right for one pass can be wrong
@@ -242,13 +265,13 @@ re-cloned. `init` then runs `setup` and offers to apply it, so nothing has to be
 re-run by hand.
 
 A flag is read by the same question that would have asked for it, so
-`--manager-option labels=mason` lands in the config in the shape a typed answer
+`--manager-option repo=owner/name` lands in the config in the shape a typed answer
 would, and a malformed one is refused before anything is written. The setup plan
 that follows never decides `init`'s exit code: it wrote its files, and
 `mason init && mason setup --apply` must not stop because a token is not
 exported yet.
 
-`--manager` turns every question off, which is what a script wants;
+`--manager` (one package for both sides; the config is where they are told apart) turns every question off, which is what a script wants;
 `--interactive` forces them when stdin is a pipe. Overwriting an existing config
 needs `--force`, or a yes to the question. Ctrl-C, Ctrl-D, or a pipe running dry
 stops on the spot with `Cancelled. Nothing written.` and exit 130 — a read after
@@ -278,12 +301,12 @@ the manager, the ledger root — and closes it with `host-stopped` before the lo
 is released. A journal holds every run that ever wrote to that ledger, and
 without these a reader cannot tell one process's film from the next, nor a run
 that ended from one whose process was killed: the missing `host-stopped` is how
-the second is said. Every line about a Task also carries the Feature it serves,
-as `key`; a line that names a Task and no Feature is a line nothing can join.
+the second is said. Every line about a Task also carries the Ticket it serves,
+as `key`; a line that names a Task and no Ticket is a line nothing can join.
 
 `observability.streams` films what every child says, as it says it: the
-producers, the Gates, the Planner. One file per child under
-`<dir>/<feature>/<task>-attempt-<n>[-gate-<id>]-<stamp>.ndjson`, one JSON object
+producers and the Gates. One file per child under
+`<dir>/<ticket>/<task>-attempt-<n>[-gate-<id>]-<stamp>.ndjson`, one JSON object
 per chunk with its own stamp and which stream it came from, filed under the same
 directory name a transcript uses. Each file is named in the journal by a
 `stream-opened` line, so nothing has to rebuild the path. `dir` resolves against
@@ -300,7 +323,7 @@ killed for writing past its output bound is filmed up to the kill: the bound
 protects Host's memory, and that child is the one worth having a film of.
 
 A film says what it held as it closes — `stream-closed` with the bytes, the
-chunks and the milliseconds — and a Feature that reaches `done` or `cancelled`
+chunks and the milliseconds — and a Ticket that reaches `done` or `cancelled`
 has its films removed, which the journal records as `streams-discarded` with the
 count and the size. An escalation keeps everything: that is the outcome where
 somebody has to go and look. Nothing prunes transcripts.
@@ -313,7 +336,7 @@ poll. A `listen` that did not complete is never held and never hidden.
 `watch` and `status` are the operator live view. They open the ledger the same
 way `run` does (`openFilesystemPersist` then `openWorkLedger`) and they do not
 open a manager, Conductor, or Host. `status` prints a snapshot of every known
-Feature and exits. `watch` prints that snapshot, then follows new journal lines
+Ticket and exits. `watch` prints that snapshot, then follows new journal lines
 until SIGINT (exit 0). A missing journal is not an error: the snapshot still
 stands. `--json` prints the snapshot as JSON. Ctrl-C on watch leaves the worker
 running. The file can grow without rotation. A followed line that records a
@@ -327,15 +350,13 @@ are hidden. `--all` keeps them. `--problems` keeps only lines that explain a
 stop. `--tail N` keeps the last N of the text film (0 means no limit). `--json`
 prints every kept line, and when `--tail` is also passed and drops lines the
 object names `kept` and `shown`. After the text film it tallies the distinct
-problems. A `result` is counted with the exit code of the `planner-finished`
-just before it. A run that then pauses, with no exit code, is tallied as
-`interrupted`, apart from a non-zero exit that left the same detail. When a
+problems, each stop once with how many times it happened. When a
 slot was given `--transcript-dir` it names the newest transcript files with
 the agent exit and duration read from the start of each file. A missing
 journal is not an error. Exit 2 when the config or `--tail` cannot be read.
 
-`cancel <key>` abandons one Feature the same way a `cancel` delivery does. The
-team still abandons in the FeatureManager; this is the hatch when the tracker
+`cancel <key>` abandons one Ticket the same way a `cancel` delivery does. The
+team still abandons in the TicketTracker; this is the hatch when the tracker
 cannot say the intention is gone (a manager with no `probe`, or an operator
 who already knows) and the ledger would otherwise freeze the Project. It
 takes the ledger lock — stop `run` first if it holds it. Exit 0 on cancel or
@@ -343,26 +364,26 @@ already cancelled, 1 when abandon is refused (`done`, point of no return), 2
 when the key is missing or the ledger does not know it. The key is the first
 positional: `cancel github:owner/name#19`.
 
-`release <key>` drops a held Subtask (or a Feature still in `planning`) without
-waiting for the bail clock — the hatch after a crash left nobody on the work.
-A clean stop releases itself. It takes the ledger lock — stop `run` first if
-it holds it. Exit 0 when the Subtask was released or the Feature was already
-free, 1 when the Feature is past `planning` / `running` (the state is named),
+`release <key>` drops a held unit without waiting for the bail clock — the
+hatch after a crash left nobody on the work. A clean stop releases itself. It
+takes the ledger lock — stop `run` first if it holds it. Exit 0 when the unit
+was released or the Ticket was already free, 1 when the Ticket is not
+`running` (the state is named),
 2 when the key is missing or the ledger does not know it. The key is the first
 positional: `release github:owner/name#19`.
 
 ## 9. Acceptance
 
 1. Convertible upsert in an empty Source → WorkLineStable carries the Builder
-   marker, Thread `accepted`, `planned`, `done`, Cursor is that file name.
+   marker, Thread `accepted`, `done`, Cursor is that file name.
 2. Unconvertible upsert → Thread `invalid`, no Conductor work, Cursor advanced.
-3. Fail-blocking Gate, then a `ready` Event, then passing Gates → Thread
+3. Fail-blocking Gate, then a `resume` Event, then passing Gates → Thread
    contains `escalated` then `resumed` then `done`.
 4. `cancel` while `escalated` → Thread `cancelled`; WorkLineStable seed-only.
 5. Re-running `runOnce` with the saved Cursor does not re-deliver the first Event.
 6. GitHub: convertible issue (mocked API) → WorkLineStable marker, comments
-   `accepted`, `planned`, `done`.
-7. GitHub: fail-blocking then the same issue with the ready label → `escalated`,
+   `accepted`, `done`.
+7. GitHub: fail-blocking then the same issue with the resume label → `escalated`,
    `resumed`, `done`.
 8. A manager named by path, and one named by package, both load; a module without
    `createManager` is refused by name.
@@ -378,26 +399,24 @@ positional: `release github:owner/name#19`.
     does not appear; `listInFlight()` is the mid-flight subset.
 14. A Transformer `status` line and a `gate-finished` line during `runProject`
     appear in `<ledgerRoot>/events.jsonl`.
-15. `watch` on a ledger with Features and no journal prints the snapshot,
-    including a `submitted` Feature's reference, and exits 0 on interrupt. It
+15. `watch` on a ledger with Tickets and no journal prints the snapshot,
+    including a `submitted` Ticket's reference, and exits 0 on interrupt. It
     does not import `openHost` or a manager package.
-16. Two Features on one Project, the first `escalated`: admitting the second
-    emits `accepted` and one `progress` (queued), not `escalated`; the second
-    stays `received`. Cancelling the first in a later pass starts the second.
-    A `submitted` Feature that reaches `done` while a second is delivered
-    reports `done` on the first.
-17. After an escalation, a `probe` of `gone` cancels that Feature and the sweep
-    starts the `received` queue in the same pass. `unavailable` leaves the
+16. Two Features on one Project: the second does not open while the first is
+    open, escalated or submitted. A Feature blocked by another does not open
+    until it is `done`. A Feature whose Tickets are not all `task-ready` does
+    not open.
+17. After an escalation, a `probe` of `gone` cancels that Ticket (or Feature)
+    and the sweep goes on. `unavailable` leaves the
     escalation. A listen that missed the source does not probe. GitHub: a 404
     on `GET /issues/{n}` after a completed listen cancels, even when the
-    listing is empty. `cancel <key>` abandons an escalated Feature.
-18. A Feature `submitted`, then the same upsert delivered again, then the
+    listing is empty. `cancel <key>` abandons an escalated Ticket.
+18. A Ticket `submitted`, then the same upsert delivered again, then the
     Authority refuses: Host skips the echo, records no `pending_fingerprint`,
-    and the next pass repairs. It does not escalate as a plan refusal.
+    and the next pass repairs. It does not escalate as an edited intention.
 19. `log` on a journal that recorded `unavailable` with a `detail` prints that
     detail, hides `idle`, and `--problems` drops the phase labels that are not
-    themselves the failure. `--json` returns every kept line. A paused run
-    with no planner exit code is tallied apart from a non-zero exit. It does
+    themselves the failure. `--json` returns every kept line. It does
     not import `openHost`.
 
 How to install, configure and run: [README.md](./README.md).

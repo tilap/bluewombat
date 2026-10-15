@@ -7,12 +7,7 @@ import { fileURLToPath } from "node:url";
 const srcRoot = dirname(fileURLToPath(import.meta.url));
 const importFrom = /from\s+["']([^"']+)["']/g;
 
-const forbidden = [
-  "@bluewombat/isolator",
-  "@bluewombat/implementer",
-  "@bluewombat/integrator",
-  "@bluewombat/feature-breakdown",
-];
+const forbidden = ["@bluewombat/isolator", "@bluewombat/implementer", "@bluewombat/integrator"];
 
 async function productionFiles(relativeDir: string): Promise<string[]> {
   const dir = join(srcRoot, relativeDir);

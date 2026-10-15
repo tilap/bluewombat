@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /**
- * The product's name is written in one source file and nowhere else:
+ * Names are written in one source file and nowhere else:
  *
- *   packages/host/manager-kit/src/product.ts  PRODUCT — Host and every manager read it
+ *   packages/host/manager-kit/src/product.ts
+ *     PRODUCT                  messages, labels, the `<name>-manager` keyword
+ *     CLI_NAME                 the runtime binary
+ *     DEFAULT_CONFIG_FILENAME  the config file written and looked up without --config
+ *     HOME_DIR                 the home directory
  *
- * Every package.json `bin` must be that word, and a `<name>-manager` keyword
- * must use it. Tests, fixtures and docs may say the name; they are not what a
+ * The product word (PRODUCT) must not be spelled in any other source file.
+ * The runtime `bin` must be CLI_NAME. A `<name>-manager` keyword still uses
+ * PRODUCT. Tests, fixtures and docs may say the name; they are not what a
  * rename has to catch. A branch is named after the item it works on, never
- * after the tool: `REF_PREFIX` in isolation-git is not the product's name.
+ * after the tool: `REF_PREFIX` in isolation-git is not one of these names.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -31,6 +36,7 @@ function constant(file, pattern) {
 }
 
 const product = constant(PRODUCT_FILE, /export const PRODUCT = "([a-z][a-z0-9-]*)";/);
+const cliName = constant(PRODUCT_FILE, /export const CLI_NAME = "([a-z][a-z0-9-]*)";/);
 
 const sources = readdirSync(join(ROOT, "packages"), { recursive: true })
   .filter((name) => /\.(ts|mjs)$/.test(name))
@@ -60,8 +66,8 @@ for (const dir of readdirSync(join(ROOT, "packages"), { withFileTypes: true, rec
   const path = join(dir.parentPath, "package.json");
   const manifest = JSON.parse(readFileSync(path, "utf8"));
   for (const bin of Object.keys(manifest.bin ?? {})) {
-    if (manifest.name.endsWith("/runtime") && bin !== product) {
-      fail(`${relative(ROOT, path)}: bin is "${bin}", PRODUCT is "${product}"`);
+    if (manifest.name.endsWith("/runtime") && cliName !== undefined && bin !== cliName) {
+      fail(`${relative(ROOT, path)}: bin is "${bin}", CLI_NAME is "${cliName}"`);
     }
   }
   for (const keyword of manifest.keywords ?? []) {

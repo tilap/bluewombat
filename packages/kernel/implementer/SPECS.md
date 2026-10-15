@@ -13,7 +13,7 @@ empty), and loops Attempts until the run is validated, escalated, or
 interrupted.
 
 The workspace is the only place files belong: that is where the Builder writes.
-Intention, definition of done, reports, bounds — arguments, never files.
+Intention, reports, bounds — arguments, never files.
 
 Stack and binary layout: [README.md](./README.md).
 
@@ -43,7 +43,6 @@ not read configuration from the workspace.
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `--id`                        | Task id. Copied onto every Trace.                                                                                           |
 | `--intention`                 | Passed through to Builder and Gates. Implementer does not interpret it.                                                     |
-| `--definition-of-done`        | Passed through to Builder and Gates. Implementer does not evaluate it.                                                      |
 | `--workspace`                 | Absolute path. Must already exist. Working directory of Builder and Gates. The only directory this process treats as files. |
 | `--builder -- <argv…>`        | Builder command. Non-empty. **May be omitted**: an Attempt is then its Gate sequence alone, and nothing is produced.        |
 | `--builder-timeout-ms`        | Positive integer. **Required.** Wall clock of one producer run. Nothing else bounds it.                                     |
@@ -173,7 +172,6 @@ inherits the environment).
 | `--id`                 | Task id                                                                                                                                          |
 | `--attempt`            | Attempt number, decimal                                                                                                                          |
 | `--intention`          | The `--intention` given to Implementer                                                                                                           |
-| `--definition-of-done` | The `--definition-of-done` given to Implementer                                                                                                  |
 | `--report`             | Previous Attempt's failure report (JSON `report` from that child's stdout), or `--report` given to Implementer. **Omitted** when neither exists. |
 | `--report-from`        | Present when a Gate produced that report.                                                                                                        |
 | `--history`            | Present from the second Attempt on: what the Task went through before this one, oldest first (§ History). |
@@ -238,7 +236,6 @@ command. No `--report`: the Gate judges the workspace.
 | `--attempt`            | Attempt number, decimal               |
 | `--gate-id`            | This Gate's `id`                      |
 | `--intention`          | Same as the Builder                   |
-| `--definition-of-done` | Same as the Builder                   |
 | `--timeout-ms`         | The ceiling this Gate is killed at, in milliseconds. A Gate that waits on others (a CI) uses it to answer before the kill, because a kill reads as a refusal of the work |
 | `--stage`              | `unit` or `assembly` (default `unit`) |
 
@@ -337,7 +334,7 @@ What an Attempt leaves so the result can be understood without replaying.
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `task_id` | From `--id`.                                                                                                                                        |
 | `attempt` | Number, from 1.                                                                                                                                     |
-| `builder` | Input (intention, definition of done, previous `--report` if any) and result (completed / failed / timed out / interrupted / refused, plus detail). |
+| `builder` | Input (intention, previous `--report` if any) and result (completed / failed / timed out / interrupted / refused, plus detail). |
 | `gates`   | One entry per Gate **that ran**, in order: `id`, verdict, report. Gates not reached are absent.                                                     |
 | `ended`   | `validated`, `fail-retryable`, `fail-blocking`, or `interrupted`.                                                                                   |
 
@@ -362,8 +359,8 @@ lines rebuild the Trace.
 Each line carries `task_id`, `attempt` when an Attempt exists, and enough
 to rebuild the Trace without reading the workspace. When `--context` was given,
 every line — `status` included — also carries it as `key`: a Task id names the
-unit of work and not the feature it serves, and a reader holding `s1` alone
-cannot say which feature that was. Nothing is invented: no `--context`, no `key`.
+unit of work and not the ticket it serves, and a reader holding `s1` alone
+cannot say which ticket that was. Nothing is invented: no `--context`, no `key`.
 
 ### Filming a child
 

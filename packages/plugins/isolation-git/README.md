@@ -8,7 +8,7 @@ import { branchNameOf, strategy } from "@bluewombat/isolation-git";
 // strategy.isolation → Isolator
 // strategy.fold → Integrator
 // strategy.refOf(id) → issue/<item>, what the Authority hands the Publisher:
-//   issue/9 for github:owner/repo#9, issue/9-s1 for its Subtask s1,
+//   issue/9 for github:owner/repo#9,
 //   issue/<slug of the id> for an id in any other shape, cut at 80 with a
 //   7-hex digest of the whole id when it was cut
 // branchNameOf(id) → the same, for anyone holding an id

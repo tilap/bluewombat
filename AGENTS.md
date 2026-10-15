@@ -36,12 +36,11 @@ answer your question, and open only those. Do not load the whole `docs/` set.
 | Implementer Transformer specification                               | `packages/kernel/implementer/SPECS.md`                                                                                                 |
 | Isolator Transformer specification                                  | `packages/kernel/isolator/SPECS.md`                                                                                                    |
 | Integrator Transformer specification                                | `packages/kernel/integrator/SPECS.md`                                                                                                  |
-| FeatureBreakdown Transformer specification                          | `packages/kernel/feature-breakdown/SPECS.md`                                                                                           |
 | Transformer contract (all of them)                                  | `packages/kernel/README.md` (§ Transformers)                                                                                           |
 | WorkLedger specification                                            | `packages/kernel/work-ledger/SPECS.md`                                                                                                 |
 | Conductor specification                                             | `packages/kernel/conductor/SPECS.md`                                                                                                   |
 | Host specification                                                  | `packages/host/runtime/SPECS.md`                                                                                                       |
-| Planner / Builder / Gate contract                                   | `packages/host/slot-kit/README.md`; the behaviour is in the caller's SPECS                                                             |
+| Builder / Gate contract                                   | `packages/host/slot-kit/README.md`; the behaviour is in the caller's SPECS                                                             |
 
 Project-specific conventions (design, domain rules): `.cursor/rules/` and `CLAUDE.md`
 when present — they override generic defaults.

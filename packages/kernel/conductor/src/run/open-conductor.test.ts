@@ -1,21 +1,27 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { PersistencePort } from "@bluewombat/work-ledger";
 import {
-  type FeatureAdmission,
-  type FeatureAggregate,
-  type FeatureSummary,
+  type Aggregate,
+  isFeatureAggregate,
   openWorkLedger,
+  type Summary,
+  type TicketAdmission,
+  type TicketSummary,
 } from "@bluewombat/work-ledger";
 import type { AuthorityPort, ImplementResult, TransformerPort } from "../transformers/port.js";
 import { type ConductorMoment, openConductor } from "./open-conductor.js";
-import { featureWorkspacePath, subtaskWorkspacePath } from "./paths.js";
+import { ticketWorkspacePath } from "./paths.js";
 
-function toSummary(aggregate: FeatureAggregate): FeatureSummary {
-  const summary: FeatureSummary = {
+function toSummary(stored: Aggregate): Summary {
+  if (isFeatureAggregate(stored)) {
+    throw new Error("a Feature is not stored by these tests");
+  }
+  const aggregate = stored;
+  const summary: TicketSummary = {
     key: aggregate.intention.key,
     project: aggregate.intention.project,
     state: aggregate.state,
@@ -29,7 +35,7 @@ function toSummary(aggregate: FeatureAggregate): FeatureSummary {
 }
 
 function openMemoryPersist(): PersistencePort {
-  const store = new Map<string, FeatureAggregate>();
+  const store = new Map<string, Aggregate>();
   return {
     async load(key) {
       const found = store.get(key);
@@ -45,7 +51,7 @@ function openMemoryPersist(): PersistencePort {
   };
 }
 
-function feature(over: Partial<FeatureAdmission> = {}): FeatureAdmission {
+function ticket(over: Partial<TicketAdmission> = {}): TicketAdmission {
   return {
     key: "fake:42",
     project: "proj",
@@ -68,21 +74,6 @@ function recordingTransformers(over: Partial<TransformerPort> = {}): {
       calls.push({ op: "isolate", id: input.id, parent: input.parent, child: input.child });
       mkdirSync(input.child, { recursive: true });
       return { outcome: "isolated" };
-    },
-    async breakDown() {
-      calls.push({ op: "breakDown" });
-      return {
-        outcome: "planned",
-        plannedAt: "2026-01-01T00:00:00.000Z",
-        subtasks: [
-          {
-            id: "A",
-            intention: "first",
-            definition_of_done: "A done",
-            depends_on: [],
-          },
-        ],
-      };
     },
     async implement(input) {
       calls.push({ op: "implement", id: input.id, workspace: input.workspace });
@@ -108,11 +99,11 @@ function tempPair(): { stable: string; root: string } {
 }
 
 describe("openConductor", () => {
-  it("1. claims and records the Plan before any isolate", async () => {
+  it("1. isolates the Ticket's workspace before the Builder runs", async () => {
     const { stable, root } = tempPair();
     const { transformers, calls } = recordingTransformers();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const conductor = openConductor({
       ledger,
       transformers,
@@ -122,27 +113,22 @@ describe("openConductor", () => {
     const result = await conductor.runProject("proj");
     assert.equal(result.outcome, "done");
     const ops = calls.map((c) => c.op);
-    assert.equal(ops.indexOf("breakDown") < ops.indexOf("isolate"), true);
-    assert.equal(ops[0], "breakDown");
+    assert.equal(ops[0], "isolate");
+    assert.equal(ops[1], "implement");
   });
 
   it("2. declareWorkspace is recorded before isolate of that path", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
-    const featurePath = featureWorkspacePath(root, "fake:42");
-    const subtaskPath = subtaskWorkspacePath(root, "fake:42", "A");
-    let featureDeclared = false;
-    let subtaskDeclared = false;
+    await ledger.admit(ticket());
+    const ticketPath = ticketWorkspacePath(root, "fake:42");
+    let declared = false;
     const { transformers } = recordingTransformers({
       async isolate(input) {
         const got = await ledger.get("fake:42");
         assert.equal(got.ok, true);
-        if (input.child === featurePath) {
-          featureDeclared = got.ok && got.aggregate.workspaces?.feature === featurePath;
-        }
-        if (input.child === subtaskPath) {
-          subtaskDeclared = got.ok && got.aggregate.workspaces?.subtask === subtaskPath;
+        if (input.child === ticketPath) {
+          declared = got.ok && got.aggregate.workspace === ticketPath;
         }
         mkdirSync(input.child, { recursive: true });
         return { outcome: "isolated" };
@@ -155,15 +141,14 @@ describe("openConductor", () => {
       workspaceRoot: root,
     });
     await conductor.runProject("proj");
-    assert.equal(featureDeclared, true);
-    assert.equal(subtaskDeclared, true);
+    assert.equal(declared, true);
   });
 
-  it("3. happy path: two isolates, three integrates, Subtask then judgement", async () => {
+  it("3. happy path: one isolate, the unit then the judgement, two integrates", async () => {
     const { stable, root } = tempPair();
     const { transformers, calls } = recordingTransformers();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const conductor = openConductor({
       ledger,
       transformers,
@@ -174,24 +159,27 @@ describe("openConductor", () => {
     assert.deepEqual(result, { outcome: "done", key: "fake:42" });
     const got = await ledger.get("fake:42");
     assert.equal(got.ok && got.aggregate.state, "done");
-    assert.equal(calls.filter((c) => c.op === "isolate").length, 2);
-    assert.equal(calls.filter((c) => c.op === "integrate").length, 3);
-    // The Subtask produces; the assembled feature is judged and makes nothing.
+    assert.equal(calls.filter((c) => c.op === "isolate").length, 1);
+    // Aligning with the work line takes up what the Builder made; the last fold
+    // lands it.
+    assert.equal(calls.filter((c) => c.op === "integrate").length, 2);
+    // The unit produces; the assembled work is judged and makes nothing.
     // With no Authority that judgement is the only one it gets.
     const implements_ = calls.filter((c) => c.op === "implement");
     assert.equal(implements_.length, 2);
+    assert.equal(implements_[0]?.id, "fake:42");
     assert.equal(implements_[1]?.id, "fake:42:judgement");
   });
 
-  it("4. breakdown refused escalates and never isolates", async () => {
+  it("4. a failed Isolation refuses, holds no lease and never runs the Builder", async () => {
     const { stable, root } = tempPair();
     const { transformers, calls } = recordingTransformers({
-      async breakDown() {
-        return { outcome: "refused", code: "empty-plan", reason: "none" };
+      async isolate() {
+        return { outcome: "failed" };
       },
     });
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const conductor = openConductor({
       ledger,
       transformers,
@@ -199,21 +187,23 @@ describe("openConductor", () => {
       workspaceRoot: root,
     });
     const result = await conductor.runProject("proj");
-    assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
+    assert.deepEqual(result, { outcome: "refused", code: "isolate-failed" });
     assert.equal(
-      calls.some((c) => c.op === "isolate"),
+      calls.some((c) => c.op === "implement"),
       false,
     );
     const got = await ledger.get("fake:42");
-    assert.equal(got.ok && got.aggregate.state, "escalated");
+    assert.equal(got.ok && got.aggregate.state, "running");
+    assert.equal(got.ok && got.aggregate.bail, undefined);
+    assert.equal(got.ok && got.aggregate.attempts_used, 0);
   });
 
-  it("5. implement escalated records attempts and keeps the child", async () => {
+  it("5. implement escalated records attempts and keeps the workspace", async () => {
     const { stable, root } = tempPair();
-    const subtaskPath = subtaskWorkspacePath(root, "fake:42", "A");
+    const ticketPath = ticketWorkspacePath(root, "fake:42");
     const { transformers, calls } = recordingTransformers({
       async implement(input): Promise<ImplementResult> {
-        if (input.id === "A") {
+        if (input.id === "fake:42") {
           return {
             outcome: "escalated",
             traces: [{ ended: "fail-blocking", report: "lint failed", refusedBy: "lint" }],
@@ -223,7 +213,7 @@ describe("openConductor", () => {
       },
     });
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const conductor = openConductor({
       ledger,
       transformers,
@@ -233,58 +223,64 @@ describe("openConductor", () => {
     const result = await conductor.runProject("proj");
     assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
     assert.equal(
-      calls.some((c) => c.op === "integrate" && c.id === "A"),
+      calls.some((c) => c.op === "integrate"),
       false,
     );
-    assert.equal(existsSync(subtaskPath), true);
+    assert.equal(existsSync(ticketPath), true);
     const got = await ledger.get("fake:42");
     assert.equal(got.ok && got.aggregate.attempts.length, 1);
     assert.equal(got.ok && got.aggregate.attempts[0]?.trace?.ended, "fail-blocking");
     assert.equal(got.ok && got.aggregate.attempts[0]?.trace?.report, "lint failed");
     assert.equal(got.ok && got.aggregate.attempts[0]?.trace?.refusedBy, "lint");
+    assert.equal(got.ok && got.aggregate.escalation?.kind, "unit");
     // The escalation carries the reason itself: a reader of the ledger is not
-    // sent back to the attempts to learn why the feature froze.
+    // sent back to the attempts to learn why the Ticket froze.
     assert.equal(got.ok && got.aggregate.escalation?.report, "lint: lint failed");
   });
 
-  it("6. subtask integrate conflict escalates and keeps the child", async () => {
+  it("6. a resumed unit starts over in a fresh workspace", async () => {
     const { stable, root } = tempPair();
-    const subtaskPath = subtaskWorkspacePath(root, "fake:42", "A");
+    const ticketPath = ticketWorkspacePath(root, "fake:42");
+    let implementations = 0;
     const { transformers } = recordingTransformers({
-      async integrate(input) {
-        if (input.id === "A") {
-          return { outcome: "conflict" };
+      async implement(input): Promise<ImplementResult> {
+        if (input.id === "fake:42") {
+          implementations += 1;
+          if (implementations === 1) {
+            writeFileSync(join(ticketPath, "half-done.txt"), "x");
+            return {
+              outcome: "escalated",
+              traces: [{ ended: "fail-blocking", report: "no", refusedBy: "lint" }],
+            };
+          }
+          assert.equal(existsSync(join(ticketPath, "half-done.txt")), false);
         }
-        return { outcome: "integrated" };
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
       },
     });
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const conductor = openConductor({
       ledger,
       transformers,
       workLineStable: stable,
       workspaceRoot: root,
     });
-    const result = await conductor.runProject("proj");
-    assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
-    assert.equal(existsSync(subtaskPath), true);
-    const got = await ledger.get("fake:42");
-    assert.equal(
-      got.ok && got.aggregate.escalation?.report,
-      "Folding A into the feature hit a conflict.",
-    );
+    assert.equal((await conductor.runProject("proj")).outcome, "escalated");
+    assert.deepEqual(await ledger.resumeTicket("fake:42"), { ok: true });
+    assert.equal((await conductor.runProject("proj")).outcome, "done");
+    assert.equal(implementations, 2);
   });
 
   it("7. cancel of running destroys workspaces; cancel after merging is point-of-no-return", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const box: { pause?: () => void } = {};
     const { transformers } = recordingTransformers({
       async isolate(input) {
         mkdirSync(input.child, { recursive: true });
-        if (input.child.endsWith("/feature")) {
+        if (input.child.endsWith("/ticket")) {
           box.pause?.();
         }
         return { outcome: "isolated" };
@@ -298,16 +294,16 @@ describe("openConductor", () => {
     });
     box.pause = () => conductor.pause();
     await conductor.runProject("proj");
-    const featurePath = featureWorkspacePath(root, "fake:42");
-    assert.equal(existsSync(featurePath), true);
+    const ticketPath = ticketWorkspacePath(root, "fake:42");
+    assert.equal(existsSync(ticketPath), true);
     const cancelled = await conductor.cancel("fake:42");
     assert.deepEqual(cancelled, { ok: true });
-    assert.equal(existsSync(featurePath), false);
+    assert.equal(existsSync(ticketPath), false);
     const got = await ledger.get("fake:42");
     assert.equal(got.ok && got.aggregate.state, "cancelled");
 
     const ledger2 = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger2.admit(feature({ key: "fake:merge" }));
+    await ledger2.admit(ticket({ key: "fake:merge" }));
     const { transformers: transformers2 } = recordingTransformers();
     const conductor2 = openConductor({
       ledger: ledger2,
@@ -322,23 +318,14 @@ describe("openConductor", () => {
     assert.deepEqual(tooLate, { ok: false, code: "point-of-no-return" });
   });
 
-  it("7b. a feature declared under an earlier layout keeps its workspace, and its kept Subtask is replaced", async () => {
+  it("7b. a workspace declared elsewhere keeps its path, and the unit is made there", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
-    // How workspaces were named before: encodeURIComponent of the key.
-    const legacyFeature = join(root, "fake%3A42", "feature");
-    const legacySubtask = join(root, "fake%3A42", "subtask-A");
-    for (const dir of [legacyFeature, legacySubtask]) {
-      mkdirSync(dir, { recursive: true });
-    }
-    writeFileSync(join(legacyFeature, "work.txt"), "kept");
-    writeFileSync(join(legacySubtask, "stale.txt"), "gone");
-    await ledger.declareWorkspace({
-      key: "fake:42",
-      feature: legacyFeature,
-      subtask: legacySubtask,
-    });
+    await ledger.admit(ticket());
+    const declaredPath = join(root, "elsewhere", "work");
+    mkdirSync(declaredPath, { recursive: true });
+    writeFileSync(join(declaredPath, "stale.txt"), "gone");
+    await ledger.declareWorkspace({ key: "fake:42", path: declaredPath });
     const { transformers, calls } = recordingTransformers();
     const offered: string[] = [];
     const authority: AuthorityPort = {
@@ -359,17 +346,15 @@ describe("openConductor", () => {
     });
     await conductor.runProject("proj");
 
-    const featureAsked = featureWorkspacePath(root, "fake:42");
-    assert.notEqual(featureAsked, legacyFeature);
-    assert.equal(existsSync(featureAsked), false, "no second feature workspace is made");
-    assert.equal(readFileSync(join(legacyFeature, "work.txt"), "utf8"), "kept");
+    const asked = ticketWorkspacePath(root, "fake:42");
+    assert.equal(existsSync(asked), false, "no second workspace is made");
     const isolations = calls.filter((c) => c.op === "isolate");
-    assert.ok(isolations.every((c) => c.child !== featureAsked));
-    const subtaskIsolation = isolations.find((c) => c.id === "fake:42:A");
-    assert.equal(subtaskIsolation?.parent, legacyFeature);
-    assert.equal(subtaskIsolation?.child, subtaskWorkspacePath(root, "fake:42", "A"));
-    assert.equal(existsSync(legacySubtask), false, "the kept Subtask at the old path is replaced");
-    assert.deepEqual(offered, [legacyFeature], "the Authority is told where the work is");
+    assert.deepEqual(
+      isolations.map((c) => c.child),
+      [declaredPath],
+    );
+    assert.equal(existsSync(join(declaredPath, "stale.txt")), false, "what was there is replaced");
+    assert.deepEqual(offered, [declaredPath], "the Authority is told where the work is");
   });
 
   it("8. reconcile destroys undeclared directories under workspaceRoot, never WorkLineStable", async () => {
@@ -389,15 +374,15 @@ describe("openConductor", () => {
     assert.equal(existsSync(join(stable, "seed.txt")), true);
   });
 
-  it("9. pause after feature isolate skips startSubtask", async () => {
+  it("9. pause after isolate skips the Builder", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const box: { pause?: () => void } = {};
     const { transformers, calls } = recordingTransformers({
       async isolate(input) {
         mkdirSync(input.child, { recursive: true });
-        if (input.child.endsWith("/feature")) {
+        if (input.child.endsWith("/ticket")) {
           box.pause?.();
         }
         return { outcome: "isolated" };
@@ -413,7 +398,7 @@ describe("openConductor", () => {
     const result = await conductor.runProject("proj");
     assert.equal(result.outcome, "paused");
     assert.equal(
-      calls.some((c) => c.op === "implement" && c.id === "A"),
+      calls.some((c) => c.op === "implement"),
       false,
     );
     const got = await ledger.get("fake:42");
@@ -433,10 +418,10 @@ describe("openConductor", () => {
     };
   }
 
-  it("offers the assembled feature instead of folding it itself", async () => {
+  it("offers the assembled ticket instead of folding it itself", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers, calls } = recordingTransformers();
     const acted: string[] = [];
     const conductor = openConductor({
@@ -458,10 +443,29 @@ describe("openConductor", () => {
     assert.equal(calls.filter((c) => c.op === "integrate" && c.parent === stable).length, 0);
   });
 
+  it("offers a Ticket to the line it names, not the Project's", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket({ line: "feature/7" }));
+    const { transformers } = recordingTransformers();
+    const acted: string[] = [];
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: actingAuthority(acted),
+      workLineTarget: "dev",
+    });
+
+    await conductor.runProject("proj");
+    assert.deepEqual(acted, ["submit fake:42 -> feature/7"]);
+  });
+
   it("keeps the Publisher's reason when the first offer is refused", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers } = recordingTransformers();
     const authority: AuthorityPort = {
       async submit() {
@@ -493,7 +497,7 @@ describe("openConductor", () => {
   it("judges what was published with Gates, and folds only on their word", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const judged: string[] = [];
     const { transformers, calls } = recordingTransformers({
       async implement(input) {
@@ -523,7 +527,7 @@ describe("openConductor", () => {
   it("sends a Gate's refusal into the next round, on the same Submission", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const reports: (string | undefined)[] = [];
     let refuse = true;
     const { transformers } = recordingTransformers({
@@ -568,7 +572,7 @@ describe("openConductor", () => {
   it("produces the repair before the Integration that takes it up", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const order: string[] = [];
     let refuse = true;
     const { transformers } = recordingTransformers({
@@ -618,7 +622,7 @@ describe("openConductor", () => {
   it("escalates on a blocking refusal without spending a round", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers } = recordingTransformers({
       async implement(input) {
         if (input.id.endsWith(":judgement")) {
@@ -653,7 +657,7 @@ describe("openConductor", () => {
   it("escalates when the work has been sent back too often", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers } = recordingTransformers({
       async implement(input) {
         if (input.id.endsWith(":judgement")) {
@@ -684,14 +688,14 @@ describe("openConductor", () => {
     assert.ok(got.ok);
     assert.equal(got.aggregate.escalation?.kind, "submitted");
     // The refusal that stopped it is never recorded as one, so without this the
-    // person who reads the escalation is told a Feature is frozen and no more.
+    // person who reads the escalation is told a Ticket is frozen and no more.
     assert.match(got.aggregate.escalation?.report ?? "", /still red/);
   });
 
   it("tells the repair which check refused it", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const from: (string | undefined)[] = [];
     let refuse = true;
     const { transformers } = recordingTransformers({
@@ -728,10 +732,10 @@ describe("openConductor", () => {
     assert.deepEqual(from, ["ci-green"]);
   });
 
-  it("says an assembly escalated, not one of its Subtasks", async () => {
+  it("says an assembly escalated, not the unit", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers } = recordingTransformers({
       async implement(input) {
         if (input.id.endsWith(":assembly") || input.id.endsWith(":judgement")) {
@@ -757,16 +761,15 @@ describe("openConductor", () => {
     assert.equal(outcome, "escalated");
     const got = await ledger.get("fake:42");
     assert.ok(got.ok);
-    // Naming a Subtask here sends a reader to look at work that did not fail.
+    // Naming the unit here sends a reader to look at work that did not fail.
     assert.equal(got.aggregate.escalation?.kind, "assembly");
-    assert.equal(got.aggregate.escalation?.subtask_id, undefined);
     assert.match(got.aggregate.escalation?.report ?? "", /npm-test: the whole thing/);
   });
 
-  it("will not rebuild a feature the Authority is already holding", async () => {
+  it("will not rebuild a ticket the Authority is already holding", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers, calls } = recordingTransformers();
     const authority: AuthorityPort = {
       async submit() {
@@ -787,7 +790,7 @@ describe("openConductor", () => {
 
     await conductor.runProject("proj");
     // The workspace goes away while the Authority still holds the Submission.
-    rmSync(featureWorkspacePath(root, "fake:42"), { recursive: true, force: true });
+    rmSync(ticketWorkspacePath(root, "fake:42"), { recursive: true, force: true });
     const isolatesBefore = calls.filter((c) => c.op === "isolate").length;
 
     const after = await conductor.runProject("proj");
@@ -802,10 +805,10 @@ describe("openConductor", () => {
     assert.equal(got.aggregate.escalation?.kind, "submitted");
   });
 
-  it("tells a watcher when the plan is in, a Subtask lands, and the work is submitted", async () => {
+  it("tells a watcher when the work is submitted", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers } = recordingTransformers();
     const moments: ConductorMoment[] = [];
     const conductor = openConductor({
@@ -829,17 +832,13 @@ describe("openConductor", () => {
 
     await conductor.runProject("proj");
 
-    assert.deepEqual(moments, [
-      { kind: "planned", key: "fake:42" },
-      { kind: "subtask-integrated", key: "fake:42", subtaskId: "A", integrated: 1, total: 1 },
-      { kind: "submitted", key: "fake:42", reference: "ref-1" },
-    ]);
+    assert.deepEqual(moments, [{ kind: "submitted", key: "fake:42", reference: "ref-1" }]);
   });
 
   it("does not let a watcher's failure stop the work", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers } = recordingTransformers();
     const conductor = openConductor({
       ledger,
@@ -857,7 +856,7 @@ describe("openConductor", () => {
   it("says which situation each Task is judged in", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const stages: (string | undefined)[] = [];
     const { transformers } = recordingTransformers({
       async implement(input) {
@@ -872,15 +871,15 @@ describe("openConductor", () => {
       workspaceRoot: root,
     });
     await conductor.runProject("proj");
-    // A unit of work, then the feature they assemble into: two situations, and
+    // The unit, then the work assembled: two situations, and
     // whoever wires the Gates must be able to tell them apart.
     assert.deepEqual(stages, [undefined, "assembly"]);
   });
 
-  it("judges the assembled feature without producing anything", async () => {
+  it("judges the assembled ticket without producing anything", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const produced: (boolean | undefined)[] = [];
     const { transformers } = recordingTransformers({
       async implement(input) {
@@ -895,43 +894,20 @@ describe("openConductor", () => {
       workspaceRoot: root,
     });
     await conductor.runProject("proj");
-    // The Subtask produces; the assembly of already-validated work does not.
+    // The unit produces; the assembly of already-validated work does not.
     assert.deepEqual(produced, [undefined, false]);
   });
 
-  it("a Planner that did not answer is unavailable, not transformer-invalid", async () => {
-    const { stable, root } = tempPair();
-    const { transformers } = recordingTransformers({
-      async breakDown() {
-        return { outcome: "unavailable" };
-      },
-    });
-    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
-    const conductor = openConductor({
-      ledger,
-      transformers,
-      workLineStable: stable,
-      workspaceRoot: root,
-    });
-    const result = await conductor.runProject("proj");
-    assert.deepEqual(result, { outcome: "refused", code: "unavailable" });
-    const got = await ledger.get("fake:42");
-    assert.equal(got.ok && got.aggregate.state, "planning");
-    assert.equal(got.ok && got.aggregate.plan, undefined);
-  });
-
-  it("escalates after a Subtask when a newer fingerprint arrived in flight", async () => {
+  it("escalates after the unit when a newer fingerprint arrived in flight", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     let pauseNow: (() => void) | undefined;
     const { transformers } = recordingTransformers({
       async isolate(input) {
         mkdirSync(input.child, { recursive: true });
-        if (input.parent === stable) {
-          pauseNow?.();
-        }
+        pauseNow?.();
+        pauseNow = undefined;
         return { outcome: "isolated" };
       },
     });
@@ -944,7 +920,7 @@ describe("openConductor", () => {
     pauseNow = () => conductor.pause();
     const paused = await conductor.runProject("proj");
     assert.equal(paused.outcome, "paused");
-    const admitted = await ledger.admit(feature({ fingerprint: "fp-2" }));
+    const admitted = await ledger.admit(ticket({ fingerprint: "fp-2" }));
     assert.deepEqual(admitted, { ok: true });
     const mid = await ledger.get("fake:42");
     assert.equal(mid.ok && mid.aggregate.state, "running");
@@ -955,7 +931,7 @@ describe("openConductor", () => {
     const got = await ledger.get("fake:42");
     assert.ok(got.ok);
     assert.equal(got.aggregate.state, "escalated");
-    assert.equal(got.aggregate.escalation?.kind, "plan");
+    assert.equal(got.aggregate.escalation?.kind, "unit");
     assert.equal(got.aggregate.pending_fingerprint, undefined);
     assert.match(got.aggregate.escalation?.report ?? "", /fp-2/);
   });
@@ -964,7 +940,7 @@ describe("openConductor", () => {
     it("is not called when the Project does not declare it", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });
-      await ledger.admit(feature());
+      await ledger.admit(ticket());
       const validateCalls: unknown[] = [];
       const { transformers } = recordingTransformers({
         async implement(input) {
@@ -988,7 +964,7 @@ describe("openConductor", () => {
     it("runs after align and before the local judge, with no Authority", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });
-      await ledger.admit(feature());
+      await ledger.admit(ticket());
       const order: string[] = [];
       const { transformers } = recordingTransformers({
         async implement(input) {
@@ -1021,7 +997,7 @@ describe("openConductor", () => {
     it("runs after align and before offer, with an Authority", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });
-      await ledger.admit(feature());
+      await ledger.admit(ticket());
       const order: string[] = [];
       const { transformers } = recordingTransformers({
         async implement(input) {
@@ -1066,7 +1042,7 @@ describe("openConductor", () => {
     it("a refusal parks the report and repairs on the next pass, without offering", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });
-      await ledger.admit(feature());
+      await ledger.admit(ticket());
       let refuse = true;
       const fixed: (string | undefined)[] = [];
       const acted: string[] = [];
@@ -1136,7 +1112,7 @@ describe("openConductor", () => {
     it("escalates on the spot when no assembly.fix can repair it", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });
-      await ledger.admit(feature());
+      await ledger.admit(ticket());
       const { transformers } = recordingTransformers({
         async implement(input) {
           if (input.validate === true) {
@@ -1169,7 +1145,7 @@ describe("openConductor", () => {
     it("escalates immediately on a blocking refusal, without parking", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });
-      await ledger.admit(feature());
+      await ledger.admit(ticket());
       const { transformers } = recordingTransformers({
         async implement(input) {
           if (input.validate === true) {
@@ -1199,7 +1175,7 @@ describe("openConductor", () => {
     it("shares the maxRefusals budget with the Authority's own refusals", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });
-      await ledger.admit(feature());
+      await ledger.admit(ticket());
       const { transformers } = recordingTransformers({
         async implement(input) {
           if (input.validate === true) {
@@ -1247,7 +1223,7 @@ describe("openConductor", () => {
     });
   });
 
-  it("implement interrupted releases the Subtask so the next run does not wait for the bail", async () => {
+  it("implement interrupted releases the unit so the next run does not wait for the bail", async () => {
     const { stable, root } = tempPair();
     const { transformers } = recordingTransformers({
       async implement() {
@@ -1255,7 +1231,7 @@ describe("openConductor", () => {
       },
     });
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const conductor = openConductor({
       ledger,
       transformers,
@@ -1269,56 +1245,18 @@ describe("openConductor", () => {
     assert.equal(got.aggregate.state, "running");
     assert.equal(got.aggregate.bail, undefined);
     assert.equal(got.aggregate.attempts_used, 1);
-    assert.equal(got.aggregate.plan?.subtasks.find((st) => st.id === "A")?.state, "runnable");
-    assert.equal(got.aggregate.workspaces?.subtask, undefined);
-    const featurePath = featureWorkspacePath(root, "fake:42");
-    const subtaskPath = subtaskWorkspacePath(root, "fake:42", "A");
-    assert.equal(existsSync(featurePath), true);
-    assert.equal(existsSync(subtaskPath), false);
-  });
-
-  it("breakDown interrupted leaves planning and the bail", async () => {
-    const { stable, root } = tempPair();
-    const { transformers } = recordingTransformers({
-      async breakDown() {
-        return { outcome: "interrupted" };
-      },
-    });
-    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
-    const conductor = openConductor({
-      ledger,
-      transformers,
-      workLineStable: stable,
-      workspaceRoot: root,
-    });
-    const result = await conductor.runProject("proj");
-    assert.deepEqual(result, { outcome: "refused", code: "interrupted" });
-    const got = await ledger.get("fake:42");
-    assert.ok(got.ok);
-    assert.equal(got.aggregate.state, "planning");
-    assert.ok(got.aggregate.bail !== undefined);
+    assert.equal(got.aggregate.workspace, undefined);
+    assert.equal(existsSync(ticketWorkspacePath(root, "fake:42")), false);
   });
 
   it("release on integrating is illegal-transition and leaves the bail", async () => {
     const { stable, root } = tempPair();
     const { transformers } = recordingTransformers();
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     await ledger.claim("proj");
-    await ledger.recordPlan({
-      key: "fake:42",
-      plannedAt: "2026-01-01T00:00:00.000Z",
-      subtasks: [{ id: "A", intention: "first", definition_of_done: "A done", depends_on: [] }],
-    });
-    await ledger.startSubtask({ key: "fake:42", subtaskId: "A" });
-    await ledger.recordAttempt({
-      key: "fake:42",
-      subtaskId: "A",
-      number: 1,
-      trace: { ended: "validated" },
-    });
-    await ledger.markSubtaskIntegrated({ key: "fake:42", subtaskId: "A" });
+    await ledger.recordAttempt({ key: "fake:42", number: 1, trace: { ended: "validated" } });
+    await ledger.markIntegrating("fake:42");
     const before = await ledger.get("fake:42");
     assert.ok(before.ok);
     assert.equal(before.aggregate.state, "integrating");
@@ -1341,17 +1279,21 @@ describe("openConductor", () => {
   });
 });
 
-describe("warm Feature", () => {
-  it("runs after Feature Isolation and before any Subtask Isolation", async () => {
+describe("warm", () => {
+  it("runs after Isolation and before the Builder", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const order: string[] = [];
     const { transformers } = recordingTransformers({
       async isolate(input) {
-        order.push(`isolate:${input.parent === stable ? "feature" : "subtask"}`);
+        order.push("isolate");
         mkdirSync(input.child, { recursive: true });
         return { outcome: "isolated" };
+      },
+      async implement(input) {
+        order.push(`implement:${input.id}`);
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
       },
     });
     const conductor = openConductor({
@@ -1372,53 +1314,15 @@ describe("warm Feature", () => {
     assert.equal(result.outcome, "done");
     assert.deepEqual(
       order.slice(0, 3),
-      ["isolate:feature", `warm:${featureWorkspacePath(root, "fake:42")}`, "isolate:subtask"],
-      "warm sits between Feature and Subtask Isolation",
+      ["isolate", `warm:${ticketWorkspacePath(root, "fake:42")}`, "implement:fake:42"],
+      "warm sits between Isolation and the Builder",
     );
-  });
-
-  it("is skipped on later passes once it succeeded", async () => {
-    const { stable, root } = tempPair();
-    const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
-    let warmCalls = 0;
-    let pauseNow: (() => void) | undefined;
-    const { transformers } = recordingTransformers({
-      async isolate(input) {
-        mkdirSync(input.child, { recursive: true });
-        if (input.parent !== stable) {
-          pauseNow?.();
-        }
-        return { outcome: "isolated" };
-      },
-    });
-    const conductor = openConductor({
-      ledger,
-      transformers,
-      workLineStable: stable,
-      workspaceRoot: root,
-      warm: {
-        durationMs: 1_000,
-        async prepare() {
-          warmCalls += 1;
-          return { outcome: "warmed" };
-        },
-      },
-    });
-    pauseNow = () => conductor.pause();
-    const paused = await conductor.runProject("proj");
-    assert.equal(paused.outcome, "paused");
-    assert.equal(warmCalls, 1);
-    conductor.resume();
-    const second = await conductor.runProject("proj");
-    assert.equal(second.outcome, "done");
-    assert.equal(warmCalls, 1, "a warmed Feature is not prepared again");
   });
 
   it("refuses warm-failed and retries on the next runProject", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     let warmCalls = 0;
     const { transformers } = recordingTransformers();
     const conductor = openConductor({
@@ -1442,10 +1346,10 @@ describe("warm Feature", () => {
     assert.equal(warmCalls, 2);
   });
 
-  it("is not required: without warm, Subtasks still run", async () => {
+  it("is not required: without warm, the unit still runs", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
-    await ledger.admit(feature());
+    await ledger.admit(ticket());
     const { transformers } = recordingTransformers();
     const conductor = openConductor({
       ledger,

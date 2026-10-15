@@ -93,7 +93,7 @@ describe("createGithubManager.probe", () => {
       interruptFlag: { interrupted: false },
       githubFetch: fetch,
     });
-    assert.equal(await manager.probe?.("github:tilap/mason#42"), "present");
+    assert.equal(await manager.features?.probe?.("github:tilap/mason#42"), "present");
   });
 
   it("a key with no issue number is unavailable", async () => {
@@ -106,6 +106,6 @@ describe("createGithubManager.probe", () => {
         throw new Error("must not fetch");
       }) as unknown as typeof globalThis.fetch,
     });
-    assert.equal(await manager.probe?.("github:unconvertible"), "unavailable");
+    assert.equal(await manager.features?.probe?.("github:unconvertible"), "unavailable");
   });
 });

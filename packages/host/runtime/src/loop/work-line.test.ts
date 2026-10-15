@@ -138,7 +138,7 @@ describe("resolveWorkLine", () => {
 
   it("reads manager-github's reference with isolation-git — the two vocabularies agree", () => {
     const context: ManagerContext = {
-      options: { repo: "tilap/mason-test" },
+      options: { repo: "owner/repo" },
       durationMs: 1000,
       interruptFlag: { interrupted: false },
       configDir: "/install",
@@ -148,7 +148,7 @@ describe("resolveWorkLine", () => {
     assert.equal(resolved.kind, "copy");
     if (resolved.kind === "copy") {
       assert.equal(resolved.target, "main");
-      assert.equal(resolved.reference.summary, "https://github.com/tilap/mason-test.git (main)");
+      assert.equal(resolved.reference.summary, "https://github.com/owner/repo.git (main)");
       // The words the manager chose for identity and credentials are read too.
       assert.equal(resolved.reference.env?.GIT_CONFIG_KEY_1, "credential.helper");
       assert.match(resolved.reference.env?.GIT_CONFIG_VALUE_1 ?? "", /GITHUB_TOKEN/);
@@ -203,20 +203,30 @@ function moduleNaming(reference: Record<string, unknown>): ManagerModule {
       return {
         ok: true,
         manager: {
-          async listen() {
-            return { outcome: "listened", deliveries: [] };
+          features: {
+            async listen() {
+              return { outcome: "listened", deliveries: [] };
+            },
+            async adapt() {
+              return { outcome: "unavailable" as const };
+            },
+            async report() {
+              return true;
+            },
           },
-          async adapt() {
-            return { outcome: "unavailable" };
-          },
-          async report() {
-            return true;
-          },
-          async submit() {
-            return { outcome: "unavailable" as const };
-          },
-          async fold() {
-            return { outcome: "unavailable" as const };
+          tickets: {
+            async tickets() {
+              return { outcome: "listed" as const, tickets: [] };
+            },
+            async report() {
+              return true;
+            },
+            async submit() {
+              return { outcome: "unavailable" as const };
+            },
+            async fold() {
+              return { outcome: "unavailable" as const };
+            },
           },
         },
       };
@@ -227,12 +237,12 @@ function moduleNaming(reference: Record<string, unknown>): ManagerModule {
 
 function bootOptions(root: string, manager: ManagerModule) {
   return {
-    manager,
+    featureTracker: { package: manager, options: {} },
+    ticketTracker: { package: manager, options: {} },
     configDir: root,
     workLineIsolation: "@bluewombat/isolation-git",
     workspaceRoot: join(root, ".mason", "workspaces"),
     ledgerRoot: join(root, ".mason", "ledger"),
-    planner: { cmd: [node, "-e", ""], timeoutMs: 1000, gates: [] },
     builder: {
       producer: { cmd: [node, "-e", ""], timeoutMs: 1000, gates: [] },
       repair: { cmd: [node, "-e", ""], timeoutMs: 1000, gates: [] },

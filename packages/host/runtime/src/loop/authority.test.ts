@@ -7,7 +7,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { SubmitInput } from "@bluewombat/conductor";
 import { strategy } from "@bluewombat/isolation-git";
-import type { ManagerPort, SubmissionRequest } from "@bluewombat/manager-kit";
+import type { SubmissionRequest, TicketTrackerPort } from "@bluewombat/manager-kit";
 import { openAuthority, refreshWorkLine } from "./authority.js";
 
 /**
@@ -64,20 +64,17 @@ function otherWorkingCopy(remote: string, branch: string): string {
   return dir;
 }
 
-/** The work a feature leaves: a named branch in the work line copy. */
-function featureBranch(copy: string, branch: string, file: string): void {
+/** The work a ticket leaves: a named branch in the work line copy. */
+function ticketBranch(copy: string, branch: string, file: string): void {
   const exists = git(copy, ["branch", "--list", branch]).trim().length > 0;
   git(copy, exists ? ["checkout", "-q", branch] : ["checkout", "-q", "-b", branch]);
   commit(copy, file, "work\n");
 }
 
-function stubManager(seen: SubmissionRequest[]): ManagerPort {
+function stubManager(seen: SubmissionRequest[]): TicketTrackerPort {
   return {
-    async listen() {
-      return { outcome: "listened", deliveries: [] };
-    },
-    async adapt() {
-      return { outcome: "unavailable" };
+    async tickets() {
+      return { outcome: "listed", tickets: [] };
     },
     async report() {
       return true;
@@ -121,7 +118,6 @@ function authorityOn(
   const authority = openAuthority({
     manager: stubManager(seen),
     workLineStable: copy,
-    workLineTarget: TARGET,
     publishArgv: publishArgv ?? ["node", GIT_PUBLISHER],
     timeoutMs: 60_000,
     refOf: strategy.refOf,
@@ -141,9 +137,9 @@ function offer(workspace = "/not/read"): SubmitInput {
 }
 
 describe("the Authority against a real remote", () => {
-  it("publishes the feature's branch, then names it to the FeatureManager", async () => {
+  it("publishes the ticket's branch, then names it to the TicketTracker", async () => {
     const { remote, copy } = remoteAndCopy();
-    featureBranch(copy, "issue/fake-42", "work.txt");
+    ticketBranch(copy, "issue/fake-42", "work.txt");
     const seen: SubmissionRequest[] = [];
 
     const result = await authorityOn(copy, seen).submit(offer());
@@ -154,6 +150,27 @@ describe("the Authority against a real remote", () => {
     // machine: it is the only half of the pair the outside can read.
     assert.equal(seen[0]?.ref, "issue/fake-42");
     assert.equal(seen[0]?.target, TARGET);
+  });
+
+  it("offers a Feature's line as it is, without publishing a copy of it", async () => {
+    // The line was cut and filled by the Authority; a local copy of it has
+    // diverged and pushing it would be refused.
+    const { copy } = remoteAndCopy();
+    const refusing = join(mkdtempSync(join(tmpdir(), "publisher-")), "no.mjs");
+    writeFileSync(
+      refusing,
+      'console.log(JSON.stringify({ outcome: "refused", reason: "must not run" }));',
+    );
+    const seen: SubmissionRequest[] = [];
+
+    const result = await authorityOn(copy, seen, ["node", refusing]).submit({
+      ...offer(),
+      key: "fake:feature",
+      branch: "feature/fake-feature",
+    });
+
+    assert.deepEqual(result, { outcome: "submitted", reference: "ref-1" });
+    assert.equal(seen[0]?.ref, "feature/fake-feature");
   });
 
   it("refuses the Submission when the Publisher refuses, without asking the manager", async () => {
@@ -187,12 +204,11 @@ describe("the Authority against a real remote", () => {
     );
     const placing = join(dir, "yes.mjs");
     writeFileSync(placing, 'console.log(JSON.stringify({ ref: "issue/fake-42" }));');
-    const offerWith = (publisher: string, manager: ManagerPort) => {
+    const offerWith = (publisher: string, manager: TicketTrackerPort) => {
       const lines: Record<string, unknown>[] = [];
       const authority = openAuthority({
         manager,
         workLineStable: copy,
-        workLineTarget: TARGET,
         publishArgv: ["node", publisher],
         timeoutMs: 60_000,
         refOf: strategy.refOf,
@@ -208,7 +224,7 @@ describe("the Authority against a real remote", () => {
       { event: "submit-refused", key: "fake:42", by: "publisher", reason: "the shelf is full" },
     ]);
 
-    const closing: ManagerPort = {
+    const closing: TicketTrackerPort = {
       ...stubManager([]),
       async submit() {
         return { outcome: "refused", reason: "Validation Failed: no commits between dev and it" };
@@ -268,13 +284,13 @@ describe("the Authority against a real remote", () => {
     assert.deepEqual(refreshed, { ok: true });
   });
 
-  it("asks the Describer for the work's own words, in the feature workspace, and offers them", async () => {
+  it("asks the Describer for the work's own words, in the ticket workspace, and offers them", async () => {
     const { copy } = remoteAndCopy();
     const root = mkdtempSync(join(tmpdir(), "workspaces-"));
     // wherever the ledger declared it, not a path Host works out
-    const featureDir = join(root, "declared-elsewhere", "feature");
-    mkdirSync(featureDir, { recursive: true });
-    writeFileSync(join(featureDir, "marker.txt"), "");
+    const ticketDir = join(root, "declared-elsewhere", "ticket");
+    mkdirSync(ticketDir, { recursive: true });
+    writeFileSync(join(ticketDir, "marker.txt"), "");
     const slot = join(root, "describer.mjs");
     writeFileSync(
       slot,
@@ -286,12 +302,12 @@ describe("the Authority against a real remote", () => {
       ].join("\n"),
     );
     const seen: SubmissionRequest[] = [];
-    featureBranch(copy, "issue/fake-42", "work.txt");
+    ticketBranch(copy, "issue/fake-42", "work.txt");
 
     const result = await authorityOn(copy, seen, undefined, undefined, {
       cmd: ["node", slot],
       timeoutMs: 60_000,
-    }).submit(offer(featureDir));
+    }).submit(offer(ticketDir));
 
     assert.equal(result.outcome, "submitted");
     assert.deepEqual(seen[0]?.description, {
@@ -317,7 +333,7 @@ describe("the Authority against a real remote", () => {
 
   it("publishes to the same branch again after a repair", async () => {
     const { remote, copy } = remoteAndCopy();
-    featureBranch(copy, "issue/fake-42", "work.txt");
+    ticketBranch(copy, "issue/fake-42", "work.txt");
     const seen: SubmissionRequest[] = [];
     const authority = authorityOn(copy, seen);
     await authority.submit(offer());
@@ -336,7 +352,7 @@ describe("the Authority against a real remote", () => {
 
   it("refuses rather than overwrite a branch that moved under it", async () => {
     const { remote, copy } = remoteAndCopy();
-    featureBranch(copy, "issue/fake-42", "work.txt");
+    ticketBranch(copy, "issue/fake-42", "work.txt");
     const seen: SubmissionRequest[] = [];
     const authority = authorityOn(copy, seen);
     await authority.submit(offer());
@@ -425,7 +441,7 @@ describe("bringing the work line copy up to date", () => {
       env: { LC_ALL: "fr_FR.UTF-8", LANG: "fr_FR.UTF-8", LANGUAGE: "fr" },
     });
     assert.equal(refreshed.ok, false);
-    assert.match(refreshed.detail ?? "", /couldn't find remote ref nowhere/);
+    assert.match(refreshed.detail ?? "", /couldn't find remote ref refs\/heads\/nowhere/);
     assert.doesNotMatch(refreshed.detail ?? "", /impossible|distante/);
   });
 

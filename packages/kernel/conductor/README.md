@@ -1,6 +1,6 @@
 # Conductor
 
-Kernel package, not a Transformer: sequences Transformers for one FeatureStandard. It
+Kernel package, not a Transformer: sequences Transformers for one TicketStandard. It
 writes the WorkLedger before it acts. Isolated workspaces are a consequence of
 that state.
 
@@ -30,9 +30,9 @@ npm install
 | Build     | `npm run build`  |
 
 There is no CLI in this implementation. The caller injects a WorkLedger and a
-Transformer Port (Isolation, Breakdown, Implementer, Integration).
+Transformer Port (Isolation, Implementer, Integration).
 
-**Optional Authority.** When injected, Conductor offers the assembled feature
+**Optional Authority.** When injected, Conductor offers the assembled ticket
 and does not fold it into WorkLineStable itself. See [SPECS.md](./SPECS.md) §8.
 
 ```ts

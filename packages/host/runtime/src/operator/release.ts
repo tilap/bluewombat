@@ -1,4 +1,4 @@
-import { PRODUCT } from "@bluewombat/manager-kit";
+import { CLI_NAME } from "@bluewombat/manager-kit";
 import { parseArgs } from "../config/parse-args.js";
 import type { HostOptions } from "../config/types.js";
 import { openHost } from "../loop/open-host.js";
@@ -12,16 +12,16 @@ export type ReleaseInput = {
 };
 
 /**
- * Drop a held Subtask (or planning) by key without waiting for the bail clock.
+ * Drop a held unit by key without waiting for the bail clock.
  *
- * The hatch after a crash left a Subtask `running` with nobody on it. A clean
+ * The hatch after a crash left a unit `running` with nobody on it. A clean
  * stop releases itself; this is for when the process never wrote that. Takes
  * the ledger lock: stop `run` first if it holds it.
  */
 export async function runRelease(input: ReleaseInput): Promise<number> {
   const peeled = peelKey(input.argv);
   if (peeled.key === undefined) {
-    input.write(`Usage: ${PRODUCT} release <key>\n`);
+    input.write(`Usage: ${CLI_NAME} release <key>\n`);
     return 2;
   }
   const { key } = peeled;
@@ -48,13 +48,13 @@ export async function runRelease(input: ReleaseInput): Promise<number> {
     }
     switch (result.code) {
       case "not-found":
-        input.write(`No Feature named "${key}" in the ledger.\n`);
+        input.write(`No Ticket named "${key}" in the ledger.\n`);
         return 2;
       case "illegal-transition":
         input.write(
           result.state === undefined
-            ? "Too late: that Feature cannot be released.\n"
-            : `Too late: that Feature is ${result.state}.\n`,
+            ? "Too late: that Ticket cannot be released.\n"
+            : `Too late: that Ticket is ${result.state}.\n`,
         );
         return 1;
     }

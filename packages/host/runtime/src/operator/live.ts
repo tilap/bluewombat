@@ -44,7 +44,7 @@ export async function runLive(input: LiveInput): Promise<number> {
     if (peeled.json) {
       input.write(`${JSON.stringify(jsonOf(rows), null, 2)}\n`);
     } else if (rows.length === 0) {
-      input.write("No Features in the ledger.\n");
+      input.write("No Tickets in the ledger.\n");
     } else {
       for (const row of rows) {
         input.write(`${row.line}\n`);

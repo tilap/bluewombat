@@ -5,12 +5,14 @@ import { DEFAULT_PERSIST, ISOLATION_GIT } from "./defaults.js";
 import { findConfig } from "./find-config.js";
 import { homeOf, inHome } from "./home.js";
 import { loadConfig } from "./load-config.js";
-import type { AssemblySpec, GatedPassSpec, HostInvocation, PassSpec } from "./types.js";
+import type { AssemblySpec, GatedPassSpec, HostDraft, HostInvocation, PassSpec } from "./types.js";
 
 const HOST_FLAGS = new Set([
   "--config",
-  "--manager",
-  "--manager-option",
+  "--feature-tracker",
+  "--feature-tracker-option",
+  "--ticket-tracker",
+  "--ticket-tracker-option",
   "--home",
   "--work-line-stable",
   "--work-line-branch",
@@ -21,10 +23,6 @@ const HOST_FLAGS = new Set([
   "--streams-dir",
   "--timeout-ms",
   "--poll-interval-ms",
-  "--planner",
-  "--planner-timeout-ms",
-  "--planner-gate",
-  "--planner-gate-timeout-ms",
   "--builder",
   "--builder-timeout-ms",
   "--builder-max-attempts",
@@ -49,8 +47,6 @@ const HOST_FLAGS = new Set([
 
 /** The gate-id and gate-timeout-ms flags, each landing on a GatedPassBag or on AssemblyBag's own top-level pocket (the produce:false judgement pass). */
 const GATE_FLAGS = new Set([
-  "--planner-gate",
-  "--planner-gate-timeout-ms",
   "--builder-gate",
   "--builder-gate-timeout-ms",
   "--builder-repair-gate",
@@ -66,9 +62,8 @@ const GATE_FLAGS = new Set([
 /** Flags that take a command after `--`, and where each one lands. */
 const COMMAND_FLAGS = new Map<
   string,
-  { stage: "builder"; pass: Pass } | "planner" | "assembly-fix" | "assembly-validate"
+  { stage: "builder"; pass: Pass } | "assembly-fix" | "assembly-validate"
 >([
-  ["--planner", "planner"],
   ["--builder", { stage: "builder", pass: "producer" }],
   ["--builder-repair", { stage: "builder", pass: "repair" }],
   ["--assembly-fix", "assembly-fix"],
@@ -117,8 +112,10 @@ type AssemblyBag = {
 
 type FlagBag = {
   configPath?: string;
-  manager?: string;
-  managerOptions: Record<string, unknown>;
+  featureTracker?: string;
+  featureTrackerOptions: Record<string, unknown>;
+  ticketTracker?: string;
+  ticketTrackerOptions: Record<string, unknown>;
   home?: string;
   workLineStable?: string;
   workLineBranch?: string;
@@ -126,7 +123,6 @@ type FlagBag = {
   workspaceRoot?: string;
   ledgerRoot?: string;
   persist?: string;
-  planner: GatedPassBag;
   builder: StageBag;
   assembly: AssemblyBag;
   timeoutMs?: number;
@@ -149,9 +145,6 @@ function emptyAssembly(): AssemblyBag {
 /** Which bag a `--*-gate`/`--*-gate-timeout-ms` flag writes into. */
 function gatePocket(bag: FlagBag, token: string): GatePocket {
   switch (token) {
-    case "--planner-gate":
-    case "--planner-gate-timeout-ms":
-      return bag.planner;
     case "--builder-gate":
     case "--builder-gate-timeout-ms":
       return bag.builder.producer;
@@ -227,15 +220,16 @@ function isDirectory(path: string): boolean {
 function addManagerOption(
   options: Record<string, unknown>,
   raw: string,
+  flag: string,
 ): { ok: true } | { ok: false; reason: string } {
   const separator = raw.indexOf("=");
   if (separator < 1) {
-    return { ok: false, reason: "--manager-option must be key=value." };
+    return { ok: false, reason: `${flag} must be key=value.` };
   }
   const key = raw.slice(0, separator).trim();
   const value = raw.slice(separator + 1);
   if (key.length === 0) {
-    return { ok: false, reason: "--manager-option must be key=value." };
+    return { ok: false, reason: `${flag} must be key=value.` };
   }
   const existing = options[key];
   if (existing === undefined) {
@@ -250,8 +244,8 @@ function addManagerOption(
 
 function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; reason: string } {
   const bag: FlagBag = {
-    managerOptions: {},
-    planner: emptyGatedPass(),
+    featureTrackerOptions: {},
+    ticketTrackerOptions: {},
     builder: emptyStage(),
     assembly: emptyAssembly(),
   };
@@ -268,9 +262,7 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       if (!command) {
         return { ok: false, reason: `Missing non-empty command after ${token} --.` };
       }
-      if (lands === "planner") {
-        bag.planner.cmd = command.command;
-      } else if (lands === "assembly-fix") {
+      if (lands === "assembly-fix") {
         bag.assembly.fix.cmd = command.command;
       } else if (lands === "assembly-validate") {
         bag.assembly.validate.cmd = command.command;
@@ -312,11 +304,21 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       case "--config":
         bag.configPath = taken.value;
         break;
-      case "--manager":
-        bag.manager = taken.value;
+      case "--feature-tracker":
+        bag.featureTracker = taken.value;
         break;
-      case "--manager-option": {
-        const added = addManagerOption(bag.managerOptions, taken.value);
+      case "--feature-tracker-option": {
+        const added = addManagerOption(bag.featureTrackerOptions, taken.value, token);
+        if (!added.ok) {
+          return added;
+        }
+        break;
+      }
+      case "--ticket-tracker":
+        bag.ticketTracker = taken.value;
+        break;
+      case "--ticket-tracker-option": {
+        const added = addManagerOption(bag.ticketTrackerOptions, taken.value, token);
         if (!added.ok) {
           return added;
         }
@@ -373,8 +375,6 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
         bag.timeoutMs = value;
         break;
       }
-      case "--planner-timeout-ms":
-      case "--planner-gate-timeout-ms":
       case "--builder-timeout-ms":
       case "--builder-repair-timeout-ms":
       case "--builder-max-attempts":
@@ -391,9 +391,6 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
           return { ok: false, reason: `${token} must be a positive integer.` };
         }
         switch (token) {
-          case "--planner-timeout-ms":
-            bag.planner.timeoutMs = value;
-            break;
           case "--builder-timeout-ms":
             bag.builder.producer.timeoutMs = value;
             break;
@@ -436,18 +433,22 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
   return { ok: true, bag };
 }
 
-function overlay(
-  base: Partial<HostInvocation>,
-  bag: FlagBag,
-  cwd: string,
-): Partial<HostInvocation> {
-  const merged: Partial<HostInvocation> = { ...base };
-  if (bag.manager !== undefined) {
-    merged.manager = bag.manager;
-  }
-  // Per key: overriding one option must not drop the rest of the config's.
-  if (Object.keys(bag.managerOptions).length > 0) {
-    merged.managerOptions = { ...(base.managerOptions ?? {}), ...bag.managerOptions };
+function overlay(base: HostDraft, bag: FlagBag, cwd: string): HostDraft {
+  const merged: HostDraft = { ...base };
+  for (const side of ["featureTracker", "ticketTracker"] as const) {
+    const name = bag[side];
+    const options = bag[`${side}Options`];
+    const spec = { ...base[side] };
+    if (name !== undefined) {
+      spec.package = name;
+    }
+    // Per key: overriding one option must not drop the rest of the config's.
+    if (Object.keys(options).length > 0) {
+      spec.options = { ...(base[side]?.options ?? {}), ...options };
+    }
+    if (Object.keys(spec).length > 0) {
+      merged[side] = spec;
+    }
   }
   if (bag.home !== undefined) {
     merged.home = resolve(cwd, bag.home);
@@ -479,10 +480,6 @@ function overlay(
   }
   if (bag.persist !== undefined) {
     merged.persist = bag.persist;
-  }
-  const planner = overlayGatedPass(merged.planner, bag.planner);
-  if (planner !== undefined) {
-    merged.planner = planner;
   }
   const builder = overlayBuilder(merged.builder, bag.builder);
   if (builder !== undefined) {
@@ -591,7 +588,7 @@ export function parseArgs(argv: string[], input: ParseInput = {}): ParseResult {
   }
 
   const configPath = flags.bag.configPath ?? findConfig(cwd);
-  let base: Partial<HostInvocation> = { configDir: cwd };
+  let base: HostDraft = { configDir: cwd };
   if (configPath !== undefined) {
     const loaded = loadConfig(resolve(cwd, configPath));
     if (!loaded.ok) {
@@ -603,11 +600,21 @@ export function parseArgs(argv: string[], input: ParseInput = {}): ParseResult {
   return finalize(overlay(base, flags.bag, cwd), cwd, input.checkPaths ?? true);
 }
 
-function finalize(merged: Partial<HostInvocation>, cwd: string, checkPaths: boolean): ParseResult {
-  if (merged.manager === undefined) {
+function finalize(merged: HostDraft, cwd: string, checkPaths: boolean): ParseResult {
+  const featurePackage = merged.featureTracker?.package;
+  if (featurePackage === undefined) {
     return {
       ok: false,
-      reason: 'Missing required "manager". Name a package that exports createManager.',
+      reason:
+        'Missing required "featureTracker.package". Name a package that exports createManager.',
+    };
+  }
+  const ticketPackage = merged.ticketTracker?.package;
+  if (ticketPackage === undefined) {
+    return {
+      ok: false,
+      reason:
+        'Missing required "ticketTracker.package". Name a package that exports createManager.',
     };
   }
   if (merged.workLineIsolation === undefined) {
@@ -615,9 +622,6 @@ function finalize(merged: Partial<HostInvocation>, cwd: string, checkPaths: bool
       ok: false,
       reason: `Missing required "workLine.isolation". Set it to a package name or path that exports strategy (e.g. "${ISOLATION_GIT}").`,
     };
-  }
-  if (merged.planner === undefined) {
-    return { ok: false, reason: "Missing required --planner -- <argv…> and --planner-timeout-ms." };
   }
   if (merged.builder?.producer === undefined) {
     return { ok: false, reason: "Missing required --builder -- <argv…> and --builder-timeout-ms." };
@@ -646,8 +650,8 @@ function finalize(merged: Partial<HostInvocation>, cwd: string, checkPaths: bool
   }
 
   const invocation: HostInvocation = {
-    manager: merged.manager,
-    managerOptions: merged.managerOptions ?? {},
+    featureTracker: { package: featurePackage, options: merged.featureTracker?.options ?? {} },
+    ticketTracker: { package: ticketPackage, options: merged.ticketTracker?.options ?? {} },
     configDir: merged.configDir ?? cwd,
     home,
     workLineIsolation: merged.workLineIsolation,
@@ -658,7 +662,6 @@ function finalize(merged: Partial<HostInvocation>, cwd: string, checkPaths: bool
     workspaceRoot,
     ledgerRoot: resolve(cwd, merged.ledgerRoot ?? inHome(home, "ledger")),
     persist: merged.persist ?? DEFAULT_PERSIST,
-    planner: merged.planner,
     builder: merged.builder,
     assembly: merged.assembly ?? { gates: [] },
     timeoutMs: merged.timeoutMs,

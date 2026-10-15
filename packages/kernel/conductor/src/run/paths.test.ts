@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { featureWorkspacePath, pathSegment, subtaskWorkspacePath } from "./paths.js";
+import { pathSegment, ticketWorkspacePath } from "./paths.js";
 
 describe("pathSegment", () => {
   it("keeps a plain name as it is", () => {
@@ -31,12 +31,8 @@ describe("pathSegment", () => {
 });
 
 describe("workspace paths", () => {
-  it("lay out <root>/<key>/feature and <root>/<key>/subtask-<id>", () => {
-    assert.equal(featureWorkspacePath("/w", "fake:42"), `/w/${pathSegment("fake:42")}/feature`);
-    assert.equal(
-      subtaskWorkspacePath("/w", "fake:42", "A"),
-      `/w/${pathSegment("fake:42")}/subtask-A`,
-    );
-    assert.doesNotMatch(subtaskWorkspacePath("/w", "github:o/r#1", "s 1"), /%/);
+  it("lays out <root>/<key>/ticket", () => {
+    assert.equal(ticketWorkspacePath("/w", "fake:42"), `/w/${pathSegment("fake:42")}/ticket`);
+    assert.doesNotMatch(ticketWorkspacePath("/w", "github:o/r#1"), /%/);
   });
 });

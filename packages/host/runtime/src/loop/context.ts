@@ -1,5 +1,10 @@
-import type { AuthorityPort, Conductor, ConductorMoment } from "@bluewombat/conductor";
-import type { EventName, ManagerPort } from "@bluewombat/manager-kit";
+import type {
+  AuthorityPort,
+  Conductor,
+  ConductorMoment,
+  TransformerPort,
+} from "@bluewombat/conductor";
+import type { EventName, FeatureTrackerPort, TicketTrackerPort } from "@bluewombat/manager-kit";
 import type { WorkLedger } from "@bluewombat/work-ledger";
 import type { HostOptions } from "../config/types.js";
 import type { Journal } from "./journal.js";
@@ -16,7 +21,12 @@ export type HostRunInput = {
   workLine: { stable: string; target?: string; env?: Record<string, string> | undefined };
   ledger: WorkLedger;
   conductor: Conductor;
-  manager: ManagerPort;
+  /** Where Features are written, ordered and signalled. */
+  features: FeatureTrackerPort;
+  /** Where the Tickets of a Feature are, and the lines they land on. */
+  tickets: TicketTrackerPort;
+  /** The Transformers Conductor runs, for the one judgement Host makes itself: a Feature's line. */
+  transformers: TransformerPort;
   journal: Journal;
   /** Where a child's raw output was filmed, when the Project asked for it. */
   streams?: Streams;

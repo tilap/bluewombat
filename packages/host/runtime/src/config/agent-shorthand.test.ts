@@ -26,17 +26,15 @@ describe("agent passes written short", () => {
   it("expands every role into the argv a pass has always been", () => {
     const { dir, loaded } = load({
       agents: { cursor: cursorAgent },
-      planner: {
-        agent: "cursor",
-        prompt: "./prompts/planner.md",
-        read: "./.mason/work-line",
-        plugins: ["./ai-plugins/core/planner"],
-        profile: "planner",
-        args: ["--plan"],
-        timeoutMs: 600000,
-      },
       builder: {
-        producer: { agent: "cursor", profile: "builder", timeoutMs: 1200000 },
+        producer: {
+          agent: "cursor",
+          prompt: "./prompts/builder.md",
+          plugins: ["./ai-plugins/core/builder"],
+          profile: "builder",
+          args: ["--plan"],
+          timeoutMs: 1200000,
+        },
         repair: { agent: "cursor", prompt: "./prompts/builder-repair.md", timeoutMs: 1200000 },
       },
       assembly: {
@@ -67,33 +65,22 @@ describe("agent passes written short", () => {
       "CURSOR_API_KEY",
     ];
     const invocation = loaded.invocation;
-    assert.deepEqual(invocation.planner?.cmd, [
+    assert.deepEqual(invocation.builder?.producer.cmd, [
       "node",
-      join(slots, "planners/producer.mjs"),
+      join(slots, "builders/producer.mjs"),
       "--prompt-file",
-      join(dir, "prompts/planner.md"),
-      "--read",
-      join(dir, ".mason/work-line"),
+      join(dir, "prompts/builder.md"),
       ...agentHead,
       "--plugin-dir",
-      join(dir, "ai-plugins/core/planner"),
+      join(dir, "ai-plugins/core/builder"),
       "--profile",
-      "planner",
+      "builder",
       "--plugins-out",
       join(dir, ".mason/plugins"),
       "--agent-arg",
       "--plan",
     ]);
-    assert.equal(invocation.planner?.timeoutMs, 600000);
-    assert.deepEqual(invocation.builder?.producer.cmd, [
-      "node",
-      join(slots, "builders/producer.mjs"),
-      ...agentHead,
-      "--profile",
-      "builder",
-      "--plugins-out",
-      join(dir, ".mason/plugins"),
-    ]);
+    assert.equal(invocation.builder?.producer.timeoutMs, 1200000);
     assert.deepEqual(invocation.builder?.repair.cmd.slice(0, 4), [
       "node",
       join(slots, "builders/repair.mjs"),
@@ -112,33 +99,36 @@ describe("agent passes written short", () => {
       join(slots, "messages/git-producer.mjs"),
       ...agentHead,
     ]);
-    assert.deepEqual(agentPartOf(invocation.planner?.cmd ?? []), {
-      profile: "planner",
+    assert.deepEqual(agentPartOf(invocation.builder?.producer.cmd ?? []), {
+      profile: "builder",
       pluginsOut: join(dir, ".mason/plugins"),
-      pluginDirs: [join(dir, "ai-plugins/core/planner")],
+      pluginDirs: [join(dir, "ai-plugins/core/builder")],
     });
   });
 
   it("keeps cmd as it was, and resolves --plugin-dir and --plugins-out next to the config", () => {
     const { dir, loaded } = load({
-      planner: {
-        cmd: [
-          "node",
-          "x.mjs",
-          "--",
-          "node",
-          "a.mjs",
-          "--plugin-dir",
-          "./p",
-          "--plugins-out",
-          "./o",
-        ],
-        timeoutMs: 1000,
+      builder: {
+        producer: {
+          cmd: [
+            "node",
+            "x.mjs",
+            "--",
+            "node",
+            "a.mjs",
+            "--plugin-dir",
+            "./p",
+            "--plugins-out",
+            "./o",
+          ],
+          timeoutMs: 1000,
+        },
+        repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
     });
     assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
     if (loaded.ok) {
-      assert.deepEqual(loaded.invocation.planner?.cmd.slice(-4), [
+      assert.deepEqual(loaded.invocation.builder?.producer.cmd.slice(-4), [
         "--plugin-dir",
         join(dir, "p"),
         "--plugins-out",
@@ -150,19 +140,27 @@ describe("agent passes written short", () => {
   it("refuses a pass that names both cmd and agent", () => {
     const { loaded } = load({
       agents: { cursor: cursorAgent },
-      planner: { agent: "cursor", cmd: ["node", "x.mjs"], timeoutMs: 1000 },
+      builder: {
+        producer: { agent: "cursor", cmd: ["node", "x.mjs"], timeoutMs: 1000 },
+        repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
+      },
     });
     assert.equal(loaded.ok, false);
     assert.match(loaded.ok ? "" : loaded.reason, /names "cmd" and "agent"/);
   });
 
   it("refuses an agent that agents does not declare", () => {
-    const { loaded } = load({ planner: { agent: "cursor", timeoutMs: 1000 } });
+    const { loaded } = load({
+      builder: {
+        producer: { agent: "cursor", timeoutMs: 1000 },
+        repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
+      },
+    });
     assert.equal(loaded.ok, false);
     assert.match(loaded.ok ? "" : loaded.reason, /declares no such agent/);
   });
 
-  it("refuses read outside the planner, and a short key on a cmd pass", () => {
+  it("refuses read, and a short key on a cmd pass", () => {
     const read = load({
       agents: { cursor: cursorAgent },
       builder: {
@@ -175,7 +173,12 @@ describe("agent passes written short", () => {
       read.loaded.ok ? "" : read.loaded.reason,
       /"builder.producer" has unknown key "read"/,
     );
-    const profile = load({ planner: { cmd: ["node", "x.mjs"], profile: "p", timeoutMs: 1000 } });
+    const profile = load({
+      builder: {
+        producer: { cmd: ["node", "x.mjs"], profile: "p", timeoutMs: 1000 },
+        repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
+      },
+    });
     assert.equal(profile.loaded.ok, false);
     assert.match(profile.loaded.ok ? "" : profile.loaded.reason, /unknown key "profile"/);
   });
@@ -183,7 +186,10 @@ describe("agent passes written short", () => {
   it("refuses a profile when the agent has nowhere to build it", () => {
     const { loaded } = load({
       agents: { cursor: { adapter: "cursor" } },
-      planner: { agent: "cursor", profile: "planner", timeoutMs: 1000 },
+      builder: {
+        producer: { agent: "cursor", profile: "builder", timeoutMs: 1000 },
+        repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
+      },
     });
     assert.equal(loaded.ok, false);
     assert.match(loaded.ok ? "" : loaded.reason, /pluginsOut/);
@@ -207,10 +213,13 @@ describe("agent passes written short", () => {
           denyShell: ["gh", "vercel"],
         },
       },
-      planner: { agent: "cursor", prompt: "./prompts/planner.md", timeoutMs: 600000 },
+      builder: {
+        producer: { agent: "cursor", prompt: "./prompts/builder.md", timeoutMs: 600000 },
+        repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
+      },
     });
-    assert.equal(loaded.ok, true);
-    const cmd = loaded.ok ? (loaded.invocation.planner?.cmd ?? []) : [];
+    assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
+    const cmd = loaded.ok ? (loaded.invocation.builder?.producer.cmd ?? []) : [];
     const at = cmd.indexOf("--api-key-env");
     assert.deepEqual(cmd.slice(at, at + 10), [
       "--api-key-env",

@@ -1,4 +1,3 @@
-import type { GateSpec as PlannerGateSpec } from "@bluewombat/feature-breakdown";
 import type { GateSpec } from "@bluewombat/implementer";
 import type { ManagerModule } from "@bluewombat/manager-kit";
 
@@ -6,16 +5,28 @@ import type { ManagerModule } from "@bluewombat/manager-kit";
  * A command with its own Gate sequence. Every role is gated independently —
  * no sharing, no dispatch choosing between two buckets (see DECISIONS.md).
  */
-export type GatedPassSpec<G = GateSpec> = PassSpec & { gates: G[] };
+export type GatedPassSpec = PassSpec & { gates: GateSpec[] };
+
+/**
+ * One tracker integration: the package that talks to it and the options that
+ * package reads. Host never reads `options`.
+ */
+export type ManagerSpec<Package = string> = {
+  /** Package name or path to a module that exports `createManager`. */
+  package: Package;
+  options: Record<string, unknown>;
+};
 
 /**
  * What `mason run` accepted. Nothing here names a tracker: whatever a
- * FeatureManager needs travels in `managerOptions`, which Host does not read.
+ * FeatureTracker or a TicketTracker needs travels in its `options`, which Host
+ * does not read. The two may be the same package or two different ones.
  */
 export type HostInvocation = {
-  /** Package name or path to a module that exports `createManager`. */
-  manager: string;
-  managerOptions: Record<string, unknown>;
+  /** Where Features are written and signalled. */
+  featureTracker: ManagerSpec;
+  /** Where the Tickets of a Feature are written, and the Authority that holds the lines. */
+  ticketTracker: ManagerSpec;
   /** Where a relative manager option resolves — the config file's directory. */
   configDir: string;
   /**
@@ -44,8 +55,8 @@ export type HostInvocation = {
    */
   workLineIsolationOptions?: Record<string, unknown>;
   /**
-   * Prepare a Feature workspace once it exists (install deps, …), before any
-   * Subtask is isolated from it. Absent: Subtasks inherit a cold Feature.
+   * Prepare the workspace once it exists (install deps, …), before the Builder
+   * runs in it. Absent: the Builder gets a cold tree.
    */
   workLineWarm?: PassSpec;
   workspaceRoot: string;
@@ -56,22 +67,20 @@ export type HostInvocation = {
    * `@bluewombat/persist-fs`.
    */
   persist: string;
-  /** FeatureStandard in, a Plan out. Gated: judges `workLineStable` once a Plan is accepted. */
-  planner: GatedPassSpec<PlannerGateSpec>;
-  /** Making a Subtask, and judging what came out of it. */
+  /** Making the unit of work, and judging what came out of it. */
   builder: StageSpec;
-  /** Judging the assembled feature, and fixing what a judgement refused. */
+  /** Judging the assembled ticket, and fixing what a judgement refused. */
   assembly: AssemblySpec;
   /**
    * The outside judge, when the Project declares one. Absent or disabled: the
-   * assembled feature is folded into WorkLineStable and that fold is final.
+   * assembled ticket is folded into WorkLineStable and that fold is final.
    */
   authority?: AuthoritySpec;
   /**
-   * What is filmed beyond the journal. Absent: the journal alone, as before.
+   * What is filmed beyond the journal. Absent: the journal alone.
    */
   observability?: ObservabilitySpec;
-  /** How long any one child outside a Task may run: Planner, manager, isolations. */
+  /** How long any one child outside a Task may run: manager, isolations. */
   timeoutMs: number;
   /**
    * Times the work may be sent back before it escalates, by an Authority, by
@@ -106,7 +115,7 @@ export type ObservabilitySpec = {
  * somebody outside is a decision, not something to read off a directory. The
  * Publisher is the command that places the work where that judge looks, and the
  * Refresher the one that reads back what the judge accepted — two more slots,
- * like the Planner and the Gates.
+ * like the Gates.
  */
 export type AuthoritySpec = {
   enabled: boolean;
@@ -114,7 +123,7 @@ export type AuthoritySpec = {
   refreshArgv: string[];
   /**
    * Optional. Describes what is submitted, in the Project's own words:
-   * spawned once per feature in its workspace with `--id`, `--title`,
+   * spawned once per ticket in its workspace with `--id`, `--title`,
    * `--intention`, `--target`; answers `{ subject, body? }`. What the
    * Authority makes of it is the manager's (for GitHub: the fold's message
    * and the pull request's text). Absent: the title and the intention, as the
@@ -137,7 +146,7 @@ export type PassSpec = {
 };
 
 /**
- * Making a Subtask: first pass, then repair when a Gate refused, each judged
+ * Making the unit of work: first pass, then repair when a Gate refused, each judged
  * by its own Gate sequence — a repair Attempt with no gates of its own runs
  * ungated, even when the producer's list is not empty.
  */
@@ -151,7 +160,7 @@ export type StageSpec = {
 };
 
 /**
- * Judging the assembled feature as a whole.
+ * Judging the assembled ticket as a whole.
  *
  * The units are already validated. The Gates run either way. A command here is
  * not a second first-pass of the request: it is a surgical fix of what a
@@ -168,7 +177,7 @@ export type AssemblySpec = {
   /** Fixes what a judgement of the whole refused. Needs `--report`. Judged by its own `gates`. */
   fix?: GatedPassSpec;
   /**
-   * A local, read-only judge of the assembled feature: whether it meets the
+   * A local, read-only judge of the assembled ticket: whether it meets the
    * intention, before there is a Submission or a Gate sequence to answer that.
    * Optional. Runs after align, with or without an Authority. A refusal is
    * parked on the aggregate and repaired by `fix`, the same as an Authority's.
@@ -180,14 +189,23 @@ export type AssemblySpec = {
   gates: GateSpec[];
 };
 
+/**
+ * An invocation still being assembled from the config file and the flags: a
+ * side may have its package from one and an option from the other.
+ */
+export type HostDraft = Omit<Partial<HostInvocation>, "featureTracker" | "ticketTracker"> & {
+  featureTracker?: Partial<ManagerSpec>;
+  ticketTracker?: Partial<ManagerSpec>;
+};
+
 /** Import face: the invocation, plus the seams the CLI has no use for. */
 export type HostOptions = Omit<
   HostInvocation,
-  "manager" | "managerOptions" | "configDir" | "home" | "persist"
+  "featureTracker" | "ticketTracker" | "configDir" | "home" | "persist"
 > & {
   /** A specifier to resolve, or an already-loaded module (tests, embedding). */
-  manager: string | ManagerModule;
-  managerOptions?: Record<string, unknown>;
+  featureTracker: ManagerSpec<string | ManagerModule>;
+  ticketTracker: ManagerSpec<string | ManagerModule>;
   configDir?: string;
   /** Defaults to `@bluewombat/persist-fs`. */
   persist?: string;

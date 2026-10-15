@@ -1,11 +1,21 @@
-import type { ManagerPort } from "./port.js";
+import type { FeatureTrackerPort, TicketTrackerPort } from "./port.js";
 
 /**
  * What Host hands a manager package at boot. `options` is the config file's
  * `managerOptions` object, unread: Host never validates a tracker's fields.
  */
+/** The two places the config names a manager: the Features, and the Tickets. */
+export type ManagerSide = "featureTracker" | "ticketTracker";
+
 export type ManagerContext = {
   options: Record<string, unknown>;
+  /**
+   * The sides of the config this manager is built for. Absent means both: a
+   * package that serves both roles reads, checks and sets up only what the
+   * listed sides need, so an option that belongs to the other side can live
+   * in that side's own options.
+   */
+  sides?: readonly ManagerSide[];
   /** Wall clock every call of this manager must stay inside. */
   durationMs: number;
   /** Flips on SIGINT / SIGTERM. Long calls must stop when it is true. */
@@ -16,9 +26,17 @@ export type ManagerContext = {
   env: Record<string, string | undefined>;
 };
 
-export type CreateManagerResult =
-  | { ok: true; manager: ManagerPort }
-  | { ok: false; reason: string };
+/**
+ * What a manager package answers. One package may be both sides (GitHub holds
+ * the Features and the Tickets), or only one (a product tool holds Features
+ * and no code).
+ */
+export type Manager = {
+  features?: FeatureTrackerPort;
+  tickets?: TicketTrackerPort;
+};
+
+export type CreateManagerResult = { ok: true; manager: Manager } | { ok: false; reason: string };
 
 export type FindingLevel = "ok" | "warn" | "fail";
 

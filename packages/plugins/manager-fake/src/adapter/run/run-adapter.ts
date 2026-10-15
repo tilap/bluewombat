@@ -63,7 +63,7 @@ function rawKindArgument(raw: Record<string, unknown>): string {
 }
 
 /**
- * Run one FeatureAdapter invocation to a run outcome.
+ * Run one Adapter invocation to a run outcome.
  */
 export async function runAdapter(options: RunOptions): Promise<RunResult> {
   const { invocation, raw } = options;

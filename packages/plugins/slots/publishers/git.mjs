@@ -11,7 +11,7 @@ import {
   writeDiagnostic,
 } from "@bluewombat/slot-kit";
 
-// Put the feature's work where the Authority can read it, by pushing the name
+// Put the ticket's work where the Authority can read it, by pushing the name
 // Isolator gave it to the work line's own remote.
 //
 // A plain push, and no force of any kind. Integrator only ever adds history, so

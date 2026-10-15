@@ -3,10 +3,10 @@ import { isAbsolute, resolve } from "node:path";
 import {
   type CreateManagerResult,
   type Finding,
+  HOME_DIR,
   intOption,
   type ManagerContext,
   type ManagerScaffold,
-  PRODUCT,
   rejectUnknownOptions,
   stringOption,
 } from "@bluewombat/manager-kit";
@@ -46,8 +46,8 @@ export function createManager(context: ManagerContext): CreateManagerResult {
   return { ok: true, manager: createFakeManager(options) };
 }
 
-const DEFAULT_SOURCE = `./.${PRODUCT}/source`;
-const DEFAULT_TARGET = `./.${PRODUCT}/threads`;
+const DEFAULT_SOURCE = `./${HOME_DIR}/source`;
+const DEFAULT_TARGET = `./${HOME_DIR}/threads`;
 
 /**
  * What `mason init` writes. `createManager` still refuses a missing Source:

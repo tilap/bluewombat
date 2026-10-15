@@ -1,7 +1,10 @@
 # Manager: GitHub Issues
 
-The FeatureManager triplet for GitHub Issues: issues in, issue comments (and
-optional state labels) out, over the REST API with a token.
+The FeatureTracker and TicketTracker for GitHub Issues: a Feature is an issue
+carrying `feature-ready`, its Tickets are its sub-issues carrying `task-ready`;
+comments (and optional state labels) go out, over the REST API with a token.
+The same repository is the Authority: it cuts the lines and holds the pull
+requests.
 Contract: [SPECS.md](./SPECS.md).
 
 ```bash
@@ -10,27 +13,76 @@ npx mason init --manager @bluewombat/manager-github --manager-option repo=owner/
 export GITHUB_TOKEN=…
 ```
 
-```json
-{
-  "manager": "@bluewombat/manager-github",
-  "managerOptions": {
-    "repo": "owner/name",
-    "labels": ["mason"],
-    "readyLabel": "ready",
-    "defaultProject": "app",
-    "stateLabelPrefix": "mason:"
-  }
-}
+```yaml
+featureTracker:
+  package: "@bluewombat/manager-github"
+  options:
+    repo: owner/name
+    featureReadyLabel: feature-ready
+    mergeWhenReadyLabel: merge-when-ready
+    resumeLabel: to-resume
+    defaultProject: app
+    stateLabels: &stateLabels
+      invalid: "mason:invalid"
+      accepted: "mason:accepted"
+      progress: "mason:progress"
+      escalated: "mason:escalated"
+      escalation_reminder: "mason:escalation_reminder"
+      resumed: "mason:resumed"
+      submitted: "mason:submitted"
+      done: "mason:done"
+      cancelled: "mason:cancelled"
+      reject_late: "mason:reject_late"
+ticketTracker:
+  package: "@bluewombat/manager-github"
+  options:
+    repo: owner/name
+    ticketReadyLabel: task-ready
+    resumeLabel: to-resume
+    defaultProject: app
+    stateLabels: *stateLabels
 ```
+
+Each label option is written under the side that uses it:
+`featureReadyLabel` and `mergeWhenReadyLabel` under `featureTracker`,
+`ticketReadyLabel` under `ticketTracker`. The package is told which side it
+serves, so `mason setup` creates only that side's labels and `mason doctor`
+names only those; an option under the wrong side is refused by name. The
+options both sides read (`repo`, `tokenEnv`, `resumeLabel`, `defaultProject`,
+`stateLabels`, …) are written under both.
+
+A config that gives both sides the same options (a YAML anchor, say) builds one
+manager serving both: every option is then accepted, and the label options may
+share one name.
+
+The same package answers both sides here; a Feature tracker of another tool
+takes the first block alone (Features), and this package the second (Tickets,
+lines).
 
 The token is read by this package from the environment; it never appears in the
 config file and Host never sees it.
+
+## Features and Tickets
+
+| On GitHub                                     | Means                                                                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| A top-level issue with `feature-ready`          | A Feature: its content is final, its Tickets may be written. Only these are listed. A sub-issue is never a Feature |
+| Its sub-issues                                | Its Tickets, in the order GitHub gives them                                                                      |
+| `task-ready` on a sub-issue                    | The Ticket's specification is final. A Feature starts only when every one of its Tickets carries it             |
+| "Blocked by" (issue dependencies)             | On a Feature: the Features that must be done first. On a Ticket: the Tickets that must be done first            |
+| `merge-when-ready` on a Feature               | Its line may be folded without a human. Without it, a human merges the pull request and the system waits         |
+| `to-resume` on an escalated Feature or Ticket | Resume                                                                                                           |
+| `priority:<n>`, `project:<name>` labels       | On a Feature and on a Ticket                                                                          |
+
+The Feature and Ticket labels may share one name (`featureReadyLabel` and
+`ticketReadyLabel` both `ready-for-agent`): a sub-issue is a Ticket whatever it
+carries, and `mason setup` creates the label once.
 
 ## What an issue says
 
 The body is the intention, word for word, less what GitHub itself put there:
 the comments an issue template leaves behind, and the boxes of a task list —
-`- [ ] a CSV downloads` reaches the Planner as `- a CSV downloads`. Nothing is
+`- [ ] a CSV downloads` reaches the Builder as `- a CSV downloads`. Nothing is
 read out of it: no checklist is required, no criteria are extracted (what
 "done" means is the layer above mason's, not mason's). A body that was only a
 template's comments falls back to the title.
@@ -38,7 +90,7 @@ template's comments falls back to the title.
 That text, with the title, the project and the priority, is the issue's
 fingerprint — what tells an **edit** from an **echo**. Comments, state labels
 and a ticked box all move `updated_at` and deliver the issue again; none of
-them changes the fingerprint. Rewording the body does, and on a Feature in
+them changes the fingerprint. Rewording the body does, and on a Ticket in
 flight that is recorded and freezes it once the current unit lands, for a
 human to decide. So: tick the boxes as you please; rewrite the words only when
 you mean it.
@@ -51,30 +103,35 @@ you mean it.
 | `tokenEnv`         | no       | `GITHUB_TOKEN`                  | Environment variable holding the token                                                                                                                                                                                                                                                                            |
 | `token`            | no       | —                               | The token itself. For embedding and tests; prefer `tokenEnv`                                                                                                                                                                                                                                                      |
 | `apiBase`          | no       | `https://api.github.com`        | REST base, for GitHub Enterprise                                                                                                                                                                                                                                                                                  |
-| `labels`           | no       | none                            | Every listed label must be on the issue for it to be admitted                                                                                                                                                                                                                                                     |
-| `readyLabel`       | no       | `ready`                         | On an escalated Feature, this label means resume; the escalation comment names it                                                                                                                                                                                                                                 |
-| `defaultProject`   | no       | `unknown`                       | Project when no `project:` label says otherwise                                                                                                                                                                                                                                                                   |
+| `featureReadyLabel` (featureTracker) | no       | `feature-ready`                   | The label that makes an issue a Feature the system may take                                                                                                                                                                                                                                                       |
+| `ticketReadyLabel` (ticketTracker) | no       | `task-ready`                     | The label a sub-issue carries once its specification is final                                                                                                                                                                                                                                                     |
+| `mergeWhenReadyLabel` (featureTracker) | no    | `merge-when-ready`              | On a Feature: its line is folded without a human                                                                                                                                                                                                                                                                  |
+| `resumeLabel`       | no       | `to-resume`                         | On an escalated Feature or Ticket, this label means resume; the escalation comment names it                                                                                                                                                                                                                                 |
+| `defaultProject`   | no       | none                            | The Project of a Feature that has no `project:` label. Without it, such a Feature is refused as invalid (`missing-project`). `mason setup` creates the label `project:<defaultProject>` |
 | `defaultPriority`  | no       | `50`                            | Priority when no `priority:` label says otherwise (0…100)                                                                                                                                                                                                                                                         |
-| `stateLabelPrefix` | no       | none                            | When set, state labels (`mason:done`, …) are moved too                                                                                                                                                                                                                                                            |
+| `stateLabels`      | no       | none                            | A mapping that names, for every Event, the label it lands as (see State labels). Absent: the Events leave no label |
 | `branch`           | no       | `main`                          | The work line pull requests are opened onto. `mason setup` checks it exists and names the repository's default branch when it does not                                                                                                                                                                            |
 | `remote`           | no       | `https://github.com/<repo>.git` | Git URL of the repository, for Host's copy of the work line. Over HTTPS, git authenticates with the token in `tokenEnv` — read when git asks, never written to disk — so pushes are the token's account. Set it for GitHub Enterprise, a mirror, or SSH (then this machine's keys are used, and `doctor` says so) |
-| `keepBranch`       | no       | `false`                         | Leave the feature branch on the remote after the fold. By default it is deleted once the squash is on the work line                                                                                                                                                                                               |
+| `keepBranch`       | no       | `false`                         | Leave the ticket branch on the remote after the fold. By default it is deleted once the squash is on the work line                                                                                                                                                                                               |
 | `commitAuthor`     | no       | none                            | `Name <email>`: who the system is on the commits it makes. Without it, commits carry this machine's git identity, and `doctor` warns. Use the token's account (its noreply address works) so GitHub credits the system, not a person                                                                              |
 
 ## Submissions
 
-This manager is an Authority: it offers an assembled feature to the repository
-as a pull request, and takes an accepted one in.
+This manager is an Authority: it cuts the line of a Feature, offers an
+assembled Ticket (or a Feature's line) to the repository as a pull request, and
+takes an accepted one in.
 
 | Method    | On GitHub                                                                                                                                                                                                    |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `submit`  | Opens a pull request from the published branch onto `workLine.branch`. An open one on the same branch is reused, never duplicated                                                                            |
-| `verdict` | Reads the checks on the pull request's head commit                                                                                                                                                           |
+| `openLine`| Creates `feature/<n>` from `branch` (`git/refs`). A line that exists is a success                                                                                                                            |
+| `dropLine`| Deletes a line nobody will fold                                                                                                                                                                              |
+| `submit`  | Opens a pull request from the published branch onto the line it is offered to (a Feature's line, or `branch`). An open one on the same branch is reused, never duplicated                                   |
+| `settled` | Whether the pull request is still open, was merged (by anyone), or was closed unmerged. A human's merge is read here                                                                                         |
 | `fold`    | Squash-merges it: the commit's title is the pull request's; its body is what the Project's Describer said (carried on the pull request), else `Closes #N` alone. Then deletes the branch unless `keepBranch` |
 
 The pull request is titled after the issue (trailing full stop dropped, `(#N)`
-appended) and its body is the issue's intention, the Plan's steps, and
-`Closes #N` — so GitHub closes the issue when the pull request is merged.
+appended) and its body is the issue's intention and
+`Closes #N` — so GitHub closes the issue when the pull request is merged. GitHub honours `Closes` only for a merge into the default branch, so a Ticket folded into a Feature's line stays open until a reservation says otherwise (`docs/RESERVATIONS.md`).
 Nothing in it is generated.
 
 `verdict` counts the grace for a commit with no check from the **commit**, not
@@ -82,7 +139,7 @@ from the pull request: one that was sent back and published again is old while
 its commit is seconds old, and reading "no check yet" as "no checks exist" folds
 it unjudged.
 
-`clearReady` takes the `readyLabel` off an issue once a resume has been acted
+`clearResume` takes the `resumeLabel` off an issue once a resume has been acted
 on, so an escalation freezes instead of resuming on every pass.
 
 `probe` asks whether an issue Host already holds is still there. A poll cannot
@@ -119,7 +176,7 @@ back whole, as the full read would have been. A 304 sent with an
 Authorization header does not count against the token's hourly budget
 (GitHub's [REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api);
 measured: three 304s in a row left `x-ratelimit-used` unchanged). So a tick
-where nothing moved on the watched issues — the listing, a probe of a Feature
+where nothing moved on the watched issues — the listing, a probe of a Ticket
 in flight — costs a round trip and no budget. Handing the answer back rather
 than reading a 304 as "nothing" matters: when Host did not commit its Cursor,
 the same listing is asked again and the issues not consumed yet must come back.
@@ -130,11 +187,41 @@ per judgement, with nothing to remember an `etag` in. Anything this manager
 writes on an issue (a comment, a label) changes the listing, so the next read
 after a report is a full one.
 
+## State labels
+
+The Events are `invalid`, `accepted`, `progress`, `escalated`, `escalation_reminder`,
+`resumed`, `submitted`, `done`, `cancelled` and `reject_late`. With `stateLabels` set,
+the issue carries the label of its latest Event and the previous one is removed;
+every other label (`project:`, `priority:`, yours) is never touched. `done` and
+`cancelled` also keep a fresh Mason home from rebuilding or taking up an issue that
+already ended, unless the resume label is on it.
+
+`stateLabels` names every Event, with any label you like, and gives the same name to
+no two Events:
+
+```yaml
+options:
+  stateLabels:
+    invalid: "mason:invalid"
+    accepted: "mason:accepted"
+    progress: "mason:progress"
+    escalated: "mason:escalated"
+    escalation_reminder: "mason:escalation_reminder"
+    resumed: "mason:resumed"
+    submitted: "mason:submitted"
+    done: "termine"
+    cancelled: "abandonne"
+    reject_late: "mason:reject_late"
+```
+
+Absent, nothing is labelled and the guard on `done` and `cancelled` is off. Naming
+an Event outside the list, leaving one out, or giving a label twice is refused.
+
 ## Prepare the repository
 
 `mason setup` reads the config and says what the repository still needs;
 `--apply` creates it. It is idempotent, so it is safe to re-run after changing
-`labels` or turning `stateLabelPrefix` on.
+the label options or setting `stateLabels`.
 
 ```bash
 mason setup --apply
@@ -146,7 +233,7 @@ mason setup --apply
 | Issues are enabled          | `has_issues` on that same response                                                                                                                                                         |
 | The token can write         | `permissions.push` on that same response, rather than guessing at scopes                                                                                                                   |
 | The branch exists           | `GET /repos/{owner}/{repo}/branches/{branch}` for `branch` (default `main`); when it is missing and the config named none, the step says the repository's default branch and what to write |
-| Labels                      | `labels`, `readyLabel`, `project:<defaultProject>`, and one per Event when `stateLabelPrefix` is set                                                                                       |
+| Labels                      | `featureReadyLabel`, `ticketReadyLabel`, `mergeWhenReadyLabel`, `resumeLabel`, `project:<defaultProject>`, and one per Event when `stateLabels` is set                                                                                       |
 
 Creating a label is the only write; nothing existing is renamed, recoloured, or
 deleted.
@@ -181,10 +268,12 @@ SPECS.md          the contract
 README.md         how to build and configure it
 src/
   index.ts        createManager, checkManager, scaffoldManager — the plugin face
-  manager.ts      the ManagerPort (listen / adapt / report / probe live in listener/, adapter/, emitter/, probe/)
+  manager.ts      the Manager: `features` and `tickets` (listen / adapt / report / probe live in listener/, adapter/, emitter/, probe/)
   github/         Octokit channel shared by listen, adapt, report, and probe
   probe/          whether a minted key's issue is still on the tracker
   repo.ts         owner/name
+  tickets/        a Feature's sub-issues, their blockers and signals
+  submission/     lines, pull requests, settled
   issue-number.ts the issue a key or a payload points at
   labels.ts       whether a payload carries a label
 ```

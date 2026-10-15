@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { emitMessage, MESSAGE_FLAGS, ownArgv, take, writeDiagnostic } from "@bluewombat/slot-kit";
 
-// The feature's commit in the Conventional Commits shape, from the issue's
+// The ticket's commit in the Conventional Commits shape, from the issue's
 // title and body and with no agent: `<type>: <title>`, the body as written.
 //
 // The type is read off the title's first word — a Project that wants a

@@ -9,9 +9,7 @@ export const FIELD_ORDER: FieldName[] = [
   "stage",
   "trace",
   "counters",
-  "plan",
   "priority",
-  "unit",
   "remaining",
   "state",
   "resume_point",
@@ -22,7 +20,6 @@ export const FIELD_ORDER: FieldName[] = [
 export const EVENT_NAMES: EventName[] = [
   "invalid",
   "accepted",
-  "planned",
   "progress",
   "escalated",
   "escalation_reminder",
@@ -37,26 +34,25 @@ type Rule = { required: FieldName[]; optional: FieldName[] };
 
 /**
  * What each Event accepts. A field outside its row is refused, not dropped:
- * a caller setting `reference` on `planned` has confused two Events, and a
+ * a caller setting `reference` on `accepted` has confused two Events, and a
  * report that hides that is worse than a refusal.
  */
 export const FIELD_MATRIX: Record<EventName, Rule> = {
   invalid: { required: ["reason"], optional: [] },
   accepted: { required: ["priority"], optional: [] },
-  planned: { required: ["plan"], optional: [] },
-  // Progress is one sentence a person reads — a Subtask landed, a refusal
+  // Progress is one sentence a person reads — a refusal
   // being repaired — and whatever detail the caller wants to leave under it.
   progress: {
     required: ["summary"],
-    optional: ["unit", "remaining", "state", "stage", "reason", "trace", "counters"],
+    optional: ["remaining", "state", "stage", "reason", "trace", "counters"],
   },
   escalated: {
     required: ["reason", "stage"],
-    optional: ["trace", "counters", "unit"],
+    optional: ["trace", "counters"],
   },
   escalation_reminder: {
     required: ["reason", "stage"],
-    optional: ["trace", "counters", "unit"],
+    optional: ["trace", "counters"],
   },
   resumed: { required: ["resume_point"], optional: ["reason"] },
   // The work is in front of the Authority; the reference is where it can be seen.

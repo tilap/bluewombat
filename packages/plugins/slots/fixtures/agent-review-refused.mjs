@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** A reviewer that refuses the assembled feature, having done nothing else. */
+/** A reviewer that refuses the assembled ticket, having done nothing else. */
 process.stdout.write(
   `${JSON.stringify({
     type: "result",

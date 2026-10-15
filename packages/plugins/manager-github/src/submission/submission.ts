@@ -22,7 +22,7 @@ export type SubmissionContext = {
   deadlineMs: number;
   now: () => number;
   shouldInterrupt: () => boolean;
-  /** Leave the feature branch on the remote after the fold. Default: delete it. */
+  /** Leave the ticket branch on the remote after the fold. Default: delete it. */
   keepBranch?: boolean | undefined;
 };
 
@@ -85,7 +85,7 @@ export async function foldPullRequest(
   }
   const call = callSignal(context.deadlineMs, context.now, context.shouldInterrupt);
   try {
-    // One commit on the work line per feature, saying what the pull request
+    // One commit on the work line per ticket, saying what the pull request
     // was opened with — the message decided then and kept on it, so a restart
     // loses nothing — and closing the issue. The branch keeps the
     // Subtask-by-Subtask history for whoever wants it.
@@ -184,12 +184,12 @@ export function titleOf(input: Pick<SubmissionRequest, "key" | "title">): string
 }
 
 /**
- * What the pull request delivers, from what was asked and what was planned.
- * Nothing here is generated: the intention is the human's words, the steps are
- * the Plan's. `Closes #N` lets GitHub close the issue when this is merged.
+ * What the pull request delivers, from what was asked. Nothing here is
+ * generated: the intention is the human's words. `Closes #N` lets GitHub close
+ * the issue when this is merged.
  */
 export function bodyOf(
-  input: Pick<SubmissionRequest, "key" | "title" | "intention" | "steps" | "description">,
+  input: Pick<SubmissionRequest, "key" | "title" | "intention" | "description">,
 ): string {
   const sections: string[] = [];
   // What the reader sees first: the Project's words when a Describer gave
@@ -199,11 +199,6 @@ export function bodyOf(
   const description = slotBody.length > 0 ? slotBody : intention;
   if (description.length > 0) {
     sections.push(description);
-  }
-  if (input.steps !== undefined && input.steps.length > 0) {
-    sections.push(
-      ["## Changes", ...input.steps.map((line, at) => `${at + 1}. ${line}`)].join("\n"),
-    );
   }
   const issue = issueNumberFromExternalId(input.key);
   sections.push(issue === undefined ? `Key: \`${input.key}\`` : `Closes #${issue}`);

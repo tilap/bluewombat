@@ -1,13 +1,13 @@
-import type { FeatureAggregate } from "@bluewombat/work-ledger";
+import type { TicketAggregate } from "@bluewombat/work-ledger";
 
 /**
  * What the run says about itself while it works.
  *
  * A run can wait minutes on an Attempt and longer on a verdict. With nothing on
  * stdout there is no way to tell working from wedged, and no way to see which
- * stage a feature is at without reading the WorkLedger by hand.
+ * stage a ticket is at without reading the WorkLedger by hand.
  *
- * One line per thing that happened, and one per pass over a feature that is
+ * One line per thing that happened, and one per pass over a ticket that is
  * waiting — a repeated line is how a reader knows the loop is still turning.
  */
 export type Trace = (line: string) => void;
@@ -18,14 +18,14 @@ export function openTrace(write: (text: string) => void): Trace {
   };
 }
 
-/** Where this feature stands, in one line. */
-export function describeFeature(aggregate: FeatureAggregate): string {
+/** Where this ticket stands, in one line. */
+export function describeTicket(aggregate: TicketAggregate): string {
   const key = aggregate.intention.key;
   const state = aggregate.state;
   return `${key}  ${state.padEnd(11)} ${detailOf(aggregate)}`.trimEnd();
 }
 
-function detailOf(aggregate: FeatureAggregate): string {
+function detailOf(aggregate: TicketAggregate): string {
   switch (aggregate.state) {
     case "submitted":
       return aggregate.submission === undefined
@@ -41,12 +41,10 @@ function detailOf(aggregate: FeatureAggregate): string {
       return `${aggregate.escalation?.kind ?? "?"} — waiting for a human`;
     case "running":
       return runningDetail(aggregate);
-    case "planning":
-      return "";
     case "integrating":
       return aggregate.parked_refusal === undefined
-        ? `${countIntegrated(aggregate)} subtask(s) folded`
-        : `${countIntegrated(aggregate)} subtask(s) folded, assembly.validate sent it back (repair on its way)`;
+        ? "assembling"
+        : "assembly.validate sent it back (repair on its way)";
     case "invalid":
       return aggregate.invalid?.reason ?? "";
     default:
@@ -54,16 +52,8 @@ function detailOf(aggregate: FeatureAggregate): string {
   }
 }
 
-function runningDetail(aggregate: FeatureAggregate): string {
-  const subtasks = aggregate.plan?.subtasks ?? [];
-  const current = subtasks.find((subtask) => subtask.state === "running");
-  const at = current === undefined ? "" : `subtask ${current.id}, `;
-  return `${at}${countIntegrated(aggregate)}/${subtasks.length} folded, attempt ${aggregate.attempts_used}`;
-}
-
-function countIntegrated(aggregate: FeatureAggregate): number {
-  return (aggregate.plan?.subtasks ?? []).filter((subtask) => subtask.state === "integrated")
-    .length;
+function runningDetail(aggregate: TicketAggregate): string {
+  return `attempt ${aggregate.attempts_used}`;
 }
 
 function stamp(): string {

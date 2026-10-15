@@ -2,17 +2,17 @@
 import { spawnSync } from "node:child_process";
 import { emitVerdict, GATE_FLAGS, ownArgv, stageOf } from "@bluewombat/slot-kit";
 
-// Fail-retryable when the feature's commits add a path the workspace's own
+// Fail-retryable when the ticket's commits add a path the workspace's own
 // .gitignore excludes — a Builder's node_modules/, a build's dist/, a generated
 // file — so it would ship in the Submission.
 //
-// --base REF (required): the work line the feature is offered to. Only what the
-// feature adds since it left that line is judged, in what is committed: a path
-// tracked on purpose before the feature began is not this feature's leak, and
+// --base REF (required): the work line the ticket is offered to. Only what the
+// ticket adds since it left that line is judged, in what is committed: a path
+// tracked on purpose before the ticket began is not this ticket's leak, and
 // a removal staged but not committed has not removed anything yet.
 //
-// A unit only: nothing. A Subtask's work is uncommitted until a fold records it,
-// so there is no commit of its own here to judge.
+// A unit only: nothing. The work is uncommitted until a fold records it, so
+// there is no commit of its own here to judge.
 
 const cwd = process.cwd();
 const tokens = ownArgv(process.argv, GATE_FLAGS);
@@ -37,7 +37,7 @@ for (let i = 0; i < tokens.length; i++) {
 if (base === undefined) {
   emitVerdict(
     "fail-blocking",
-    "gitignore-leak needs --base <ref>: the work line the feature is offered to.",
+    "gitignore-leak needs --base <ref>: the work line the ticket is offered to.",
   );
   process.exit(0);
 }
@@ -105,7 +105,7 @@ emitVerdict(
   [
     `These paths are committed on top of ${base}, and this workspace's .gitignore excludes them.`,
     "Take them out of the commit with git rm -r --cached <path> and keep the files. If the",
-    "feature does mean to track one, change .gitignore so it no longer excludes it:",
+    "ticket does mean to track one, change .gitignore so it no longer excludes it:",
     ...shown,
     ...(rest > 0 ? [`… and ${rest} more`] : []),
   ].join("\n"),

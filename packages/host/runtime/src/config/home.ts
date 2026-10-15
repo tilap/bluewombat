@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { PRODUCT } from "@bluewombat/manager-kit";
+import { HOME_DIR } from "@bluewombat/manager-kit";
 
 /**
  * Where Host keeps what is its own — the ledger, the workspaces, its copy of
@@ -9,7 +9,7 @@ import { PRODUCT } from "@bluewombat/manager-kit";
  * `workspaceRoot` and `ledger` in the config still move each part on its own;
  * this is only where they go when nobody says.
  */
-export const DEFAULT_HOME = `./.${PRODUCT}`;
+export const DEFAULT_HOME = `./${HOME_DIR}`;
 
 export const HOME_LAYOUT = {
   workspaces: "workspaces",

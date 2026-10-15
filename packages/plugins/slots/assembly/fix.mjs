@@ -19,9 +19,9 @@ const NAME = "assembly fix";
 
 const DEFAULT_TEMPLATE = `You are a coding agent working unattended in a checkout of the project.
 
-This directory is the assembled feature. The units of work that made it have
-already been validated. An earlier judgement of the whole refused it. Do not
-redo those units. Fix what the refusal names.
+This directory is the assembled work. It passed the checks made on the unit
+itself. An earlier judgement of the whole refused it. Do not redo the work.
+Fix what the refusal names.
 
 Refused by: {{refused_by}}
 

@@ -40,7 +40,6 @@ npm run build
 node dist/cli.js \
   --id task-1 \
   --intention "do the work" \
-  --definition-of-done "checks pass" \
   --workspace /absolute/path/to/workspace \
   --builder -- node /path/to/builder.js \
   --builder-timeout-ms 60000 \

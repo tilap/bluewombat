@@ -11,7 +11,7 @@ Each package here answers one contract and knows nothing of who calls it.
 | [`isolation-copy/`](./isolation-copy/)           | `strategy: { isolation, fold }` — directory copy                    | `workLine.isolation`           |
 | [`persist-fs/`](./persist-fs/)           | `openPersist({ ledgerRoot })` → Persistence Port — one JSON per key | `persist` (the default)        |
 | [`persist-sqlite/`](./persist-sqlite/)   | Same — one SQLite file                                              | `persist`                      |
-| [`slots/`](./slots/)                             | Commands that print one JSON line: Planner, Builder, Gate, Agent…   | `planner`, `builder`, `gates`… |
+| [`slots/`](./slots/)                             | Commands that print one JSON line: Builder, Gate, Agent…            | `builder`, `gates`…            |
 
 ## The rule
 

@@ -1,11 +1,10 @@
-import { existsSync, writeFileSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { ManagerQuestion, ManagerScaffold } from "@bluewombat/manager-kit";
-import { PRODUCT } from "@bluewombat/manager-kit";
+import { CLI_NAME, PRODUCT } from "@bluewombat/manager-kit";
 import { stringify as stringifyYaml } from "yaml";
-import { BOOTSTRAP_PLANNER, ISOLATION_COPY, ISOLATION_GIT } from "../config/defaults.js";
-import { CONFIG_FILENAME } from "../config/find-config.js";
+import { ISOLATION_COPY, ISOLATION_GIT } from "../config/defaults.js";
+import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
 import { DEFAULT_HOME, inHome } from "../config/home.js";
 import { inspectWorkLine } from "../loop/work-line.js";
 import { type DiscoveredManager, discoverManagers } from "../plugins/discover.js";
@@ -35,11 +34,9 @@ const BUILDER_TIMEOUT_MS = 600_000;
 /** What a Gate takes when it names none of its own. */
 const GATE_TIMEOUT_MS = 120_000;
 
-const PLANNER_IN_PROJECT = `./node_modules/${BOOTSTRAP_PLANNER}`;
-
 const BUILDER_STUB = `#!/usr/bin/env node
-// The Builder slot. ${PRODUCT} spawns it in the Subtask workspace with --id,
-// --attempt, --intention and --definition-of-done, and reads the exit code:
+// The Builder slot. ${PRODUCT} spawns it in the Ticket workspace with --id,
+// --attempt and --intention, and reads the exit code:
 // 0 means the Gates may run. Replace it with your producer — an agent CLI,
 // a script, anything that writes the work into the current directory.
 // Leave that work uncommitted: it is what the Gates read and what ${PRODUCT} folds.
@@ -71,14 +68,17 @@ async function init(input: InitInput): Promise<InitResult> {
   if (!flags.ok) {
     return flags;
   }
-  const path = resolve(input.cwd, CONFIG_FILENAME);
+  const path = resolve(input.cwd, flags.config);
   const env = input.env ?? {};
 
+  if (existsSync(path) && statSync(path).isDirectory()) {
+    return { ok: false, reason: `${flags.config} is a directory.` };
+  }
   if (existsSync(path) && !flags.force) {
     if (input.ask === undefined) {
-      return { ok: false, reason: `${CONFIG_FILENAME} already exists. Pass --force to overwrite.` };
+      return { ok: false, reason: `${flags.config} already exists. Pass --force to overwrite.` };
     }
-    input.write(`${CONFIG_FILENAME} already exists here.\n`);
+    input.write(`${flags.config} already exists here.\n`);
     if (!(await askYesNo(input.ask, "Overwrite it?", false, input.write))) {
       return { ok: false, reason: "Left the existing config alone.", exitCode: 0 };
     }
@@ -119,7 +119,7 @@ async function init(input: InitInput): Promise<InitResult> {
     );
   }
   // A flag goes through the same reader the question would have used, so
-  // `--manager-option labels=mason` and the typed answer land as one shape,
+  // `--manager-option repo=owner/name` and the typed answer land as one shape,
   // and a malformed one is refused here rather than at the first run.
   const fromFlags = readFlagOptions(questions, flags.managerOptions);
   if (fromFlags.ok === false) {
@@ -165,13 +165,14 @@ async function init(input: InitInput): Promise<InitResult> {
     };
   }
 
+  // One package named at init answers both sides; the config is where they
+  // are told apart afterwards.
   const config = {
-    manager: manager.name,
-    managerOptions,
+    featureTracker: { package: manager.name, options: managerOptions },
+    ticketTracker: { package: manager.name, options: managerOptions },
     workLine,
     // No `home`, `workspaceRoot` or `ledger`: the defaults put all of it under
     // `.mason`, and a key that repeats a default is one more thing to keep true.
-    planner: { cmd: ["node", plannerPath(input.cwd)], timeoutMs: DURATION_MS },
     // Both passes name the same stub, and both are written out: a repair runs
     // its own agent or it runs nothing, never the first pass by default. Each
     // carries its own Gate sequence — a repair with none of its own runs
@@ -196,6 +197,7 @@ async function init(input: InitInput): Promise<InitResult> {
     timeoutMs: DURATION_MS,
     pollIntervalMs: 30_000,
   };
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, stringifyYaml(config, { lineWidth: 0 }), "utf8");
 
   const builderPath = resolve(input.cwd, BUILDER_FILENAME);
@@ -203,18 +205,23 @@ async function init(input: InitInput): Promise<InitResult> {
     writeFileSync(builderPath, BUILDER_STUB, { encoding: "utf8", mode: 0o755 });
   }
   scaffold.prepare?.(input.cwd);
-  input.write(`\nWrote ${CONFIG_FILENAME} and ${BUILDER_FILENAME}.\n`);
+  input.write(`\nWrote ${flags.config} and ${BUILDER_FILENAME}.\n`);
 
   const exitCode = await carryOnIntoSetup(
     input,
     loaded.ok && loaded.module.setupManager !== undefined,
+    flags.config,
   );
 
   input.write("\nStill yours to write:\n");
-  for (const step of [...scaffold.nextSteps, ...hostNextSteps()]) {
+  for (const step of [...scaffold.nextSteps, ...hostNextSteps(flags.config)]) {
     input.write(`  - ${step}\n`);
   }
-  input.write(`\nThen: ${PRODUCT} doctor, and ${PRODUCT} run\n`);
+  const follow =
+    resolve(input.cwd, flags.config) === resolve(input.cwd, DEFAULT_CONFIG_FILENAME)
+      ? ""
+      : ` --config ${flags.config}`;
+  input.write(`\nThen: ${CLI_NAME} doctor${follow}, and ${CLI_NAME} run${follow}\n`);
   return { ok: true, path, exitCode };
 }
 
@@ -225,14 +232,18 @@ async function init(input: InitInput): Promise<InitResult> {
  * `mason init && mason setup --apply` must not stop because a token is not
  * exported yet. Only a failed *apply* is reported as a failure.
  */
-async function carryOnIntoSetup(input: InitInput, hasSetup: boolean): Promise<number> {
+async function carryOnIntoSetup(
+  input: InitInput,
+  hasSetup: boolean,
+  config: string,
+): Promise<number> {
   if (!hasSetup) {
     return 0;
   }
   input.write("\nChecking what the tracker still needs.\n\n");
   const plan = await runSetup({
     cwd: input.cwd,
-    argv: [],
+    argv: ["--config", config],
     env: input.env ?? {},
     write: input.write,
   });
@@ -245,7 +256,7 @@ async function carryOnIntoSetup(input: InitInput, hasSetup: boolean): Promise<nu
   input.write("\n");
   return await runSetup({
     cwd: input.cwd,
-    argv: ["--apply"],
+    argv: ["--config", config, "--apply"],
     env: input.env ?? {},
     write: input.write,
   });
@@ -265,8 +276,8 @@ async function chooseManager(input: InitInput, named: string): Promise<Chosen> {
     return {
       ok: false,
       reason:
-        "No FeatureManager package is installed here.\n" +
-        `Install one, then run ${PRODUCT} init again — for GitHub Issues:\n` +
+        "No TicketTracker package is installed here.\n" +
+        `Install one, then run ${CLI_NAME} init again — for GitHub Issues:\n` +
         "  npm install @bluewombat/manager-github",
     };
   }
@@ -289,7 +300,7 @@ async function chooseManager(input: InitInput, named: string): Promise<Chosen> {
       ? { ok: false, reason: "No manager chosen." }
       : { ok: true, name: typed };
   }
-  input.write("Which FeatureManager?\n");
+  input.write("Which TicketTracker?\n");
   const index = await askChoice(input.ask, input.write, "Manager", installed.map(describe));
   const picked = installed[index];
   return picked === undefined
@@ -405,7 +416,7 @@ async function chooseWorkLine(input: InitInput, flags: InitFlags): Promise<Chose
 
   input.write(`  ${absolute} does not exist yet.\n`);
   if (!(await askYesNo(input.ask, "  Clone it from a git remote?", true, input.write))) {
-    input.write(`  Create it before running ${PRODUCT}.\n`);
+    input.write(`  Create it before running ${CLI_NAME}.\n`);
     return { ok: true, path: chosen };
   }
   const cloned = await cloneAsked(input, absolute);
@@ -461,7 +472,7 @@ async function cloneAsked(input: InitInput, absolute: string): Promise<ChosenWor
   // Empty means "I will put it there myself" — not a reason to abandon init.
   const remote = await askText(ask, "  Git remote (empty to skip)");
   if (remote.length === 0) {
-    input.write(`  Skipped. Create ${absolute} before running ${PRODUCT}.\n`);
+    input.write(`  Skipped. Create ${absolute} before running ${CLI_NAME}.\n`);
     return { ok: true, path: absolute };
   }
   const listed = remoteBranches(remote);
@@ -492,6 +503,7 @@ async function cloneAsked(input: InitInput, absolute: string): Promise<ChosenWor
 
 type InitFlags = {
   ok: true;
+  config: string;
   manager: string;
   managerOptions: Record<string, unknown>;
   workLineStable: string | undefined;
@@ -506,6 +518,7 @@ function parseInitFlags(
 ): InitFlags | { ok: false; reason: string } {
   const flags: InitFlags = {
     ok: true,
+    config: DEFAULT_CONFIG_FILENAME,
     manager: "",
     managerOptions: {},
     workLineStable: undefined,
@@ -530,6 +543,9 @@ function parseInitFlags(
       return { ok: false, reason: `Missing value for ${token}.` };
     }
     switch (token) {
+      case "--config":
+        flags.config = value;
+        break;
       case "--manager":
         flags.manager = value;
         break;
@@ -587,29 +603,10 @@ function addManagerOption(
   return { ok: true };
 }
 
-function hostNextSteps(): string[] {
+function hostNextSteps(config: string): string[] {
   return [
     `${BUILDER_FILENAME} — your producer; or point builder.producer at @bluewombat/slots/builders/producer.mjs and builder.repair at builders/repair.mjs, with an agent after --`,
-    `builder.producer.gates.gates in ${CONFIG_FILENAME} — start with workspace-changed (examples in @bluewombat/slots/gates/); builder.repair.gates is separate and runs ungated until you add one`,
-    `authority.enabled in ${CONFIG_FILENAME} — true to offer the assembled feature outside, which then needs assembly.fix (assembly.validate is another way to send work back to it, local and optional)`,
+    `builder.producer.gates.gates in ${config} — start with workspace-changed (examples in @bluewombat/slots/gates/); builder.repair.gates is separate and runs ungated until you add one`,
+    `authority.enabled in ${config} — true to offer the assembled ticket outside, which then needs assembly.fix (assembly.validate is another way to send work back to it, local and optional)`,
   ];
-}
-
-/**
- * The bootstrap Planner from `@bluewombat/slots`.
- *
- * The Project's own copy answers first, named the way every example names it.
- * Resolving instead would follow a `npm link` symlink to its realpath and write
- * the path of some clone on this machine into a config meant to be committed.
- *
- * Only a Project without that copy falls through to resolution — the slots are
- * their own package, and where an installer put them is its business.
- */
-function plannerPath(cwd: string): string {
-  if (existsSync(resolve(cwd, PLANNER_IN_PROJECT))) {
-    return PLANNER_IN_PROJECT;
-  }
-  const absolutePath = fileURLToPath(import.meta.resolve(BOOTSTRAP_PLANNER));
-  const nearby = relative(cwd, absolutePath);
-  return nearby.startsWith("..") || isAbsolute(nearby) ? absolutePath : `./${nearby}`;
 }

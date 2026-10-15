@@ -1,16 +1,17 @@
 # Manager kit
 
 A contract, not a Transformer. It holds no behaviour: it is the type boundary
-between Host and one FeatureManager, so a third party can write a tracker
-integration without depending on Host and without Host depending on them.
+between Host and a FeatureTracker and a TicketTracker, so a third party can
+write a tracker integration without depending on Host and without Host
+depending on them.
 
 ## 1. Job
 
 ```
   Host                          manager-kit                        a manager package
   ----                          --------                        -----------------
-  reads a specifier             ManagerPort                     implements createManager
-  hands over managerOptions     ManagerContext                  reads its own options
+  reads a specifier             Manager                         implements createManager
+  hands over a side's options   ManagerContext                  reads its own options
   asks doctor for findings      Finding                         may implement checkManager
   asks init for a scaffold      ManagerScaffold                 may implement scaffoldManager
   asks init its questions       ManagerQuestion                 may implement questionsManager
@@ -21,36 +22,59 @@ integration without depending on Host and without Host depending on them.
 
 **In:** nothing. **Out:** types, and five pure option readers.
 
-## 2. The Port
+## 2. The Ports
 
-| Member         | Required | Job                                                                                                                                          |
-| -------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `listen`       | yes      | Drain the tracker since a Cursor. Returns an outcome and ordered Deliveries                                                                  |
-| `adapt`        | yes      | One raw payload → a FeatureStandard, or `invalid` / `unavailable` / `interrupted`                                                            |
-| `report`       | yes      | One semantic Event onto the tracker. `false` when it could not be written                                                                    |
-| `signalsReady` | no       | Whether this payload says a human unblocked an escalated Feature (a label, a status)                                                         |
-| `clearReady`   | no       | Take that signal back once it has been acted on. Left in place it resumes the Feature again on every pass, and an escalation freezes nothing |
-| `submit`       | no       | Offer an assembled feature to the Authority. Returns an opaque reference                                                                     |
-| `fold`         | no       | Have the Authority take an accepted Submission into the work line                                                                            |
-| `probe`        | no       | Whether the intention this key named is still on the tracker (`present` / `gone` / `unavailable` / `interrupted`)                            |
+A `Manager` is `{ features?, tickets? }`. The config names a package for each
+side: `featureTracker` takes `features` from its package, `ticketTracker` takes
+`tickets` from its own. One package may be both (the same tracker holds
+Features and their Tickets), or each side may come from a different one; a
+package asked for a side it does not answer is refused by name.
 
-The two Authority methods, `submit` and `fold`, come as a set. A manager that declares none has no
-Authority, and an assembled feature is folded into WorkLineStable directly — the
-way it was before any of this existed. `report` may carry an `eventId`: an Event
-that states a fact rather than a change is written once, however many passes see
-it.
+### FeatureTrackerPort: where a need is written
+
+| Member         | Required | Job                                                                                                                  |
+| -------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
+| `listen`       | yes      | Drain the tracker since a Cursor, for Features whose specification is final. Returns an outcome and ordered Deliveries |
+| `adapt`        | yes      | One raw payload → a FeatureStandard, or `invalid` / `unavailable` / `interrupted`                                    |
+| `report`       | yes      | One semantic Event onto the Feature. `false` when it could not be written                                            |
+| `signalsResume` | no       | Whether this payload says a human unblocked an escalated Feature                                                     |
+| `clearResume`   | no       | Take that signal back once it has been acted on. Left in place it resumes the Feature again on every pass            |
+| `probe`        | no       | Whether the Feature this key named is still on the tracker (`present` / `gone` / `unavailable` / `interrupted`)      |
+
+A FeatureStandard carries `blocked_by` (keys of Features that must be `done`
+first) and `merge_when_ready` (its line may be folded without a human).
+
+### TicketTrackerPort: the work that builds a Feature
+
+| Member      | Required | Job                                                                                                           |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------------- |
+| `tickets`   | yes      | Every Ticket of a Feature, each a `TicketEntry`: the TicketStandard (`intention`, `blocked_by`, `priority`) and `task_ready`, `resume`, `open` |
+| `report`    | yes      | One semantic Event onto a Ticket                                                                              |
+| `clearResume`| no       | Take a Ticket's resume signal back once acted on                                                              |
+| `probe`     | no       | Whether the Ticket this key named is still on the tracker                                                     |
+| `openLine`  | no       | Cut a line from another: the branch a Feature's Tickets land on. Asking again for a line that exists succeeds |
+| `dropLine`  | no       | Drop a line nobody will fold                                                                                  |
+| `submit`    | no       | Offer an assembled Ticket, or a Feature's line, to the Authority. Returns an opaque reference                 |
+| `fold`      | no       | Have the Authority take an accepted Submission into the line it was offered to                                |
+| `settled`   | no       | Where a Submission stands (`open` / `folded` / `closed` / `unavailable`), for the ones a human folds          |
+
+`openLine`, `dropLine`, `submit`, `fold` and `settled` come as a set. A manager
+that declares none has no Authority: no line exists, a Ticket is folded into
+WorkLineStable directly, and a Feature is done when its Tickets are.
+`report` may carry an `eventId`: an Event that states a fact rather than a
+change is written once, however many passes see it.
 
 `probe` exists because a poll cannot see an absence: a deleted item is missing
 from every later page and never becomes a Delivery. Host already holds the keys.
 `gone` is abandon, the same intent as a `cancel` delivery. `unavailable` is not
 abandon — a missed read must not cancel work. Host only calls `probe` after a
 listen that reached the source, so a token that can no longer list the tracker
-is not read as every Feature disappearing. A manager that cannot answer omits
-the method; Host does not invent an absence.
+is not read as every item disappearing. A manager that cannot answer omits the
+method; Host does not invent an absence.
 
 Host never reads a payload itself. A tracker's issue number, label, or status
 is recoverable from the `key` the manager minted, so nothing tracker-shaped
-crosses the Port.
+crosses a Port.
 
 ## 3. The module
 
@@ -59,11 +83,12 @@ It must not throw for a bad option: the reason is what the user reads.
 
 | Context field   | Content                                                |
 | --------------- | ------------------------------------------------------ |
-| `options`       | The config's `managerOptions`, unread by Host          |
+| `options`       | The `options` of the side that named this package, unread by Host          |
 | `durationMs`    | Wall clock every call of this manager must stay inside |
 | `interruptFlag` | Flips on SIGINT / SIGTERM; long calls must stop        |
 | `configDir`     | Directory a relative option path resolves against      |
 | `env`           | Where a secret named by an option is read from         |
+| `sides`         | Optional. The sides (`featureTracker`, `ticketTracker`) this manager is built for; absent means both. A package serving both roles reads, checks and sets up only what those sides need |
 
 A secret is read by the manager, from `context.env`, never by Host and never
 from the config file.
@@ -73,7 +98,7 @@ from the config file.
 same offline as online.
 
 `questionsManager(context)` is optional and returns `ManagerQuestion[]`: the
-wording, the fallback, and the validation of each `managerOptions` key a human
+wording, the fallback, and the validation of each `options` key a human
 should be asked for. It declares them — Host reads the terminal, so no manager
 ever touches stdin. A question whose key already has a value is skipped.
 
@@ -81,7 +106,7 @@ ever touches stdin. A question whose key already has a value is skipped.
 the reference work line, or `undefined`. Host does not read it: the Isolation
 strategy named by `workLine.isolation` does, strictly, and refuses a key it does
 not know before a run writes anything. Only a manager that also declares
-`submit` and `fold` has a reference to name — with no Authority the work line is
+the Authority methods has a reference to name — with no Authority the work line is
 the operator's directory, whatever this returns. Offline.
 
 `setupManager(context, { apply })` is optional and is the **only hook allowed
@@ -103,7 +128,7 @@ here can fix is `blocked`, and `ok` is false. It must be idempotent — a second
 call with `apply` true reports everything `satisfied` and writes nothing.
 
 `scaffoldManager(context)` is optional and returns `{ options, nextSteps, prepare? }`.
-`mason init` copies `options` into `managerOptions` (flag `--manager-option`
+`mason init` copies `options` into `options` (flag `--manager-option`
 wins per key), prints `nextSteps`, and calls `prepare(cwd)` so a directory
 Source can exist before the first run. Host does not grow a flag for a
 tracker's fields.
@@ -112,7 +137,7 @@ tracker's fields.
 
 `stringOption`, `stringArrayOption`, `intOption`, `booleanOption`,
 `rejectUnknownOptions`. Values arrive either from JSON (already typed) or from
-repeated `--manager-option key=value` flags (always strings), so every reader
+repeated `--manager-option key=value` flags (`--feature-tracker-option` and `--ticket-tracker-option` at run time) (always strings), so every reader
 accepts the string spelling of its type, and a repeated flag key arrives as an
 array.
 

@@ -1,8 +1,8 @@
 {
   "name": "@bluewombat/work-ledger",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
-  "description": "Durable store of FeatureStandards, Subtasks, states, Attempts, and Traces.",
+  "description": "Durable store of TicketStandards, states, Attempts, and Traces.",
   "keywords": [
     "mason",
     "bluewombat"

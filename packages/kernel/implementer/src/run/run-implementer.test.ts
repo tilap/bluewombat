@@ -18,7 +18,6 @@ function baseInvocation(over: Partial<Invocation> & Pick<Invocation, "workspace"
   return {
     id: "task-1",
     intention: "ship it",
-    definitionOfDone: "green",
     builderArgv: [node, join(fixtures, "builder-ok.mjs")],
     gates: [],
     repairGates: [],
@@ -531,8 +530,8 @@ describe("runImplementer acceptance", () => {
   });
 });
 
-describe("which feature a Task's progress belongs to", () => {
-  it("every line names the feature, when Implementer was given one", async () => {
+describe("which ticket a Task's progress belongs to", () => {
+  it("every line names the ticket, when Implementer was given one", async () => {
     const { write, lines } = collectLines();
     const result = await runImplementer({
       invocation: baseInvocation({
@@ -544,13 +543,13 @@ describe("which feature a Task's progress belongs to", () => {
     });
 
     assert.equal(result.outcome, "validated");
-    // A Task id is `s1` and says nothing about which feature it served. Without
-    // this, two features running at once cannot be told apart in the film.
+    // A Task id is `s1` and says nothing about which ticket it served. Without
+    // this, two tickets running at once cannot be told apart in the film.
     assert.ok(lines.length > 0);
     assert.deepEqual(
       lines.filter((line) => line.key !== "fake:42"),
       [],
-      "a line without the feature cannot be joined back to it",
+      "a line without the ticket cannot be joined back to it",
     );
     assert.ok(
       lines.some((line) => line.event === "status"),

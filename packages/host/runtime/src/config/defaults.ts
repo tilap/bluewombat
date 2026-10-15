@@ -13,5 +13,3 @@ export const ISOLATION_GIT = "@bluewombat/isolation-git";
 export const ISOLATION_COPY = "@bluewombat/isolation-copy";
 /** Where the ledger goes when a config says nothing: one JSON file per key. */
 export const DEFAULT_PERSIST = "@bluewombat/persist-fs";
-/** The Planner `init` points a new config at until the Project writes its own. */
-export const BOOTSTRAP_PLANNER = "@bluewombat/slots/planners/one-subtask.mjs";

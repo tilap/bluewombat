@@ -48,7 +48,7 @@ describe("parseRole", () => {
   });
 
   it("takes extra flags a role adds to the shared set", () => {
-    const parsed = parseRole(argv("--read", "/src", "--", "a"), BUILDER_FLAGS, "planner", {
+    const parsed = parseRole(argv("--read", "/src", "--", "a"), BUILDER_FLAGS, "reviewer", {
       "--read": {},
     });
     assert.ok(parsed.ok);

@@ -1,11 +1,18 @@
-import { EVENT_NAMES, PRODUCT, type SetupResult, type SetupStep } from "@bluewombat/manager-kit";
+import {
+  EVENT_NAMES,
+  type ManagerSide,
+  PRODUCT,
+  type SetupResult,
+  type SetupStep,
+} from "@bluewombat/manager-kit";
 import { callSignal, createClient, type GithubClient, readFailure } from "./github/client.js";
 import type { Repository } from "./repo.js";
+import type { StateLabels } from "./state-labels.js";
 
 const PER_PAGE = 100;
 
 /** Colours are only there so a human can tell the families apart at a glance. */
-const READY_COLOUR = "0e8a16";
+const RESUME_COLOUR = "0e8a16";
 const ADMISSION_COLOUR = "1d76db";
 const STATE_COLOUR = "5319e7";
 const PROJECT_COLOUR = "c5def5";
@@ -14,10 +21,14 @@ export type SetupSettings = {
   repo: Repository;
   token: string;
   apiBase: string;
-  readyLabel: string;
-  labels: string[] | undefined;
+  resumeLabel: string;
+  featureReadyLabel: string;
+  ticketReadyLabel: string;
+  mergeWhenReadyLabel: string;
+  /** The sides this manager is built for: only their labels are wanted. */
+  sides: readonly ManagerSide[];
   defaultProject: string | undefined;
-  stateLabelPrefix: string | undefined;
+  stateLabels: StateLabels | undefined;
   /** The branch pull requests are opened onto, and whether the config named it. */
   branch: string;
   branchConfigured: boolean;
@@ -97,25 +108,65 @@ export async function runSetup(
   return { ok: steps.every((step) => step.state !== "blocked"), steps };
 }
 
-/** Every label this configuration will look for or write, and why it exists. */
+/**
+ * Every label this configuration will look for or write, and why it exists.
+ * Only the labels of the sides this manager is built for: a manager that holds
+ * only the Tickets does not create the Feature label, and the reverse. No
+ * `sides` means both.
+ */
 export function wantedLabels(settings: {
-  readyLabel: string;
-  labels: string[] | undefined;
+  resumeLabel: string;
+  featureReadyLabel: string;
+  ticketReadyLabel: string;
+  mergeWhenReadyLabel: string;
+  sides?: readonly ManagerSide[];
   defaultProject: string | undefined;
-  stateLabelPrefix: string | undefined;
+  stateLabels: StateLabels | undefined;
 }): WantedLabel[] {
+  const sides = settings.sides ?? ["featureTracker", "ticketTracker"];
+  const forFeatures = sides.includes("featureTracker");
+  const forTickets = sides.includes("ticketTracker");
+  // One name for both roles is allowed: a sub-issue is a Ticket and a top-level
+  // issue is a Feature, so the label is created once and says both.
+  const shared =
+    forFeatures &&
+    forTickets &&
+    settings.featureReadyLabel.toLowerCase() === settings.ticketReadyLabel.toLowerCase();
   const wanted: WantedLabel[] = [];
-  for (const name of settings.labels ?? []) {
+  if (forFeatures) {
+    wanted.push(
+      shared
+        ? {
+            name: settings.featureReadyLabel,
+            colour: ADMISSION_COLOUR,
+            description:
+              "on a Feature: its content is final; on a Ticket: its specification is final",
+          }
+        : {
+            name: settings.featureReadyLabel,
+            colour: ADMISSION_COLOUR,
+            description: `on a Feature: its content is final, ${PRODUCT} may build it once its Tickets are ready`,
+          },
+    );
+  }
+  if (forTickets) {
     wanted.push({
-      name,
+      name: settings.ticketReadyLabel,
       colour: ADMISSION_COLOUR,
-      description: `${PRODUCT} admits an issue only when it carries this label`,
+      description: "on a Ticket: its specification is final",
+    });
+  }
+  if (forFeatures) {
+    wanted.push({
+      name: settings.mergeWhenReadyLabel,
+      colour: ADMISSION_COLOUR,
+      description: `on a Feature: ${PRODUCT} folds its line without a human`,
     });
   }
   wanted.push({
-    name: settings.readyLabel,
-    colour: READY_COLOUR,
-    description: `on an escalated feature, ${PRODUCT} resumes it`,
+    name: settings.resumeLabel,
+    colour: RESUME_COLOUR,
+    description: `on an escalated Feature or Ticket, ${PRODUCT} resumes it`,
   });
   if (settings.defaultProject !== undefined) {
     wanted.push({
@@ -124,10 +175,10 @@ export function wantedLabels(settings: {
       description: `routes the issue to this ${PRODUCT} Project`,
     });
   }
-  if (settings.stateLabelPrefix !== undefined) {
+  if (settings.stateLabels !== undefined) {
     for (const event of EVENT_NAMES) {
       wanted.push({
-        name: `${settings.stateLabelPrefix}${event}`,
+        name: settings.stateLabels[event],
         colour: STATE_COLOUR,
         description: `${PRODUCT} state: ${event}`,
       });

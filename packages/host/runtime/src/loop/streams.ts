@@ -36,9 +36,9 @@ export type ChildSink = {
 
 /** Which child is speaking, in Host's terms rather than any one Transformer's. */
 export type StreamSubject = {
-  /** The Feature this serves, when the Transformer knew it. */
+  /** The Ticket this serves, when the Transformer knew it. */
   key?: string | undefined;
-  /** The Task, or `breakdown` for a Planner — the name its transcript is filed under. */
+  /** The Task — the name its transcript is filed under. */
   id: string;
   attempt?: number | undefined;
   gateId?: string | undefined;
@@ -47,9 +47,9 @@ export type StreamSubject = {
 export type Streams = {
   open(subject: StreamSubject): ChildSink | undefined;
   /**
-   * Forget what was filmed of one Feature.
+   * Forget what was filmed of one Ticket.
    *
-   * Called when a Feature reaches an end nobody has to read: the work landed,
+   * Called when a Ticket reaches an end nobody has to read: the work landed,
    * or it was abandoned. An escalation keeps everything — that is exactly when
    * a person has to go and look.
    */
@@ -68,7 +68,7 @@ export type StreamsSpec = {
 /**
  * One file per child, filed the way a transcript is.
  *
- * Same directory per Feature and same stem as `openTranscript` writes, so the
+ * Same directory per Ticket and same stem as `openTranscript` writes, so the
  * prompt a slot kept and the stream underneath it sit side by side and join by
  * name rather than by guesswork.
  */
@@ -141,7 +141,7 @@ export function openStreams(spec: StreamsSpec): Streams {
   };
 }
 
-/** What one Feature's directory holds, before it is removed. */
+/** What one Ticket's directory holds, before it is removed. */
 function measure(dir: string): { files: number; bytes: number } {
   let files = 0;
   let bytes = 0;
@@ -201,7 +201,7 @@ function sinkOf(
 /**
  * `<id>-attempt-<n>[-gate-<id>]-<stamp>.ndjson`.
  *
- * Stamped because a Feature resumed by a human starts its Attempt count again,
+ * Stamped because a Ticket resumed by a human starts its Attempt count again,
  * and two rounds would otherwise write the same name. The journal names the
  * file it opened, so nothing has to reconstruct this.
  */

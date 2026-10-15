@@ -1,4 +1,4 @@
-/** Domain types owned by FeatureAdapter. Names match the Block perimeter only. */
+/** Domain types owned by Adapter. Names match the Block perimeter only. */
 
 export type RunOutcome =
   | "converted"
@@ -7,7 +7,7 @@ export type RunOutcome =
   | "unavailable"
   | "interrupted";
 
-export type Intent = "upsert" | "ready" | "cancel";
+export type Intent = "upsert" | "resume" | "cancel";
 
 export type InvalidCode =
   | "raw-too-large"
@@ -44,6 +44,10 @@ export type FeatureStandard = {
   title?: string;
   intention?: string;
   priority: number;
+  /** Keys of the Features that must be `done` before this one may open. */
+  blocked_by: string[];
+  /** Its line may be folded without a human. */
+  merge_when_ready: boolean;
   source?: { ref?: string; revision?: string };
   fingerprint: string;
   normalized_at: string;

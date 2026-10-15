@@ -1,7 +1,7 @@
 import type { SetupStep } from "@bluewombat/manager-kit";
-import { PRODUCT } from "@bluewombat/manager-kit";
+import { CLI_NAME } from "@bluewombat/manager-kit";
 import { parseArgs } from "../config/parse-args.js";
-import { contextOf, loadManagerModule } from "../plugins/manager.js";
+import { contextOf, distinctManagers, loadManagerModule, requestOf } from "../plugins/manager.js";
 
 export type SetupInput = {
   cwd: string;
@@ -36,29 +36,32 @@ export async function runSetup(input: SetupInput): Promise<number> {
   }
   const invocation = parsed.invocation;
 
-  const request = {
-    manager: invocation.manager,
-    managerOptions: invocation.managerOptions,
+  const common = {
     configDir: invocation.configDir,
     durationMs: invocation.timeoutMs,
     interruptFlag: input.interruptFlag ?? { interrupted: false },
     env: input.env,
   };
-  const loaded = await loadManagerModule(request);
-  if (!loaded.ok) {
-    input.write(`${loaded.reason}\n`);
-    return 2;
+  const steps: SetupStep[] = [];
+  for (const one of distinctManagers(invocation)) {
+    const request = requestOf(one.spec, common, one.sides);
+    const loaded = await loadManagerModule(request);
+    if (!loaded.ok) {
+      input.write(`${loaded.reason}\n`);
+      return 2;
+    }
+    if (loaded.module.setupManager === undefined) {
+      input.write(`${String(one.spec.package)} has nothing to set up.\n`);
+      continue;
+    }
+    const result = await loaded.module.setupManager(contextOf(request), { apply });
+    steps.push(...result.steps);
   }
-  if (loaded.module.setupManager === undefined) {
-    input.write(`${invocation.manager} has nothing to set up.\n`);
-    return 0;
-  }
-
-  const result = await loaded.module.setupManager(contextOf(request), { apply });
-  for (const step of result.steps) {
+  for (const step of steps) {
     const detail = step.detail === undefined ? "" : ` — ${step.detail}`;
     input.write(`${MARKS[step.state]}  ${step.summary}${detail}\n`);
   }
+  const result = { steps };
 
   const blocked = result.steps.filter((step) => step.state === "blocked").length;
   if (blocked > 0) {
@@ -67,7 +70,7 @@ export async function runSetup(input: SetupInput): Promise<number> {
   }
   const missing = result.steps.filter((step) => step.state === "missing").length;
   if (missing > 0) {
-    input.write(`\n${missing} step(s) to apply. Run: ${PRODUCT} setup --apply\n`);
+    input.write(`\n${missing} step(s) to apply. Run: ${CLI_NAME} setup --apply\n`);
     return 0;
   }
   const applied = result.steps.filter((step) => step.state === "applied").length;

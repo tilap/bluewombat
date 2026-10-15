@@ -1,6 +1,6 @@
 /**
  * Cursor arithmetic over what the Source listed. Pure: no request is made here,
- * so ordering, cursor filtering, and the pull-request filter are testable from
+ * so ordering, cursor filtering, and the pull-request and sub-issue filters are testable from
  * a list of objects.
  */
 
@@ -49,6 +49,14 @@ export function isPullRequest(entry: Record<string, unknown>): boolean {
   return entry.pull_request !== undefined;
 }
 
+/**
+ * A sub-issue is a Ticket, read through its Feature. Only a top-level issue is
+ * a Feature, which is what lets a Feature and its Tickets carry the same label.
+ */
+export function isSubIssue(entry: Record<string, unknown>): boolean {
+  return typeof entry.parent_issue_url === "string";
+}
+
 export type CursorOfResult =
   | { ok: true; cursor: Cursor }
   | { ok: false; reason: SkipReason; detail: string };
@@ -89,7 +97,7 @@ export function selectEvents(entries: unknown[], since: string | undefined): Sel
       continue;
     }
     const issue = entry as Record<string, unknown>;
-    if (isPullRequest(issue)) {
+    if (isPullRequest(issue) || isSubIssue(issue)) {
       continue;
     }
     const cursor = cursorOf(issue);

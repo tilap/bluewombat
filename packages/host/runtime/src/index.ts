@@ -1,4 +1,4 @@
-export { CONFIG_FILENAME, findConfig } from "./config/find-config.js";
+export { DEFAULT_CONFIG_FILENAME, findConfig } from "./config/find-config.js";
 export type { ParseInput, ParseResult } from "./config/parse-args.js";
 export { parseArgs } from "./config/parse-args.js";
 export type { HostInvocation, HostOptions } from "./config/types.js";

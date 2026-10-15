@@ -92,10 +92,10 @@ function profileFinding(label: string, profile: string, workLine: string | undef
   };
 }
 
-type Request = { id: string | undefined };
+export type Request = { id: string | undefined };
 
 /** The requests of one `ai-plugin.json`; `undefined` when there is none. */
-function requestsOf(file: string): Request[] | undefined {
+export function requestsOf(file: string): Request[] | undefined {
   if (!existsSync(file)) {
     return undefined;
   }
@@ -117,7 +117,7 @@ function requestsOf(file: string): Request[] | undefined {
  * Why `requests` are not all pinned by `lockFile`, as deck would refuse them.
  * A request whose id deck derives from its source is counted, not named.
  */
-function unpinnedIn(requests: Request[] | undefined, lockFile: string): string[] {
+export function unpinnedIn(requests: Request[] | undefined, lockFile: string): string[] {
   if (requests === undefined || requests.length === 0) {
     return [];
   }
@@ -154,7 +154,7 @@ function relativeName(file: string): string {
   return at === -1 ? "ai-plugin.lock.json" : file.slice(at + 1);
 }
 
-function isDirectory(path: string): boolean {
+export function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
   } catch {

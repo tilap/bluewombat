@@ -1,5 +1,4 @@
-import type { BreakDownResult, ImplementResult, TransformerPort } from "@bluewombat/conductor";
-import { runBreakdown } from "@bluewombat/feature-breakdown";
+import type { ImplementResult, TransformerPort } from "@bluewombat/conductor";
 import {
   type GateSpec,
   type Trace as ImplementerTrace,
@@ -7,7 +6,7 @@ import {
 } from "@bluewombat/implementer";
 import { type FoldBackend, runIntegrator } from "@bluewombat/integrator";
 import { type IsolationBackend, runIsolator } from "@bluewombat/isolator";
-import type { AssemblySpec, GatedPassSpec, StageSpec } from "../config/types.js";
+import type { AssemblySpec, StageSpec } from "../config/types.js";
 import type { Journal } from "./journal.js";
 import type { Streams } from "./streams.js";
 import { failureNote, type Trace } from "./trace.js";
@@ -22,18 +21,10 @@ export type TransformerSlots = {
    * nothing is filmed and a child's output leaves a Transformer as one word.
    */
   streams?: Streams;
-  /** FeatureStandard in, a Plan out. Gated: judges `workLineStable` once a Plan is accepted. */
-  planner: GatedPassSpec;
-  /** Making a Subtask, and the Gates judging what came out of it. */
+  /** Making the unit of work, and the Gates judging what came out of it. */
   builder: StageSpec;
-  /** Judging the assembled feature, and the command that fixes a refusal. */
+  /** Judging the assembled ticket, and the command that fixes a refusal. */
   assembly: AssemblySpec;
-  /**
-   * The persistent trunk a planner Gate checks — not an ephemeral per-Task
-   * workspace, and not where the Planner agent itself reads from (that stays
-   * the Project's own `--read` convention; see feature-breakdown SPECS.md §5a).
-   */
-  workLineStable: string;
   /** How Isolator produces the Child. Host chooses; Isolator does not sniff. */
   isolation: IsolationBackend;
   /** How Integrator folds. Must match `isolation`. */
@@ -46,8 +37,6 @@ export type TransformerSlots = {
    * work — an agent, minutes — to end on its own. Absent: never interrupted.
    */
   interruptFlag?: { interrupted: boolean };
-  maxUnits: number;
-  maxFeatureBytes: number;
 };
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -93,7 +82,7 @@ function progressWriter(slots: TransformerSlots): (line: Record<string, unknown>
 }
 
 /**
- * Wire the four execution Transformers into Conductor's Transformer Port.
+ * Wire the three execution Transformers into Conductor's Transformer Port.
  */
 /**
  * Why an Attempt ended, when it did not end well.
@@ -121,7 +110,7 @@ function reasonOf(trace: ImplementerTrace): { report: string; from?: string } | 
 /**
  * How long the agent of this pass may run.
  *
- * A Subtask names its producer. An assembly names a fix, and only when something
+ * The unit names its producer. An assembly names a fix, and only when something
  * already refused the whole — or, before that, a validate.
  */
 function commandTimeoutMs(
@@ -174,7 +163,7 @@ function roleWiring(
   }
   if (input.produce === false) {
     // The one remaining judgement-only pass: re-checking the assembled
-    // feature with no producer of its own. No named role maps to it; it is
+    // ticket with no producer of its own. No named role maps to it; it is
     // judged by `assembly.gates`, its own sequence, untouched by any of the
     // five roles' own lists (see AssemblySpec's doc comment).
     return { gates: slots.assembly.gates, repairGates: [] };
@@ -219,62 +208,12 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
       return { outcome: result.outcome };
     },
 
-    async breakDown(input): Promise<BreakDownResult> {
-      const result = await runBreakdown({
-        invocation: {
-          maxFeatureBytes: slots.maxFeatureBytes,
-          maxUnits: slots.maxUnits,
-          plannerArgv: slots.planner.cmd,
-          plannerDurationMs: slots.planner.timeoutMs,
-          // Not where the Planner agent itself reads from (that is the
-          // Project's own --read convention, untouched) — only where a
-          // planner Gate looks, once a Plan is otherwise accepted.
-          workspace: slots.workLineStable,
-          gates: slots.planner.gates,
-        },
-        featureJson: input.featureJson,
-        write,
-        ...interrupt,
-        // `breakdown` is the name a Planner slot files its transcript under, so
-        // the stream and the prompt behind it land side by side.
-        ...(streams === undefined
-          ? {}
-          : { onChild: (about) => streams.open({ key: about.key, id: "breakdown" }) }),
-      });
-      if (result.outcome === "planned" && result.plan !== undefined) {
-        return {
-          outcome: "planned",
-          plannedAt: result.plan.planned_at,
-          subtasks: result.plan.subtasks.map((st) => ({
-            id: st.id,
-            intention: st.intention,
-            definition_of_done: st.definition_of_done,
-            depends_on: [...st.depends_on],
-          })),
-        };
-      }
-      if (result.outcome === "refused") {
-        return {
-          outcome: "refused",
-          code: result.code ?? "not-specifiable",
-          reason: result.reason ?? "FeatureBreakdown refused the Plan.",
-        };
-      }
-      if (result.outcome === "unavailable" || result.outcome === "interrupted") {
-        return { outcome: result.outcome };
-      }
-      return { outcome: "invalid-invocation" };
-    },
-
     async implement(input): Promise<ImplementResult> {
       const wiring = roleWiring(input, slots);
       const result = await runImplementer({
         invocation: {
           id: input.id,
           intention: input.intention,
-          // Implementer always carries the flag and never reads it; an assembly
-          // has nothing to put in it, and the roles drop an empty one whole.
-          definitionOfDone: input.definitionOfDone ?? "",
           workspace: input.workspace,
           // Without this the report an outside judge sent back never reaches
           // the producer, and the Attempt repeats blind.

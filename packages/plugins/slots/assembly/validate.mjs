@@ -19,11 +19,11 @@ const NAME = "assembly validate";
 
 const DEFAULT_TEMPLATE = `You are a coding agent working unattended in a checkout of the project.
 
-This directory is the assembled feature. Every unit of work that makes it up
-has already been validated on its own. Your job now is different: read the
-diff this feature carries against the work line it will land on, and judge
-whether the WHOLE meets what was asked. Do not redo the units. Do not change
-anything — this is a read-only review, not a repair.
+This directory is the assembled work. It has already passed the checks made on
+the unit itself. Your job now is different: read the diff it carries against
+the work line it will land on, and judge whether the WHOLE meets what was
+asked. Do not redo the work. Do not change anything — this is a
+read-only review, not a repair.
 
 ## What was asked
 
@@ -34,7 +34,7 @@ anything — this is a read-only review, not a repair.
 End your final message with exactly one line in this form, and nothing after
 it:
 
-- \`MASON_VERDICT: VALIDATED\` — the assembled feature meets what was asked.
+- \`MASON_VERDICT: VALIDATED\` — the assembled ticket meets what was asked.
 - \`MASON_VERDICT: REFUSED: <one paragraph>\` — it does not, and the paragraph
   says what is wrong, specifically enough for another agent to fix it without
   redoing your review. Keep the whole paragraph on that one line.
@@ -162,7 +162,7 @@ function answer(run, bin, name) {
       "fail-retryable",
       why.length > 0
         ? why
-        : "assembly.validate refused the assembled feature, with no reason given.",
+        : "assembly.validate refused the assembled ticket, with no reason given.",
     );
     process.exit(1);
   }

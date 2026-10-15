@@ -1,8 +1,16 @@
-import type { AdaptResult, ListenResult, ManagerPort, ReportInput } from "@bluewombat/manager-kit";
+import type {
+  AdaptResult,
+  FeatureTrackerPort,
+  ListenResult,
+  Manager,
+  ReportInput,
+  TicketTrackerPort,
+} from "@bluewombat/manager-kit";
 import { fingerprintOf } from "./adapter/normalize/fingerprint.js";
 import { runAdapter } from "./adapter/run/run-adapter.js";
 import { runEmitter } from "./emitter/run/run-emitter.js";
 import { runListener } from "./listener/run/run-listener.js";
+import { listTickets } from "./tickets/list-tickets.js";
 
 const silent = (): void => {};
 const MANAGER = "fake";
@@ -24,8 +32,44 @@ export type FakeManagerOptions = {
 
 /**
  * Directory Source + directory Thread. The wiring that needs no account.
+ *
+ * The Source holds the Features; a Feature's Tickets sit in its own file, under
+ * `tickets`. Both sides write their Events to the same Threads. There is no
+ * Authority: the work is folded into WorkLineStable and a Feature is done when
+ * its Tickets are.
  */
-export function createFakeManager(options: FakeManagerOptions): ManagerPort {
+export function createFakeManager(options: FakeManagerOptions): Manager {
+  const report = async (input: ReportInput): Promise<boolean> => {
+    const result = runEmitter({
+      invocation: {
+        target: options.emitterTarget,
+        event: input.event,
+        key: input.key,
+        project: input.project,
+        at: new Date().toISOString(),
+        fields: input.fields,
+        ...(input.eventId === undefined ? {} : { eventId: input.eventId }),
+        maxReportChars: MAX_REPORT_CHARS,
+        dryRun: false,
+      },
+      write: silent,
+    });
+    // Same as GitHub: a Thread that already carries this eventId has said it.
+    return result.outcome === "reported" || result.outcome === "duplicate";
+  };
+  const tickets: TicketTrackerPort = {
+    async tickets(feature) {
+      return { outcome: "listed", tickets: listTickets(options.source, feature) };
+    },
+    report,
+  };
+  return { features: featureTracker(options, report), tickets };
+}
+
+function featureTracker(
+  options: FakeManagerOptions,
+  report: (input: ReportInput) => Promise<boolean>,
+): FeatureTrackerPort {
   const defaultPriority = options.defaultPriority ?? DEFAULT_PRIORITY;
   return {
     async listen(input): Promise<ListenResult> {
@@ -85,24 +129,7 @@ export function createFakeManager(options: FakeManagerOptions): ManagerPort {
       return { outcome: "converted", feature: adapted.feature };
     },
 
-    async report(input: ReportInput): Promise<boolean> {
-      const result = runEmitter({
-        invocation: {
-          target: options.emitterTarget,
-          event: input.event,
-          key: input.key,
-          project: input.project,
-          at: new Date().toISOString(),
-          fields: input.fields,
-          ...(input.eventId === undefined ? {} : { eventId: input.eventId }),
-          maxReportChars: MAX_REPORT_CHARS,
-          dryRun: false,
-        },
-        write: silent,
-      });
-      // Same as GitHub: a Thread that already carries this eventId has said it.
-      return result.outcome === "reported" || result.outcome === "duplicate";
-    },
+    report,
   };
 }
 

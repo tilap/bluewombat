@@ -1,7 +1,7 @@
 # Manager: fake
 
-The FeatureManager triplet that needs no account: a directory of JSON files is
-the Source, a directory of `.ndjson` Threads is the report.
+The FeatureTracker and TicketTracker that need no account: a directory of JSON
+files (each a Feature, with a `tickets` array) is the Source, a directory of `.ndjson` Threads is the report.
 Contract: [SPECS.md](./SPECS.md).
 
 ```bash
@@ -11,8 +11,14 @@ npx mason init --manager @bluewombat/manager-fake
 
 ```json
 {
-  "manager": "@bluewombat/manager-fake",
-  "managerOptions": { "source": "./.mason/source", "target": "./.mason/threads" }
+  "featureTracker": {
+    "package": "@bluewombat/manager-fake",
+    "options": { "source": "./.mason/source", "target": "./.mason/threads" }
+  },
+  "ticketTracker": {
+    "package": "@bluewombat/manager-fake",
+    "options": { "source": "./.mason/source", "target": "./.mason/threads" }
+  }
 }
 ```
 
@@ -54,5 +60,5 @@ SPECS.md      the contract
 README.md     how to build and configure it
 src/
   index.ts    createManager, checkManager, scaffoldManager — the plugin face
-  manager.ts  the ManagerPort (listen / adapt / report live in listener/, adapter/, emitter/)
+  manager.ts  the Manager (listen / adapt / report live in listener/, adapter/, emitter/; tickets/ lists a Feature's Tickets)
 ```

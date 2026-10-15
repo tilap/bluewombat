@@ -12,7 +12,10 @@ export type NormalizeOptions = {
   defaultPriority: number;
   projectLabelPrefix: string;
   priorityLabelPrefix: string;
-  readyLabel: string;
+  resumeLabel: string;
+  mergeWhenReadyLabel: string;
+  /** Keys of the issues that block this one, read beside it: the issue itself does not carry them. */
+  blockedBy?: string[];
   normalizedAt: string;
 };
 
@@ -164,7 +167,7 @@ export function normalize(raw: Unwrapped, options: NormalizeOptions): NormalizeR
     action: raw.action,
     state: state.value,
     labels: labels.names,
-    readyLabel: options.readyLabel,
+    resumeLabel: options.resumeLabel,
   });
   if (!intent.ok) {
     return { ok: false, invalid: intent.invalid };
@@ -242,6 +245,10 @@ export function normalize(raw: Unwrapped, options: NormalizeOptions): NormalizeR
     ...(title.value !== undefined ? { title: title.value } : {}),
     ...(intention !== undefined ? { intention } : {}),
     priority: priority.value ?? options.defaultPriority,
+    blocked_by: options.blockedBy ?? [],
+    merge_when_ready: labels.names.some(
+      (name) => name.toLowerCase() === options.mergeWhenReadyLabel.toLowerCase(),
+    ),
     ...(Object.keys(source).length > 0 ? { source } : {}),
     fingerprint: "",
     normalized_at: options.normalizedAt,

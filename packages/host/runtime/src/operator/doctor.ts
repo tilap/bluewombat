@@ -3,12 +3,18 @@ import { delimiter, dirname, isAbsolute, join } from "node:path";
 import type { Finding, ManagerModule } from "@bluewombat/manager-kit";
 import { PRODUCT } from "@bluewombat/manager-kit";
 import { ISOLATION_COPY, ISOLATION_GIT } from "../config/defaults.js";
-import { CONFIG_FILENAME, findConfig } from "../config/find-config.js";
+import { DEFAULT_CONFIG_FILENAME, findConfig } from "../config/find-config.js";
 import { parseArgs } from "../config/parse-args.js";
 import type { GatedPassSpec, HostInvocation } from "../config/types.js";
 import { inspectWorkLine, resolveWorkLine, type WorkLineResolution } from "../loop/work-line.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
-import { contextOf, loadManagerModule } from "../plugins/manager.js";
+import {
+  contextOf,
+  distinctManagers,
+  loadManagerModule,
+  nameOfSides,
+  requestOf,
+} from "../plugins/manager.js";
 import { agentPluginFindings } from "./agent-plugins.js";
 import { remoteNames } from "./git-remote.js";
 
@@ -34,7 +40,11 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
   const configPath = configPathOf(input);
   findings.push(
     configPath === undefined
-      ? { level: "warn", label: "config", detail: `no ${CONFIG_FILENAME} found; using flags only` }
+      ? {
+          level: "warn",
+          label: "config",
+          detail: `no ${DEFAULT_CONFIG_FILENAME} found; using flags only`,
+        }
       : { level: "ok", label: "config", detail: configPath },
   );
 
@@ -47,16 +57,15 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
   findings.push({ level: "ok", label: "invocation", detail: "every required field is set" });
   findings.push({ level: "ok", label: "home", detail: invocation.home });
 
-  const request = {
-    manager: invocation.manager,
-    managerOptions: invocation.managerOptions,
+  const common = {
     configDir: invocation.configDir,
     durationMs: invocation.timeoutMs,
     interruptFlag: { interrupted: false },
     env: input.env,
   };
-  const loaded = await loadManagerModule(request);
-  const workLine = await workLineOf(invocation, loaded.ok ? loaded.module : undefined);
+  const trackerRequest = requestOf(invocation.ticketTracker, common);
+  const tracker = await loadManagerModule(trackerRequest);
+  const workLine = await workLineOf(invocation, tracker.ok ? tracker.module : undefined);
   findings.push(...workLineFindings(workLine));
   // Whose the directory is decides which checks apply: Host's copy of a
   // reference was already held against it, and may not exist yet.
@@ -88,7 +97,6 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
         }
       : { level: "ok", label: "streams", detail: "off — the journal alone" },
   );
-  findings.push(...gatedPassFindings("Planner", invocation.planner, input.env, stable));
   findings.push(
     ...gatedPassFindings("Builder producer", invocation.builder.producer, input.env, stable),
   );
@@ -115,13 +123,18 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
   }
   findings.push(...assemblyFixFindings(invocation));
 
-  if (!loaded.ok) {
-    findings.push({ level: "fail", label: "manager", detail: loaded.reason });
-    return report(findings, input.write);
-  }
-  findings.push({ level: "ok", label: "manager", detail: invocation.manager });
-  if (loaded.module.checkManager !== undefined) {
-    findings.push(...(await loaded.module.checkManager(contextOf(request))));
+  for (const one of distinctManagers(invocation)) {
+    const label = nameOfSides(one.sides);
+    const request = requestOf(one.spec, common, one.sides);
+    const loaded = await loadManagerModule(request);
+    if (!loaded.ok) {
+      findings.push({ level: "fail", label, detail: loaded.reason });
+      continue;
+    }
+    findings.push({ level: "ok", label, detail: String(one.spec.package) });
+    if (loaded.module.checkManager !== undefined) {
+      findings.push(...(await loaded.module.checkManager(contextOf(request))));
+    }
   }
   return report(findings, input.write);
 }
@@ -166,7 +179,7 @@ function authorityFindings(
     findings.push({
       level: "ok",
       label: "authority",
-      detail: `offers the assembled feature on "${target}"`,
+      detail: `offers the assembled ticket on "${target}"`,
     });
   }
   findings.push(commandFinding("Publisher", authority.publishArgv, env));
@@ -219,7 +232,7 @@ function nodeFinding(version: string): Finding {
  * that does not load names no reference; the failure is reported where the
  * manager is.
  */
-async function workLineOf(
+export async function workLineOf(
   invocation: HostInvocation,
   module: ManagerModule | undefined,
 ): Promise<WorkLineResolution> {
@@ -232,8 +245,8 @@ async function workLineOf(
     return { kind: "invalid", reason: strategy.reason };
   }
   const context = contextOf({
-    manager: invocation.manager,
-    managerOptions: invocation.managerOptions,
+    manager: invocation.ticketTracker.package,
+    managerOptions: invocation.ticketTracker.options,
     configDir: invocation.configDir,
     durationMs: invocation.timeoutMs,
     interruptFlag: { interrupted: false },
@@ -243,7 +256,7 @@ async function workLineOf(
     home: invocation.home,
     stable: invocation.workLineStable,
     branch: invocation.workLineBranch,
-    manager: invocation.manager,
+    manager: invocation.ticketTracker.package,
     wantsAuthority: invocation.authority?.enabled === true,
     reference: module?.referenceManager?.(context),
     strategy: strategy.strategy,
@@ -343,9 +356,9 @@ function isolationFindings(invocation: HostInvocation, workLine: WorkLineResolut
 }
 
 /**
- * Whether anything judges the assembled feature.
+ * Whether anything judges the assembled ticket.
  *
- * With a work line to offer the work to, the assembled feature is published and
+ * With a work line to offer the work to, the assembled ticket is published and
  * then folded on the Gate sequence's word. An empty sequence is a Project that
  * publishes and merges with nothing looking at the whole.
  */
@@ -366,7 +379,7 @@ function assemblyFinding(invocation: HostInvocation): Finding | undefined {
     level: "warn",
     label: "assembly gates",
     detail:
-      'none — the assembled feature is published and merged with nothing judging it. Add "assembly.gates" (ci-green reads the work line\'s own checks)',
+      'none — the assembled ticket is published and merged with nothing judging it. Add "assembly.gates" (ci-green reads the work line\'s own checks)',
   };
 }
 
@@ -427,7 +440,7 @@ function assemblyFixFindings(invocation: HostInvocation): Finding[] {
  * Which work line a fold would land on.
  *
  * Without `workLine.branch` the answer is "whatever is checked out", which is
- * nobody's decision: leave that tree on another branch and a feature lands
+ * nobody's decision: leave that tree on another branch and a ticket lands
  * there without a word.
  */
 function workLineBranchFinding(path: string, wanted: string | undefined): Finding | undefined {

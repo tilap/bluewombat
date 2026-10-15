@@ -5,6 +5,7 @@ import {
   cursorOf,
   formatCursor,
   isPullRequest,
+  isSubIssue,
   parseCursor,
   selectEvents,
 } from "./select-events.js";
@@ -109,5 +110,27 @@ describe("selectEvents", () => {
     );
     assert.equal(selected[0]?.kind === "skip" && selected[0].reason, "not-object");
     assert.equal(selected[1]?.kind === "skip" && selected[1].reason, "no-cursor");
+  });
+});
+
+describe("isSubIssue", () => {
+  it("is true for an issue that has a parent, false for a top-level one", () => {
+    assert.equal(isSubIssue(issue(5, "2026-09-05T10:00:00Z", { parent_issue_url: "u" })), true);
+    assert.equal(isSubIssue(issue(5, "2026-09-05T10:00:00Z", { parent_issue_url: null })), false);
+    assert.equal(isSubIssue(issue(5, "2026-09-05T10:00:00Z")), false);
+  });
+
+  it("leaves sub-issues out of what is delivered", () => {
+    const selected = selectEvents(
+      [
+        issue(1, "2026-09-05T10:00:00Z", { parent_issue_url: null }),
+        issue(2, "2026-09-05T10:00:00Z", { parent_issue_url: "u" }),
+      ],
+      undefined,
+    );
+    assert.deepEqual(
+      selected.map((one) => one.kind === "event" && one.payload.number),
+      [1],
+    );
   });
 });

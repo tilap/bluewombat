@@ -1,8 +1,18 @@
 /**
- * The name the product goes by — the binary, the config file, the home
- * directory, the labels a manager writes, the words in a message. It is
- * written here once. Host and every manager read it from the kit; the only
- * other file that spells it is `isolation-git`'s branch prefix, which has no
- * kit to import. `scripts/check-name.mjs` refuses it anywhere else in source.
+ * Names the operator sees. Host and every manager read them from the kit;
+ * `scripts/check-name.mjs` refuses the product word in any other source file.
+ *
+ * PRODUCT is still the name in messages, labels, and the manager keyword.
+ * The binary, the config file, and the home directory each have their own
+ * constant, so one can change without the others.
  */
 export const PRODUCT = "mason";
+
+/** The binary. The runtime package's `bin` must match. */
+export const CLI_NAME = "mason";
+
+/** The config file init writes, and the one looked up, when --config is absent. */
+export const DEFAULT_CONFIG_FILENAME = "mason.config.yaml";
+
+/** The directory Host owns when the config names none. */
+export const HOME_DIR = ".mason";

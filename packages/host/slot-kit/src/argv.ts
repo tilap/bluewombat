@@ -11,7 +11,6 @@ export const GATE_FLAGS: ReadonlySet<string> = new Set([
   "--attempt",
   "--gate-id",
   "--intention",
-  "--definition-of-done",
   "--timeout-ms",
   "--stage",
 ]);
@@ -21,19 +20,10 @@ export const BUILDER_FLAGS: ReadonlySet<string> = new Set([
   "--id",
   "--attempt",
   "--intention",
-  "--definition-of-done",
   "--report",
   "--report-from",
   "--history",
   "--context",
-]);
-
-/** Flags FeatureBreakdown appends after a Planner's own argv. */
-export const PLANNER_FLAGS: ReadonlySet<string> = new Set([
-  "--key",
-  "--intention",
-  "--max-units",
-  "--title",
 ]);
 
 export const PUBLISHER_FLAGS: ReadonlySet<string> = new Set(["--id", "--ref", "--target"]);
@@ -52,8 +42,7 @@ export const MESSAGE_FLAGS: ReadonlySet<string> = new Set([
  * Argv tokens that belong to the slot, not to the Transformer that spawned it.
  *
  * `caller` is that Transformer's flag set — `GATE_FLAGS`, `BUILDER_FLAGS`,
- * `PLANNER_FLAGS`, `PUBLISHER_FLAGS` or
- * `REFRESHER_FLAGS`. Each of them takes a value, so a match consumes two tokens.
+ * `PUBLISHER_FLAGS` or `REFRESHER_FLAGS`. Each of them takes a value, so a match consumes two tokens.
  */
 export function ownArgv(argv: readonly string[], caller: ReadonlySet<string>): string[] {
   const out: string[] = [];

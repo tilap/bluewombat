@@ -9,7 +9,8 @@ const options: NormalizeOptions = {
   defaultPriority: 50,
   projectLabelPrefix: "project:",
   priorityLabelPrefix: "priority:",
-  readyLabel: "ready",
+  resumeLabel: "to-resume",
+  mergeWhenReadyLabel: "merge-when-ready",
   normalizedAt: "2026-09-05T10:00:00.000Z",
 };
 
@@ -51,6 +52,8 @@ describe("normalize", () => {
         title: "Add the export button",
         intention: "Users need a CSV export.",
         priority: 50,
+        blocked_by: [],
+        merge_when_ready: false,
         source: {
           ref: "https://github.com/tilap/mason/issues/42",
           revision: "2026-09-05T09:00:00Z",
@@ -73,6 +76,20 @@ describe("normalize", () => {
       first.ok && changed.ok && first.feature.fingerprint === changed.feature.fingerprint,
       false,
     );
+  });
+
+  it("reads the merge label and the blockers handed beside the issue", () => {
+    const plain = normalize(issue(), options);
+    assert.equal(plain.ok && plain.feature.merge_when_ready, false);
+    assert.deepEqual(plain.ok && plain.feature.blocked_by, []);
+
+    const marked = normalize(issue({ labels: ["project:reporting", "Merge-When-Ready"] }), {
+      ...options,
+      blockedBy: ["github:tilap/mason#7"],
+    });
+    assert.equal(marked.ok && marked.feature.merge_when_ready, true);
+    assert.deepEqual(marked.ok && marked.feature.blocked_by, ["github:tilap/mason#7"]);
+    assert.notEqual(plain.ok && plain.feature.fingerprint, marked.ok && marked.feature.fingerprint);
   });
 
   it("reads the priority label, named or numeric", () => {

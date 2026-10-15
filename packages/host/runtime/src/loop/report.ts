@@ -1,6 +1,6 @@
-import { type ConductorMoment, type ProjectRunResult, subjectOf } from "@bluewombat/conductor";
+import type { ConductorMoment, ProjectRunResult } from "@bluewombat/conductor";
 import type { EventFields, EventName } from "@bluewombat/manager-kit";
-import type { EscalationKind, FeatureAggregate } from "@bluewombat/work-ledger";
+import type { EscalationKind, TicketAggregate } from "@bluewombat/work-ledger";
 import type { HostDeliveryInput } from "./context.js";
 import type { Journal } from "./journal.js";
 
@@ -24,25 +24,6 @@ export async function reportMoment(
   const key = aggregate.intention.key;
   const project = aggregate.intention.project;
   switch (moment.kind) {
-    case "planned":
-      if (aggregate.plan !== undefined) {
-        await pushReport(input, plannedReport(key, project, aggregate.plan));
-      }
-      return;
-    case "subtask-integrated": {
-      // What landed, in the Plan's own headline: the sentence a person waits
-      // for. The counters that used to sit under it said the same thing worse.
-      const landed = aggregate.plan?.subtasks.find((subtask) => subtask.id === moment.subtaskId);
-      const what = landed === undefined ? moment.subtaskId : subjectOf(landed.intention);
-      await pushReport(input, {
-        event: "progress",
-        key,
-        project,
-        fields: { summary: `Landed ${moment.integrated} of ${moment.total}: ${what}` },
-        eventId: `${key}:integrated:${moment.subtaskId}`,
-      });
-      return;
-    }
     case "submitted":
       await pushReport(input, {
         event: "submitted",
@@ -55,44 +36,13 @@ export async function reportMoment(
   }
 }
 
-function plannedReport(
-  key: string,
-  project: string,
-  record: NonNullable<FeatureAggregate["plan"]>,
-): Parameters<typeof pushReport>[1] {
-  // One line a person can read per Subtask: its first sentence, and what it
-  // waits on. The whole intention is in the ledger and on the pull request.
-  const plan = record.subtasks
-    .map((subtask, at) => {
-      const after =
-        subtask.depends_on.length === 0 ? "" : ` (after ${subtask.depends_on.join(", ")})`;
-      return `${at + 1}. ${subjectOf(subtask.intention)}${after}`;
-    })
-    .join("\n");
-  return {
-    event: "planned",
-    key,
-    project,
-    fields: { plan },
-    // A feature is driven again on every pass while it waits for a verdict.
-    // The Plan was made once; say it once.
-    eventId: `${key}:planned:${record.planned_at}`,
-  };
-}
-
 export async function reportAfterRun(
   input: HostDeliveryInput,
   run: ProjectRunResult,
-  aggregate: FeatureAggregate,
+  aggregate: TicketAggregate,
 ): Promise<void> {
   const key = aggregate.intention.key;
   const project = aggregate.intention.project;
-  // The plan is said as it lands (reportMoment); this is the catch-up for a
-  // plan made before a restart or while the tracker was down — same id, so a
-  // manager that already has it says nothing.
-  if (aggregate.plan !== undefined) {
-    await pushReport(input, plannedReport(key, project, aggregate.plan));
-  }
   switch (run.outcome) {
     case "done":
       // The Authority's own name for the work, when there was one. A local
@@ -122,28 +72,12 @@ export async function reportAfterRun(
     case "refused":
       return;
   }
-  const kind: EscalationKind = aggregate.escalation?.kind ?? "subtask";
-  // One escalation per round and kind: a Feature escalates again only after a
-  // human's `ready`, which is what the ledger counts. The Attempt count would
-  // not do — a Plan refused twice has none.
+  const kind: EscalationKind = aggregate.escalation?.kind ?? "unit";
+  // One escalation per round and kind: a Ticket escalates again only after a
+  // human's resume, which is what the ledger counts. The Attempt count would
+  // not do — an escalation before any Attempt has none.
   const eventId = escalationId(key, aggregate, kind);
   switch (kind) {
-    case "plan":
-      await pushReport(input, {
-        event: "escalated",
-        key,
-        project,
-        eventId,
-        fields: {
-          stage: "plan",
-          // A refused Plan left its reason as `invalid`; a freeze for an
-          // intention edited in flight left the ledger's sentence as the
-          // escalation's report. Neither is "the Plan was refused" for the other.
-          reason:
-            aggregate.invalid?.reason ?? aggregate.escalation?.report ?? "The Plan was refused.",
-        },
-      });
-      return;
     case "merging":
       await pushReport(input, {
         event: "escalated",
@@ -157,8 +91,8 @@ export async function reportAfterRun(
       });
       return;
     case "assembly":
-      // The feature as a whole, which names no unit: reporting it as a Subtask
-      // sends a reader to look at work that did not fail.
+      // The assembled work, not the unit: reporting it as the unit sends a
+      // reader to look at work that did not fail.
       await pushReport(input, {
         event: "escalated",
         key,
@@ -166,7 +100,7 @@ export async function reportAfterRun(
         eventId,
         fields: {
           stage: "integrating",
-          reason: "The assembled feature was refused and no attempt is left.",
+          reason: "The assembled work was refused and no attempt is left.",
           ...(aggregate.escalation?.report === undefined
             ? {}
             : { trace: aggregate.escalation.report }),
@@ -191,13 +125,13 @@ export async function reportAfterRun(
         },
       });
       return;
-    case "subtask":
+    case "unit":
       await pushReport(input, {
         event: "escalated",
         key,
         project,
         eventId,
-        fields: subtaskEscalation(input, aggregate),
+        fields: unitEscalation(input, aggregate),
       });
       return;
   }
@@ -209,7 +143,7 @@ export async function reportAfterRun(
  * open one), a republish refused, and a judgement that sent it back once too
  * often. Say only what the ledger shows; the Trace says who refused and why.
  */
-function submittedReason(aggregate: FeatureAggregate, maxRefusals: number): string {
+function submittedReason(aggregate: TicketAggregate, maxRefusals: number): string {
   const submission = aggregate.submission;
   if (submission === undefined) {
     return "The work could not be submitted.";
@@ -220,30 +154,21 @@ function submittedReason(aggregate: FeatureAggregate, maxRefusals: number): stri
     : "The Submission was refused.";
 }
 
-/** `<key>:escalated:<round>:<kind>[:<subtask>]` — the same escalation hashes the same after a restart. */
-function escalationId(key: string, aggregate: FeatureAggregate, kind: EscalationKind): string {
-  const round = aggregate.resumes ?? 0;
-  const unit = kind === "subtask" ? `:${aggregate.escalation?.subtask_id ?? "unknown"}` : "";
-  return `${key}:escalated:${round}:${kind}${unit}`;
+/** `<key>:escalated:<round>:<kind>` — the same escalation hashes the same after a restart. */
+function escalationId(key: string, aggregate: TicketAggregate, kind: EscalationKind): string {
+  return `${key}:escalated:${aggregate.resumes}:${kind}`;
 }
 
 /**
- * A Subtask escalation, for a person who was not there. The Plan's headline
- * says what was tried, the last Attempt says who refused it and why, the
- * count says whether more patience would have helped — and what resuming does,
- * because that is the only question left to the reader.
+ * A unit escalation, for a person who was not there. The last Attempt says who
+ * refused it and why, the count says whether more patience would have helped —
+ * and what resuming does, because that is the only question left to the reader.
  */
-function subtaskEscalation(input: HostDeliveryInput, aggregate: FeatureAggregate): EventFields {
-  const id = aggregate.escalation?.subtask_id;
-  const unit = id ?? "unknown";
-  const planned = aggregate.plan?.subtasks.find((subtask) => subtask.id === id);
-  const what = planned === undefined ? unit : subjectOf(planned.intention);
-  // This round's Attempts only: the budget is per round, and a Subtask resumed
+function unitEscalation(input: HostDeliveryInput, aggregate: TicketAggregate): EventFields {
+  // This round's Attempts only: the budget is per round, and a unit resumed
   // once already spent three — "6 times of 3" counts against nothing.
-  const round = aggregate.resumes ?? 0;
-  const attempts = aggregate.attempts.filter(
-    (attempt) => attempt.subtask_id === id && (attempt.round ?? 0) === round,
-  );
+  const round = aggregate.resumes;
+  const attempts = aggregate.attempts.filter((attempt) => attempt.round === round);
   const last = [...attempts].reverse().find((attempt) => attempt.trace !== undefined)?.trace;
   const max = input.options.builder?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const by = last?.refusedBy ?? "a Gate";
@@ -266,16 +191,14 @@ function subtaskEscalation(input: HostDeliveryInput, aggregate: FeatureAggregate
   } else {
     why = (aggregate.escalation?.report ?? "it escalated").replace(/\.$/, "");
   }
-  const resume = `On resume, ${unit} starts again from zero; what already landed is kept.`;
+  const resume = "On resume, the work starts again from zero.";
 
   const fields: EventFields = {
     stage: "unit",
-    reason: `${what} — ${why}. ${resume}`,
+    reason: `${why}. ${resume}`,
     // The refusal in the refuser's own words; the ledger's sentence when no
-    // Attempt left one (a fold conflict); the verdict alone for a record
-    // written before reports were kept.
+    // Attempt left one; the verdict alone when none was kept.
     trace: last?.report ?? aggregate.escalation?.report ?? last?.ended ?? "No Trace recorded.",
-    unit,
   };
   if (attempts.length > 0) {
     fields.counters = { attempts: `${attempts.length} of ${max}` };
@@ -293,7 +216,7 @@ function subtaskEscalation(input: HostDeliveryInput, aggregate: FeatureAggregate
  * before one does, or without an Authority at all). The parked one is fresher
  * when both are set, the same priority `open-conductor` gives it.
  */
-async function reportRefusal(input: HostDeliveryInput, aggregate: FeatureAggregate): Promise<void> {
+async function reportRefusal(input: HostDeliveryInput, aggregate: TicketAggregate): Promise<void> {
   if (aggregate.state !== "integrating") {
     return;
   }
@@ -310,7 +233,7 @@ async function reportRefusal(input: HostDeliveryInput, aggregate: FeatureAggrega
       // in the same round would otherwise collide with this id.
       eventId: `${aggregate.intention.key}:refused:parked:${parkedRefusals}`,
       fields: {
-        summary: `${parked.refused_by ?? "assembly.validate"} refused the assembled feature; a repair is on its way (refusal ${spent} of ${max}).`,
+        summary: `${parked.refused_by ?? "assembly.validate"} refused the assembled work; a repair is on its way (refusal ${spent} of ${max}).`,
         stage: "integrating",
         trace: parked.report,
       },
@@ -341,23 +264,23 @@ async function reportRefusal(input: HostDeliveryInput, aggregate: FeatureAggrega
   });
 }
 
-export function resumePointOf(aggregate: FeatureAggregate): "planning" | "running" | "integrating" {
+export function resumePointOf(aggregate: TicketAggregate): "running" | "integrating" {
   switch (aggregate.escalation?.kind) {
-    case "plan":
-      return "planning";
-    // What the ledger does on resumeReady, said in the same words.
+    // What the ledger does on resumeTicket, said in the same words.
     case "merging":
     case "assembly":
     case "submitted":
       return "integrating";
-    case "subtask":
+    case "unit":
     case undefined:
       return "running";
   }
 }
 
 export async function pushReport(
-  input: Pick<HostDeliveryInput, "manager" | "reported" | "journal"> & { said?: Set<string> },
+  input: Pick<HostDeliveryInput, "features" | "tickets" | "reported" | "journal"> & {
+    said?: Set<string>;
+  },
   report: {
     event: EventName;
     key: string;
@@ -365,6 +288,8 @@ export async function pushReport(
     fields: EventFields;
     eventId?: string;
   },
+  /** Whose Thread it goes to: a Ticket's tracker by default, a Feature's manager when named. */
+  to: "tickets" | "features" = "tickets",
 ): Promise<void> {
   if (report.eventId !== undefined && input.said?.has(report.eventId)) {
     return;
@@ -372,7 +297,7 @@ export async function pushReport(
   // How long the tracker took, kept either way: a report is awaited where the
   // work is, and one that hung for minutes looked like nothing at all.
   const started = Date.now();
-  const ok = await input.manager.report({
+  const ok = await input[to].report({
     event: report.event,
     key: report.key,
     project: report.project,
@@ -394,14 +319,14 @@ export async function pushReport(
 /**
  * One Host line per Project we drove: the outcome, and a heartbeat while it waits.
  */
-export function journalFeature(
+export function journalTicket(
   journal: Journal,
   outcome: string,
-  aggregate: FeatureAggregate,
+  aggregate: TicketAggregate,
   said?: Set<string>,
 ): void {
   const key = aggregate.intention.key;
-  // A Subtask held by a bail is driven again every poll until the clock (or a
+  // A unit held by a bail is driven again every poll until the clock (or a
   // release) frees it. One `held` line names the wait; repeating `ran paused`
   // every ten seconds is noise.
   if (

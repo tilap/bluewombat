@@ -11,8 +11,8 @@ covers:
 Every suite lives next to the package it proves; this file says how they run
 together and what none of them proves.
 
-Product validation at runtime is still **Gates** on each Subtask and again on the
-assembled feature — see [PRODUCT.md](./PRODUCT.md). That is not a substitute for
+Product validation at runtime is still **Gates** on the unit and again on the
+assembled ticket — see [PRODUCT.md](./PRODUCT.md). That is not a substitute for
 the suites below.
 
 ## Levels
@@ -22,7 +22,7 @@ the suites below.
 | Package        | One package in isolation; a plugin against its kit                                         | `src/*.test.ts` next to the code                  | `npm test` at the root, or `--filter=@bluewombat/…`    |
 | Host, whole    | The chain listen → adapt → Conductor → real Transformers → report, on the fake manager     | `packages/host/runtime/src/loop/open-host*.test.ts` | same `npm test` — Turbo builds workspace deps first |
 | Git remote     | `publish` / `refreshWorkLine` against a bare, single-branch remote on disk                 | `packages/host/runtime/src/loop/authority.test.ts` | same                                                 |
-| Gate (product) | Subtask output, then feature assembly                                                      | The Project's Gate sequence, at runtime           | Implementer, not a developer command                  |
+| Gate (product) | The unit's output, then its assembly                                                      | The Project's Gate sequence, at runtime           | Implementer, not a developer command                  |
 
 ## What must pass before merge
 
@@ -65,7 +65,7 @@ Being explicit here prevents both false confidence and pointless coverage debate
 | ------------------------------------------------- | ------------------------------- | --------------------------------------- |
 | A Transformer's internals                         | Root docs do not own that Transformer | That Transformer's own suite            |
 | Business content the Builder produces             | Out of product scope            | Project Gates chosen per Project        |
-| Concrete FeatureManager, versioning tool, Builder | Chosen per Transformer, not here      | Adapter / Emitter / producer boundaries |
+| Concrete TicketTracker, versioning tool, Builder | Chosen per Transformer, not here      | Adapter / Emitter / producer boundaries |
 
 ## Flaky tests
 

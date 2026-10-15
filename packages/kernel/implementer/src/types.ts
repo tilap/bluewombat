@@ -33,7 +33,6 @@ export type Status = {
 
 export type BuilderInput = {
   intention: string;
-  definition_of_done: string;
   report?: string;
 };
 
@@ -107,7 +106,6 @@ export type GateSpec = {
 export type Invocation = {
   id: string;
   intention: string;
-  definitionOfDone: string;
   workspace: string;
   /**
    * The producer. Absent: an Attempt is its Gate sequence alone.

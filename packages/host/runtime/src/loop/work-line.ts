@@ -66,7 +66,7 @@ export type WorkLineInput = {
  * - `operators`: no reference is named, so `workLine.stable` is a work line
  *   the operator maintains — the fold lands there and that is final.
  * - `unchecked`: a reference is named but this strategy cannot read one, so an
- *   explicit `workLine.stable` is taken on trust, as before any of this.
+ *   explicit `workLine.stable` is taken on trust.
  * - `copy`: a reference is named and read. The directory is Host's copy of it,
  *   whether the operator chose the path or the default did.
  * - `invalid`: something disagrees, and the run must not start.

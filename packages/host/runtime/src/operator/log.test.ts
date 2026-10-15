@@ -5,13 +5,12 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { CONFIG_FILENAME } from "../config/find-config.js";
+import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
 import { openJournalFile } from "../loop/journal.js";
 import { runLog } from "./log.js";
 
 const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
-const planner = join(here, "../../fixtures/planner-one-subtask.mjs");
 const builder = join(here, "../../fixtures/builder-write-marker.mjs");
 const gate = join(here, "../../fixtures/gate-pass.mjs");
 
@@ -21,14 +20,19 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
   const ledgerRoot = join(root, "ledger");
   mkdirSync(ledgerRoot);
   writeFileSync(
-    join(root, CONFIG_FILENAME),
+    join(root, DEFAULT_CONFIG_FILENAME),
     stringifyYaml({
-      manager: "@bluewombat/manager-fake",
-      managerOptions: { source: "./source", target: "./threads" },
+      featureTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
+      ticketTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },
       workspaceRoot: "./workspaces",
       ledger: "./ledger",
-      planner: { cmd: [node, planner], timeoutMs: 600_000 },
       builder: {
         producer: {
           cmd: [node, builder],
@@ -49,18 +53,12 @@ function film(ledgerRoot: string): void {
   journal.append({ event: "listen", outcome: "completed", deliveries: 0 });
   journal.append({ event: "listen", outcome: "completed", deliveries: 1 });
   journal.append({
-    event: "planner-finished",
-    kind: "exited",
-    exitCode: 1,
-    key: "github:acme/app#3",
-  });
-  journal.append({
     event: "result",
     outcome: "unavailable",
-    detail: "The Planner exited without answering.",
+    detail: "The tracker did not answer.",
     key: "github:acme/app#3",
   });
-  journal.append({ event: "ran", key: "github:acme/app#3", outcome: "refused", state: "planning" });
+  journal.append({ event: "ran", key: "github:acme/app#3", outcome: "refused", state: "running" });
 }
 
 describe("runLog", () => {
@@ -79,15 +77,10 @@ describe("runLog", () => {
     const code = await runLog({ cwd, argv: [], write: (line) => lines.push(line) });
     assert.equal(code, 0);
     const text = lines.join("");
-    assert.match(text, /The Planner exited without answering/);
-    assert.match(text, /planner exited {2}exit 1|planner-finished/);
-    assert.match(text, /exit 1/);
+    assert.match(text, /The tracker did not answer/);
     assert.doesNotMatch(text, /\bidle\b/);
     assert.match(text, /quiet lines hidden/);
-    assert.match(
-      text,
-      /unavailable {2}The Planner exited without answering\. {2}×1|unavailable {2}The Planner exited without answering\./,
-    );
+    assert.match(text, /unavailable {2}The tracker did not answer\./);
   });
 
   it("--problems keeps the failure and drops the listen", async () => {
@@ -102,7 +95,7 @@ describe("runLog", () => {
     assert.equal(code, 0);
     const text = lines.join("");
     assert.match(text, /unavailable/);
-    assert.match(text, /The Planner exited without answering/);
+    assert.match(text, /The tracker did not answer/);
     assert.doesNotMatch(text, /deliveries|listen {2}/);
   });
 
@@ -141,7 +134,7 @@ describe("runLog", () => {
     assert.equal(code, 0);
     const parsed = JSON.parse(lines.join("")) as { event: string; detail?: string }[];
     assert.equal(
-      parsed.some((line) => line.detail === "The Planner exited without answering."),
+      parsed.some((line) => line.detail === "The tracker did not answer."),
       true,
     );
     assert.equal(
@@ -182,30 +175,13 @@ describe("runLog", () => {
     assert.equal(parsed.lines.length, 1);
   });
 
-  it("tallies a paused run with no exit code apart from exit 1", async () => {
+  it("tallies the same stop once, with how many times it happened", async () => {
     const { cwd, ledgerRoot } = sandbox();
     const journal = openJournalFile(ledgerRoot, () => new Date("2026-09-23T14:09:53.000Z"));
-    const detail = "The Planner exited without answering.";
-    journal.append({
-      event: "planner-finished",
-      kind: "exited",
-      exitCode: 1,
-      key: "github:acme/app#3",
-    });
-    journal.append({
-      event: "result",
-      outcome: "unavailable",
-      detail,
-      key: "github:acme/app#3",
-    });
-    journal.append({ event: "planner-finished", kind: "exited", key: "github:acme/app#3" });
-    journal.append({
-      event: "result",
-      outcome: "unavailable",
-      detail,
-      key: "github:acme/app#3",
-    });
-    journal.append({ event: "paused" });
+    const detail = "The tracker did not answer.";
+    for (let index = 0; index < 2; index++) {
+      journal.append({ event: "result", outcome: "unavailable", detail, key: "github:acme/app#3" });
+    }
     const lines: string[] = [];
     const code = await runLog({
       cwd,
@@ -213,10 +189,7 @@ describe("runLog", () => {
       write: (line) => lines.push(line),
     });
     assert.equal(code, 0);
-    const text = lines.join("");
-    assert.match(text, /unavailable {2}The Planner exited without answering\. {2}exit 1\n/);
-    assert.match(text, /interrupted {2}unavailable {2}The Planner exited without answering\./);
-    assert.doesNotMatch(text, /×2/);
+    assert.match(lines.join(""), /unavailable {2}The tracker did not answer\. {2}×2/);
   });
 
   it("--tail limits the film and the tally still counts what was hidden", async () => {
@@ -227,7 +200,7 @@ describe("runLog", () => {
     assert.equal(code, 0);
     const text = lines.join("");
     assert.match(text, /showing last 1 of/);
-    assert.match(text, /unavailable {2}The Planner exited without answering/);
+    assert.match(text, /unavailable {2}The tracker did not answer/);
   });
 
   it("refuses a --tail that is not a number", async () => {
@@ -244,14 +217,14 @@ describe("runLog", () => {
     const transcripts = join(cwd, "transcripts", "fake-1");
     mkdirSync(transcripts, { recursive: true });
     writeFileSync(
-      join(transcripts, "breakdown-attempt-1.md"),
-      "# breakdown · attempt 1\n\n- exit: 0\n- duration: 12.0s\n",
+      join(transcripts, "builder-attempt-1.md"),
+      "# builder · attempt 1\n\n- exit: 0\n- duration: 12.0s\n",
     );
-    const config = parseYaml(readFileSync(join(cwd, CONFIG_FILENAME), "utf8")) as {
-      planner: { cmd: string[] };
+    const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8")) as {
+      builder: { producer: { cmd: string[] } };
     };
-    config.planner.cmd.push("--transcript-dir", transcripts);
-    writeFileSync(join(cwd, CONFIG_FILENAME), stringifyYaml(config));
+    config.builder.producer.cmd.push("--transcript-dir", transcripts);
+    writeFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), stringifyYaml(config));
     const lines: string[] = [];
     const code = await runLog({ cwd, argv: ["--problems"], write: (line) => lines.push(line) });
     assert.equal(code, 0);
@@ -259,7 +232,7 @@ describe("runLog", () => {
     assert.match(text, /transcripts/);
     assert.match(text, /exit 0/);
     assert.match(text, /duration 12\.0s/);
-    assert.match(text, /breakdown-attempt-1\.md/);
+    assert.match(text, /builder-attempt-1\.md/);
   });
 
   it("exits 2 when the config cannot be opened", async () => {

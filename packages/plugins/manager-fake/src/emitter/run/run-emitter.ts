@@ -41,7 +41,7 @@ export function invalidInvocationResult(write: ProgressWriter, reason: string): 
 }
 
 /**
- * Run one FeatureEmitter invocation to a run outcome.
+ * Run one Emitter invocation to a run outcome.
  */
 export function runEmitter(options: RunOptions): RunResult {
   const { invocation } = options;

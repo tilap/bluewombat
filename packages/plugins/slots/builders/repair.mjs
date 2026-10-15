@@ -13,7 +13,7 @@ import {
   textOption,
   transcriptArgs,
 } from "@bluewombat/slot-kit";
-import { attemptOf, doneWhen } from "../lib/fill.mjs";
+import { attemptOf } from "../lib/fill.mjs";
 
 const NAME = "builder repair";
 
@@ -37,8 +37,6 @@ already here and passes is not to be redone.
 This was asked in the first place, and still holds:
 
 {{task}}
-
-{{done_when}}
 
 {{history}}
 
@@ -96,7 +94,6 @@ const rendered = fillPrompt(
     report,
     refused_by:
       refusedBy.length > 0 ? refusedBy : "the producer of the last attempt, which did not finish",
-    done_when: doneWhen(take(process.argv, "--definition-of-done")),
     rules: rules.value.trim(),
     id: take(process.argv, "--id") ?? "",
     attempt: String(attemptOf(process.argv)),

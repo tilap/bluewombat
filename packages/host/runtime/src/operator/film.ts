@@ -28,15 +28,12 @@ export function isQuietJournalLine(line: Record<string, unknown>): boolean {
 }
 
 /**
- * A line that explains a stop: the Planner did not answer, a Gate refused,
- * a producer failed, a run came back refused.
+ * A line that explains a stop: a Gate refused, a producer failed, a run came
+ * back refused.
  */
 export function isProblemJournalLine(line: Record<string, unknown>): boolean {
   if (line.event === "result") {
-    return line.outcome !== "planned" && line.outcome !== "converted";
-  }
-  if (line.event === "planner-finished") {
-    return !(line.kind === "exited" && line.exitCode === 0);
+    return line.outcome !== "converted";
   }
   if (line.event === "ran") {
     return line.outcome === "refused" || line.outcome === "paused";
@@ -53,123 +50,25 @@ export function isProblemJournalLine(line: Record<string, unknown>): boolean {
   return textOf(line.detail) !== undefined || textOf(line.reason) !== undefined;
 }
 
-/**
- * Distinct stops in the film.
- *
- * A `result` is counted with the exit of the `planner-finished` just before
- * it. A run that then pauses, with no exit code, is `interrupted`. It does
- * not share a bucket with a non-zero exit that left the same detail. `ran`
- * repeats the result, so it is not counted again. A `planner-finished` that
- * already has a `result` is not counted again either.
- */
+/** Distinct stops in the film, counted by what they say. */
 export function tallyProblems(lines: Record<string, unknown>[]): [string, number][] {
   const counts = new Map<string, number>();
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
-    if (line === undefined || line.event === "ran" || !isProblemJournalLine(line)) {
+  for (const line of lines) {
+    if (line.event === "ran" || !isProblemJournalLine(line)) {
       continue;
     }
-    if (
-      line.event === "planner-finished" &&
-      followingResult(lines, index, keyOf(line)) !== undefined
-    ) {
-      continue;
-    }
-    const label =
-      line.event === "result" ? resultTallyLabel(line, lines, index) : fallbackLabel(line);
+    const label = fallbackLabel(line);
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   return [...counts];
 }
 
-function resultTallyLabel(
-  line: Record<string, unknown>,
-  lines: Record<string, unknown>[],
-  index: number,
-): string {
-  const outcome = typeof line.outcome === "string" ? line.outcome : "result";
-  const why = textOf(line.detail) ?? textOf(line.reason);
-  const head = why === undefined ? outcome : `${outcome}  ${clip(why)}`;
-  const prior = previousPlanner(lines, index, keyOf(line));
-  if (prior !== undefined && typeof prior.exitCode === "number" && prior.exitCode !== 0) {
-    return `${head}  exit ${prior.exitCode}`;
-  }
-  if (prior !== undefined && (prior.kind === "interrupted" || runPausedAfter(lines, index))) {
-    return `interrupted  ${head}`;
-  }
-  return head;
-}
-
 function fallbackLabel(line: Record<string, unknown>): string {
-  if (line.event === "planner-finished") {
-    const kind = typeof line.kind === "string" ? line.kind : "finished";
-    if (kind === "interrupted") {
-      return "interrupted";
-    }
-    if (typeof line.exitCode === "number") {
-      return `planner ${kind}  exit ${line.exitCode}`;
-    }
-    return `planner ${kind}`;
-  }
   if (line.event === "result" && typeof line.outcome === "string") {
     const why = textOf(line.detail) ?? textOf(line.reason);
     return why === undefined ? line.outcome : `${line.outcome}  ${clip(why)}`;
   }
   return formatJournalLine(line);
-}
-
-function followingResult(
-  lines: Record<string, unknown>[],
-  index: number,
-  key: string,
-): Record<string, unknown> | undefined {
-  for (let cursor = index + 1; cursor < lines.length; cursor++) {
-    const line = lines[cursor];
-    if (line === undefined) {
-      continue;
-    }
-    if (line.event === "planner-finished" && keyOf(line) === key) {
-      return undefined;
-    }
-    if (line.event === "result" && keyOf(line) === key) {
-      return line;
-    }
-  }
-  return undefined;
-}
-
-function previousPlanner(
-  lines: Record<string, unknown>[],
-  index: number,
-  key: string,
-): Record<string, unknown> | undefined {
-  for (let cursor = index - 1; cursor >= 0; cursor--) {
-    const line = lines[cursor];
-    if (line === undefined) {
-      continue;
-    }
-    if (line.event === "planner-finished" && keyOf(line) === key) {
-      return line;
-    }
-    if (line.event === "result" && keyOf(line) === key) {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-/** The process stopped before another planner run. That is an interrupt, not another exit. */
-function runPausedAfter(lines: Record<string, unknown>[], index: number): boolean {
-  for (let cursor = index + 1; cursor < lines.length; cursor++) {
-    const event = lines[cursor]?.event;
-    if (event === "planner-finished" || event === "listen") {
-      return false;
-    }
-    if (event === "paused") {
-      return true;
-    }
-  }
-  return false;
 }
 
 function builderFailed(line: Record<string, unknown>): boolean {
@@ -198,7 +97,7 @@ function headlineOf(line: Record<string, unknown>): string {
   if (typeof line.phase === "string") {
     return line.phase;
   }
-  // A held Feature names when the bail frees it — that is the line a watcher
+  // A held Ticket names when the bail frees it — that is the line a watcher
   // needs, not the state word alone.
   if (line.event === "held" && typeof line.until === "number") {
     return `until ${new Date(line.until).toISOString().slice(11, 19)}`;

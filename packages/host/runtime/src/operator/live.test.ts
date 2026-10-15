@@ -7,13 +7,12 @@ import { fileURLToPath } from "node:url";
 import { openFilesystemPersist } from "@bluewombat/persist-fs";
 import { openWorkLedger } from "@bluewombat/work-ledger";
 import { stringify as stringifyYaml } from "yaml";
-import { CONFIG_FILENAME } from "../config/find-config.js";
+import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
 import { journalPath, openJournalFile } from "../loop/journal.js";
 import { runLive } from "./live.js";
 
 const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
-const planner = join(here, "../../fixtures/planner-one-subtask.mjs");
 const builder = join(here, "../../fixtures/builder-write-marker.mjs");
 const gate = join(here, "../../fixtures/gate-pass.mjs");
 
@@ -23,14 +22,19 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
   const ledgerRoot = join(root, "ledger");
   mkdirSync(ledgerRoot);
   writeFileSync(
-    join(root, CONFIG_FILENAME),
+    join(root, DEFAULT_CONFIG_FILENAME),
     stringifyYaml({
-      manager: "@bluewombat/manager-fake",
-      managerOptions: { source: "./source", target: "./threads" },
+      featureTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
+      ticketTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },
       workspaceRoot: "./workspaces",
       ledger: "./ledger",
-      planner: { cmd: [node, planner], timeoutMs: 600_000 },
       builder: {
         producer: {
           cmd: [node, builder],
@@ -58,11 +62,11 @@ describe("runLive", () => {
       pollMs: 20,
     });
     assert.equal(code, 0);
-    assert.match(lines.join(""), /No Features in the ledger/);
+    assert.match(lines.join(""), /No Tickets in the ledger/);
     assert.match(lines.join(""), /Worker has not written a journal yet/);
   });
 
-  it("shows a submitted Feature on the board with its reference", async () => {
+  it("shows a submitted Ticket on the board with its reference", async () => {
     const { cwd, ledgerRoot } = sandbox();
     const persist = await openFilesystemPersist({ root: ledgerRoot });
     const ledger = openWorkLedger({ persist });
@@ -74,19 +78,12 @@ describe("runLive", () => {
       intention: "ship it",
     });
     await ledger.claim("app");
-    await ledger.recordPlan({
-      key: "github:acme/app#42",
-      plannedAt: "2026-09-07T00:00:00.000Z",
-      subtasks: [{ id: "A", intention: "ship it", definition_of_done: "done", depends_on: [] }],
-    });
-    await ledger.startSubtask({ key: "github:acme/app#42", subtaskId: "A" });
     await ledger.recordAttempt({
       key: "github:acme/app#42",
-      subtaskId: "A",
       number: 1,
       trace: { ended: "validated" },
     });
-    await ledger.markSubtaskIntegrated({ key: "github:acme/app#42", subtaskId: "A" });
+    await ledger.markIntegrating("github:acme/app#42");
     await ledger.markSubmitted({
       key: "github:acme/app#42",
       reference: "https://example.test/pr/7",
@@ -176,16 +173,16 @@ describe("runLive", () => {
       event: "result",
       key: "github:acme/app#3",
       outcome: "unavailable",
-      detail: "The Planner exited without answering. The agent wrote no usable plan.",
+      detail: "The tracker did not answer. Nothing was read from it.",
     });
     const deadline = Date.now() + 2_000;
-    while (!lines.join("").includes("no usable plan") && Date.now() < deadline) {
+    while (!lines.join("").includes("Nothing was read") && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     interruptFlag.interrupted = true;
     const code = await running;
     assert.equal(code, 0);
-    assert.match(lines.join(""), /no usable plan/);
+    assert.match(lines.join(""), /Nothing was read/);
   });
 
   it("exits 2 when the config cannot be opened", async () => {

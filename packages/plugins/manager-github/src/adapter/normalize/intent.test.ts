@@ -11,7 +11,7 @@ function intentOf(input: {
     action: input.action,
     state: input.state,
     labels: input.labels ?? [],
-    readyLabel: "ready",
+    resumeLabel: "to-resume",
   });
   return result.ok ? result.intent : undefined;
 }
@@ -23,8 +23,8 @@ describe("readIntent", () => {
     assert.equal(intentOf({}), "upsert");
   });
 
-  it("ignores the ready label on a snapshot, which cannot see the edge", () => {
-    assert.equal(intentOf({ state: "open", labels: ["ready"] }), "upsert");
+  it("ignores the resume label on a snapshot, which cannot see the edge", () => {
+    assert.equal(intentOf({ state: "open", labels: ["to-resume"] }), "upsert");
   });
 
   it("collapses the actions a repository sends", () => {
@@ -35,10 +35,10 @@ describe("readIntent", () => {
     assert.equal(intentOf({ action: "transferred" }), "cancel");
   });
 
-  it("reads the arrival of the ready label as the human unblocking it", () => {
-    assert.equal(intentOf({ action: "labeled", labels: ["ready"] }), "ready");
+  it("reads the arrival of the resume label as the human unblocking it", () => {
+    assert.equal(intentOf({ action: "labeled", labels: ["to-resume"] }), "resume");
     assert.equal(intentOf({ action: "labeled", labels: ["bug"] }), "upsert");
-    assert.equal(intentOf({ action: "unlabeled", labels: ["ready"] }), "upsert");
+    assert.equal(intentOf({ action: "unlabeled", labels: ["to-resume"] }), "upsert");
   });
 
   it("refuses an action it does not read", () => {
@@ -46,7 +46,7 @@ describe("readIntent", () => {
       action: "starred",
       state: "open",
       labels: [],
-      readyLabel: "ready",
+      resumeLabel: "to-resume",
     });
     assert.equal(result.ok, false);
     assert.equal(result.ok === false && result.invalid.code, "unknown-action");

@@ -2,9 +2,8 @@
 
 What a slot needs to answer the Transformer that spawned it.
 
-A slot is an opaque command. Implementer spawns a Builder and its Gates,
-FeatureBreakdown spawns a Planner, and each one reads argv and writes **one JSON
-line on stdout**. That is the whole contract, and nothing here is required to
+A slot is an opaque command. Implementer spawns a Builder and its Gates, and
+each one reads argv and writes **one JSON line on stdout**. That is the whole contract, and nothing here is required to
 meet it: a shell script that prints the right line is a Gate. This package is
 the plumbing every slot written in Node would otherwise write again — and it is
 what keeps the shipped slots from each growing their own version of it.
@@ -12,7 +11,7 @@ what keeps the shipped slots from each growing their own version of it.
 The contract line must be written with `writeContract` (or an `emit*` that uses
 it). `process.stdout.write` followed by `process.exit` drops the tail of any
 payload larger than the pipe buffer — a finished Cursor/Claude stream-json run
-used to reach the role as "The agent command wrote no result." Diagnostics on
+reaches the role as "The agent command wrote no result." Diagnostics on
 stderr use `writeDiagnostic` for the same reason.
 
 A slot is a **layer** in a chain it does not own: Implementer ends the chain
@@ -22,8 +21,7 @@ its own — a child that left it would outlive its ceiling. The rule and its
 check are in [`packages/README.md`](../../README.md).
 
 The behaviour a slot must have is specified where its caller is:
-[Implementer](../../kernel/implementer/SPECS.md) for Builders and Gates,
-[FeatureBreakdown](../../kernel/feature-breakdown/SPECS.md) for Planners.
+[Implementer](../../kernel/implementer/SPECS.md) for Builders and Gates.
 Slots that use this kit: [`@bluewombat/slots`](../../plugins/slots/README.md).
 
 ## Install
@@ -53,25 +51,23 @@ first and the caller's flags appended, and it must not trip over the second set.
 
 | Area       | Exports                                                                                                                                                                |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| argv       | `ownArgv`, `splitRunner`, `take`, `stageOf`, `GATE_FLAGS`, `BUILDER_FLAGS`, `PLANNER_FLAGS`                                                                            |
+| argv       | `ownArgv`, `splitRunner`, `take`, `stageOf`, `GATE_FLAGS`, `BUILDER_FLAGS`                                                                                          |
 | options    | `parseOptions` — a spec of flags, with choices, fallbacks and repeatable ones                                                                                          |
-| stdout     | `emitVerdict`, `emitFailure`, `emitPlan`, `emitRefusal`, `writeContract`, `writeDiagnostic` — emits use `writeContract` so `process.exit` cannot truncate |
+| stdout     | `emitVerdict`, `emitFailure`, `writeContract`, `writeDiagnostic` — emits use `writeContract` so `process.exit` cannot truncate |
 | agent CLIs | `findExecutable`, `runAgent`, `readResult`, `serializeRun`, `extrasOf`, `finishRun`, `failureOf` — `serializeRun` always writes `skills` / `usage` / `tools` (`null` = unknown), and `plugins` (`AgentPlugin`) when the wrapper loaded any |
 | prompts    | `renderPrompt`, `readTemplate`, `PROMPT_RULES` — fill is generic; each role owns its names                                                                             |
 | roles      | `parseRole`, `loadPrompt`, `loadRules`, `fillPrompt`, `spawnFilled`, `transcriptArgs`, `ROLE_OPTIONS` — a role fills its template and hands it to the agent after `--` |
 | transcript | `openTranscript`, `transcriptFor`, `TRANSCRIPT_PARTS`, `skillsLabel`, `usageLabel`, `toolsFacts`, `pluginsLabel` — optional extras on `write`                                          |
-| plans      | `checkPlan`                                                                                                                                                            |
 | paths      | `pathMatchesGlob`                                                                                                                                                      |
 
 Each `emit*` takes an optional `write`, which is how they are tested without a
 process. Everything else is a plain function over its arguments; `finishRun` is
 the one exception, and ends the process on purpose.
 
-## The three roles
+## The two roles
 
 | Role    | Spawned by       | Answers                                                                       |
 | ------- | ---------------- | ----------------------------------------------------------------------------- |
-| Planner | FeatureBreakdown | `{"subtasks":[…]}`, or `{"outcome":"refused",…}` for an unsplittable one      |
 | Builder | Implementer      | Nothing on a pass — the workspace is the answer. `{"outcome":…}` on a failure |
 | Gate    | Implementer      | `{"verdict":"pass"}`, or `fail-retryable` / `fail-blocking` with a `report`   |
 
@@ -106,6 +102,5 @@ src/
   prompt.ts      generic fill, rules, agent prompt (already rendered)
   role.ts        parse a role, fill its template, spawn the agent after `--`
   transcript.ts  one file per turn, when a Project asks for one
-  plan.ts        whether a Plan can be acted on
   glob.ts        path globs
 ```

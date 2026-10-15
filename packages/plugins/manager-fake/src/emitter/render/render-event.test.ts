@@ -42,7 +42,7 @@ describe("renderEvent", () => {
     assert.match(rendered.section, /- reason: no id\n/);
   });
 
-  it("puts the Trace and the plan in a fenced block, not a bullet", () => {
+  it("puts the Trace in a fenced block, not a bullet", () => {
     const rendered = renderEvent(
       invocation({
         fields: { reason: "refused", stage: "unit", trace: "line one\nline two" },
@@ -55,16 +55,16 @@ describe("renderEvent", () => {
   it("renders counters as name=value pairs", () => {
     const rendered = renderEvent(
       invocation({
-        fields: { reason: "out of attempts", stage: "plan", counters: { attempts: "3/3" } },
+        fields: { reason: "out of attempts", stage: "integrating", counters: { attempts: "3/3" } },
       }),
     );
     assert.match(rendered.section, /- counters: attempts=3\/3\n/);
     assert.deepEqual(rendered.record.counters, { attempts: "3/3" });
   });
 
-  it("says an escalated Feature is frozen", () => {
+  it("says an escalated Ticket is frozen", () => {
     assert.match(
-      renderEvent(invocation({ fields: { reason: "refused", stage: "plan" } })).section,
+      renderEvent(invocation({ fields: { reason: "refused", stage: "integrating" } })).section,
       /frozen: no further work starts/,
     );
   });
@@ -74,7 +74,7 @@ describe("renderEvent", () => {
       renderEvent(
         invocation({
           event: "escalation_reminder",
-          fields: { reason: "refused", stage: "plan" },
+          fields: { reason: "refused", stage: "integrating" },
         }),
       ).section,
       /repeat of an earlier escalation/,

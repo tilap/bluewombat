@@ -22,7 +22,7 @@ export type Write = (line: string) => void;
  * Uses `writeSync` so an immediate `process.exit` cannot drop the tail of a
  * large JSON line. `process.stdout.write` only fills a userspace buffer that
  * `process.exit` abandons before the kernel drain finishes — that is how a
- * finished agent run used to reach the role as "wrote no result".
+ * finished agent run reaches the role as "wrote no result".
  */
 export function writeContract(line: string): void {
   writeSync(1, line);
@@ -46,11 +46,6 @@ export function emitVerdict(verdict: Verdict, report = "", write: Write = toStdo
 /** A Builder's failure. A pass says nothing: the workspace is the answer. */
 export function emitFailure(outcome: Failure, report: string, write: Write = toStdout): void {
   write(`${JSON.stringify({ outcome, report })}\n`);
-}
-
-/** A Plan on stdout, and nothing else on it. */
-export function emitPlan(subtasks: unknown, write: Write = toStdout): void {
-  write(`${JSON.stringify({ subtasks })}\n`);
 }
 
 /**
@@ -85,7 +80,7 @@ export function emitMessage(subject: string, body?: string, write: Write = toStd
 }
 
 /**
- * The work line copy now holds what the Authority holds.
+ * The work line copy holds what the Authority holds.
  *
  * Nothing to bring back is a success, not a special case: a Refresher that
  * found the copy already up to date answers the same way.
@@ -102,13 +97,4 @@ export function emitRefreshed(write: Write = toStdout): void {
  */
 export function emitRefreshRefusal(reason: string, write: Write = toStdout): void {
   write(`${JSON.stringify({ outcome: "refused", reason })}\n`);
-}
-
-/**
- * The FeatureStandard cannot be split. This is a verdict on the intention, not
- * a failure of the slot: a slot that could not answer must exit non-zero and
- * say why on stderr, so the Breakdown is retried rather than the feature buried.
- */
-export function emitRefusal(reason: string, write: Write = toStdout): void {
-  write(`${JSON.stringify({ outcome: "refused", code: "not-specifiable", reason })}\n`);
 }

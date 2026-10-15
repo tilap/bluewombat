@@ -13,22 +13,23 @@ import type {
   AssemblySpec,
   AuthoritySpec,
   GatedPassSpec,
+  HostDraft,
   HostInvocation,
+  ManagerSpec,
   ObservabilitySpec,
   PassSpec,
   StageSpec,
 } from "./types.js";
 
 const KNOWN_KEYS = new Set([
-  "manager",
-  "managerOptions",
+  "featureTracker",
+  "ticketTracker",
   "home",
   "workLine",
   "workspaceRoot",
   "ledger",
   "persist",
   "agents",
-  "planner",
   "builder",
   "assembly",
   "authority",
@@ -49,9 +50,7 @@ const OBSERVABILITY_KEYS = new Set(["streams"]);
 const STREAMS_KEYS = new Set(["enabled", "dir", "keep"]);
 const STREAM_NAMES = new Set(["stdout", "stderr"]);
 
-export type LoadedConfig =
-  | { ok: true; invocation: Partial<HostInvocation> }
-  | { ok: false; reason: string };
+export type LoadedConfig = { ok: true; invocation: HostDraft } | { ok: false; reason: string };
 
 /**
  * Read one YAML document and resolve relative paths against the file's directory.
@@ -83,22 +82,16 @@ export function loadConfig(path: string): LoadedConfig {
   }
 
   const configDir = dirname(file);
-  const invocation: Partial<HostInvocation> = { configDir };
+  const invocation: HostDraft = { configDir };
 
-  const manager = stringField(object, "manager");
-  if (manager.ok === false) {
-    return manager;
-  }
-  if (manager.value !== undefined) {
-    invocation.manager = manager.value;
-  }
-
-  if (object.managerOptions !== undefined) {
-    const options = object.managerOptions;
-    if (options === null || typeof options !== "object" || Array.isArray(options)) {
-      return { ok: false, reason: 'Config "managerOptions" must be a YAML mapping.' };
+  for (const side of ["featureTracker", "ticketTracker"] as const) {
+    const spec = readManagerSpec(object[side], side);
+    if (spec.ok === false) {
+      return spec;
     }
-    invocation.managerOptions = { ...(options as Record<string, unknown>) };
+    if (spec.value !== undefined) {
+      invocation[side] = spec.value;
+    }
   }
 
   const home = stringField(object, "home");
@@ -164,14 +157,6 @@ export function loadConfig(path: string): LoadedConfig {
     agents = read.value;
   }
 
-  if (object.planner !== undefined) {
-    const planner = readGatedPass(object.planner, configDir, "planner", agents);
-    if (planner.ok === false) {
-      return planner;
-    }
-    invocation.planner = planner.value;
-  }
-
   if (object.builder !== undefined) {
     const builder = readBuilder(object.builder, configDir, agents);
     if (builder.ok === false) {
@@ -234,6 +219,42 @@ export function loadConfig(path: string): LoadedConfig {
 }
 
 type StringResult = { ok: true; value: string | undefined } | { ok: false; reason: string };
+
+const MANAGER_SPEC_KEYS = new Set(["package", "options"]);
+
+function readManagerSpec(
+  value: unknown,
+  side: string,
+): { ok: true; value: Partial<ManagerSpec> | undefined } | { ok: false; reason: string } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, reason: `Config "${side}" must be a YAML mapping (package, options).` };
+  }
+  const object = value as Record<string, unknown>;
+  for (const key of Object.keys(object)) {
+    if (!MANAGER_SPEC_KEYS.has(key)) {
+      return { ok: false, reason: `Config "${side}" has unknown key "${key}".` };
+    }
+  }
+  const spec: Partial<ManagerSpec> = {};
+  const name = stringField(object, "package");
+  if (name.ok === false) {
+    return { ok: false, reason: name.reason.replace('"package"', `"${side}.package"`) };
+  }
+  if (name.value !== undefined) {
+    spec.package = name.value;
+  }
+  if (object.options !== undefined) {
+    const options = object.options;
+    if (options === null || typeof options !== "object" || Array.isArray(options)) {
+      return { ok: false, reason: `Config "${side}.options" must be a YAML mapping.` };
+    }
+    spec.options = { ...(options as Record<string, unknown>) };
+  }
+  return { ok: true, value: spec };
+}
 
 function stringField(object: Record<string, unknown>, key: string): StringResult {
   const value = object[key];
@@ -496,7 +517,7 @@ function readObservability(
     // This system writes here, so it resolves against the config directory —
     // the same rule as a slot's `--transcript-dir`. Left relative to whatever
     // a child's working directory happens to be, the films would land inside a
-    // Task workspace and be folded into the feature.
+    // Task workspace and be folded into the ticket.
     spec.dir = resolve(configDir, fields.dir);
   }
   if (fields.keep !== undefined) {
@@ -621,7 +642,7 @@ function readPass(
 }
 
 /**
- * A command, and its own Gate sequence — `planner`, `builder.producer`,
+ * A command, and its own Gate sequence — `builder.producer`,
  * `builder.repair`, `assembly.fix`, `assembly.validate`. Deliberately its own
  * ~10 lines rather than a parameterized `readPass`: each reader's error
  * messages and key set stay independently legible.
@@ -641,9 +662,7 @@ function readGatedPass(
   const object = value as Record<string, unknown>;
   const short = object.agent !== undefined;
   for (const name of Object.keys(object)) {
-    const known =
-      GATED_PASS_KEYS.has(name) ||
-      (short && (SHORT_PASS_KEYS.has(name) || (name === "read" && key === "planner")));
+    const known = GATED_PASS_KEYS.has(name) || (short && SHORT_PASS_KEYS.has(name));
     if (!known) {
       return { ok: false, reason: `Config "${key}" has unknown key "${name}".` };
     }
@@ -684,7 +703,7 @@ function readGatedPass(
 }
 
 /**
- * Making a Subtask: both passes named, neither borrowing the other's command.
+ * Making the unit of work: both passes named, neither borrowing the other's command.
  */
 function readBuilder(
   value: unknown,
@@ -729,7 +748,7 @@ function readBuilder(
 }
 
 /**
- * Judging the assembled feature. A command here is a fix of what a judgement
+ * Judging the assembled ticket. A command here is a fix of what a judgement
  * refused, not a second first-pass of the request.
  */
 function readAssembly(
@@ -746,7 +765,7 @@ function readAssembly(
       return {
         ok: false,
         reason:
-          `Config "assembly" has no "${name}". The assembled feature is judged ` +
+          `Config "assembly" has no "${name}". The assembled ticket is judged ` +
           '("assembly.gates"); a refusal is "assembly.fix".',
       };
     }

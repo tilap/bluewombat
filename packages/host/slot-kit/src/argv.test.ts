@@ -1,14 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  BUILDER_FLAGS,
-  GATE_FLAGS,
-  ownArgv,
-  PLANNER_FLAGS,
-  splitRunner,
-  stageOf,
-  take,
-} from "./argv.js";
+import { BUILDER_FLAGS, GATE_FLAGS, ownArgv, splitRunner, stageOf, take } from "./argv.js";
 
 /** argv as Node hands it over: the runtime, the script, then the tokens. */
 function argv(...tokens: string[]): string[] {
@@ -36,11 +28,6 @@ describe("ownArgv", () => {
       "--glob",
       "**/.env",
     ]);
-  });
-
-  it("reads the Planner's caller flags", () => {
-    const tokens = argv("--read", "/project", "--key", "fake:1", "--max-units", "5");
-    assert.deepEqual(ownArgv(tokens, PLANNER_FLAGS), ["--read", "/project"]);
   });
 
   it("skips the runtime and the script path", () => {

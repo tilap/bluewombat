@@ -4,7 +4,7 @@ import { delimiter, join } from "node:path";
 
 /**
  * What every slot that drives an agent CLI needs, and nothing about any one of
- * them. A Builder and a Planner answer different contracts; finding a binary,
+ * them. A Builder and a Describer answer different contracts; finding a binary,
  * running it and reading its result is the same work twice.
  */
 
