@@ -1,4 +1,4 @@
-/** Domain types owned by FeatureAdapter. Names match the Block perimeter only. */
+/** Domain types owned by Adapter. Names match the Block perimeter only. */
 
 export type RunOutcome =
   | "converted"
@@ -7,7 +7,7 @@ export type RunOutcome =
   | "unavailable"
   | "interrupted";
 
-export type Intent = "upsert" | "ready" | "cancel";
+export type Intent = "upsert" | "resume" | "cancel";
 
 export type InvalidCode =
   | "raw-too-large"
@@ -39,7 +39,9 @@ export type Invocation = {
   /** Prefix of the label carrying the priority, e.g. `priority:`. */
   priorityLabelPrefix: string;
   /** Label whose arrival means a human unblocked the intention. */
-  readyLabel: string;
+  resumeLabel: string;
+  /** Label meaning the Feature's line may be folded without a human. */
+  mergeWhenReadyLabel: string;
   /** Re-read the issue from the API before normalizing. */
   fetch: boolean;
   fetchDurationMs?: number;
@@ -61,6 +63,10 @@ export type FeatureStandard = {
   title?: string;
   intention?: string;
   priority: number;
+  /** Keys of the Features that must be `done` before this one may open. */
+  blocked_by: string[];
+  /** Its line may be folded without a human. */
+  merge_when_ready: boolean;
   source?: { ref?: string; revision?: string };
   fingerprint: string;
   normalized_at: string;

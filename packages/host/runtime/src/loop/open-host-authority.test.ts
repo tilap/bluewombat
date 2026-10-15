@@ -9,12 +9,15 @@ import type { GateSpec } from "@bluewombat/implementer";
 import type {
   Delivery,
   FoldResult,
+  LineResult,
   ManagerModule,
-  ManagerPort,
   ProbeResult,
   ReportInput,
+  SettledResult,
   SubmissionRequest,
   SubmissionResult,
+  TicketEntry,
+  TicketTrackerPort,
 } from "@bluewombat/manager-kit";
 import type { HostOptions } from "../config/types.js";
 import { cursorPath } from "./cursor.js";
@@ -33,8 +36,11 @@ import { openHost } from "./open-host.js";
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "../../fixtures");
 const node = process.execPath;
 const TARGET = "dev";
-const KEY = "stub:42";
-const REFERENCE = "pr-1";
+const FEATURE = "stub:F1";
+const TICKET = "stub:42";
+const LINE = "feature/F1";
+const TICKET_PR = "pr-ticket";
+const LINE_PR = "pr-line";
 
 type Paths = {
   root: string;
@@ -63,12 +69,22 @@ function slot(root: string, name: string, answer: Record<string, unknown>): stri
   return [node, path];
 }
 
-function convertible(id = "42"): Record<string, unknown> {
-  return {
-    id,
-    project: "proj",
-    intention: "deliver the marker file",
-  };
+type StubTicket = {
+  id: string;
+  intention?: string;
+  blocked_by?: string[];
+  task_ready?: boolean;
+  resume?: boolean;
+  open?: boolean;
+};
+
+/** A Feature as the tracker would deliver it, its Tickets beside it. */
+function featurePayload(
+  id = "F1",
+  over: Record<string, unknown> = {},
+  tickets: StubTicket[] = [{ id: "42" }],
+): Record<string, unknown> {
+  return { id, project: "proj", intention: "a feature", tickets, ...over };
 }
 
 type Stub = {
@@ -78,13 +94,22 @@ type Stub = {
   reports: ReportInput[];
   submissions: SubmissionRequest[];
   folds: string[];
-  submitAnswer: SubmissionResult;
+  lines: string[];
+  /** The Tickets of each Feature, as the last delivery of it carried them. */
+  ticketsOf: Map<string, StubTicket[]>;
+  /** What the Authority says of a Ticket's Submission; the line has its own. */
+  submitAnswer: SubmissionResult | undefined;
+  lineSubmitAnswer: SubmissionResult | undefined;
   foldAnswer: FoldResult;
+  lineAnswer: LineResult;
+  settledAnswers: SettledResult[];
   listenOutcome: string;
   probes: string[];
   probe?: (key: string) => Promise<ProbeResult>;
   /** Without Submission methods, so the manager cannot be an Authority. */
   foldsLocally: boolean;
+  /** Without a TicketTracker. */
+  featuresOnly: boolean;
   onListen?: () => void;
 };
 
@@ -96,71 +121,131 @@ function stubManager(over: Partial<Stub> = {}): Stub {
     reports: [],
     submissions: [],
     folds: [],
-    submitAnswer: { outcome: "submitted", reference: REFERENCE },
+    lines: [],
+    ticketsOf: new Map(),
+    submitAnswer: undefined,
+    lineSubmitAnswer: undefined,
     foldAnswer: { outcome: "folded", reference: "9aeff61" },
+    lineAnswer: { outcome: "opened" },
+    settledAnswers: ["folded"],
     listenOutcome: "listened",
     probes: [],
     foldsLocally: false,
+    featuresOnly: false,
     ...over,
     module: {
       createManager() {
-        const port: ManagerPort = {
+        const report = async (input: ReportInput): Promise<boolean> => {
+          // What a manager that keeps a thread does: an id already written
+          // is not written again.
+          if (input.eventId !== undefined) {
+            if (seenEventIds.has(input.eventId)) {
+              return false;
+            }
+            seenEventIds.add(input.eventId);
+          }
+          stub.reports.push(input);
+          return true;
+        };
+        const features = {
           async listen() {
             stub.listens += 1;
             stub.onListen?.();
             return { outcome: stub.listenOutcome, deliveries: stub.deliveries.splice(0) };
           },
-          async adapt(payload) {
+          async adapt(payload: Record<string, unknown>) {
             if (payload.unavailable === true) {
-              return { outcome: "unavailable" };
+              return { outcome: "unavailable" as const };
             }
             const id = String(payload.id);
+            stub.ticketsOf.set(`stub:${id}`, (payload.tickets as StubTicket[] | undefined) ?? []);
+            const kind: "upsert" | "resume" | "cancel" =
+              payload.kind === "resume" || payload.kind === "cancel" ? payload.kind : "upsert";
             return {
-              outcome: "converted",
+              outcome: "converted" as const,
               feature: {
                 key: `stub:${id}`,
                 manager: "stub",
                 external_id: id,
-                intent: "upsert",
+                intent: kind,
                 project: String(payload.project),
                 intention: String(payload.intention),
-                priority: 50,
-                fingerprint: `fp-${id}`,
+                priority: typeof payload.priority === "number" ? payload.priority : 50,
+                blocked_by: ((payload.blocked_by as string[] | undefined) ?? []).map(
+                  (other) => `stub:${other}`,
+                ),
+                merge_when_ready: payload.merge_when_ready === true,
+                fingerprint: `fp-${id}-${String(payload.intention)}`,
                 normalized_at: "2026-09-06T10:00:00Z",
               },
             };
           },
-          async report(input) {
-            // What a manager that keeps a thread does: an id already written
-            // is not written again.
-            if (input.eventId !== undefined) {
-              if (seenEventIds.has(input.eventId)) {
-                return false;
-              }
-              seenEventIds.add(input.eventId);
-            }
-            stub.reports.push(input);
-            return true;
-          },
+          report,
+          ...(stub.probe === undefined
+            ? {}
+            : {
+                async probe(key: string) {
+                  stub.probes.push(key);
+                  return await (stub.probe as (key: string) => Promise<ProbeResult>)(key);
+                },
+              }),
         };
-        if (stub.probe !== undefined) {
-          const probe = stub.probe;
-          port.probe = async (key) => {
-            stub.probes.push(key);
-            return await probe(key);
-          };
+        if (stub.featuresOnly) {
+          return { ok: true, manager: { features } };
         }
+        const tickets: TicketTrackerPort = {
+          async tickets(feature) {
+            const entries: TicketEntry[] = (stub.ticketsOf.get(feature.key) ?? []).map((t) => ({
+              ticket: {
+                key: `stub:${t.id}`,
+                manager: "stub",
+                external_id: t.id,
+                project: feature.project,
+                intention: t.intention ?? "deliver the marker file",
+                priority: 50,
+                blocked_by: (t.blocked_by ?? []).map((other) => `stub:${other}`),
+                fingerprint: `tfp-${t.id}`,
+                normalized_at: "2026-09-06T10:00:00Z",
+              },
+              task_ready: t.task_ready ?? true,
+              resume: t.resume ?? false,
+              open: t.open ?? true,
+            }));
+            return { outcome: "listed", tickets: entries };
+          },
+          report,
+          ...(stub.probe === undefined
+            ? {}
+            : {
+                async probe(key: string) {
+                  stub.probes.push(key);
+                  return await (stub.probe as (key: string) => Promise<ProbeResult>)(key);
+                },
+              }),
+        };
         if (!stub.foldsLocally) {
-          port.submit = async (input) => {
-            stub.submissions.push(input);
-            return stub.submitAnswer;
+          tickets.openLine = async (input) => {
+            stub.lines.push(input.line);
+            return stub.lineAnswer;
           };
-          port.fold = async (input) => {
+          tickets.submit = async (input) => {
+            stub.submissions.push(input);
+            const isLine = input.target === TARGET;
+            const answer = isLine ? stub.lineSubmitAnswer : stub.submitAnswer;
+            return (
+              answer ?? {
+                outcome: "submitted",
+                reference: isLine ? LINE_PR : TICKET_PR,
+              }
+            );
+          };
+          tickets.fold = async (input) => {
             stub.folds.push(input.reference);
             return stub.foldAnswer;
           };
+          tickets.settled = async () => stub.settledAnswers.shift() ?? "open";
         }
-        return { ok: true, manager: port };
+        return { ok: true, manager: { features, tickets } };
       },
     },
   };
@@ -204,17 +289,13 @@ function passingGates(): GateSpec[] {
 
 function optionsFor(paths: Paths, stub: Stub, over: Partial<HostOptions> = {}): HostOptions {
   return {
-    manager: stub.module,
+    featureTracker: { package: stub.module, options: {} },
+    ticketTracker: { package: stub.module, options: {} },
     workLineStable: paths.workLineStable,
     workLineBranch: TARGET,
     workLineIsolation: "@bluewombat/isolation-copy",
     workspaceRoot: paths.workspaceRoot,
     ledgerRoot: paths.ledgerRoot,
-    planner: {
-      cmd: [node, join(fixtures, "planner-one-subtask.mjs")],
-      timeoutMs: 30_000,
-      gates: [],
-    },
     builder: {
       producer: {
         cmd: [node, join(fixtures, "builder-write-marker.mjs")],
@@ -239,89 +320,256 @@ function optionsFor(paths: Paths, stub: Stub, over: Partial<HostOptions> = {}): 
   };
 }
 
+const eventsOf = (stub: Stub, key: string): string[] =>
+  stub.reports.filter((report) => report.key === key).map((report) => report.event);
+
 describe("host with an Authority", () => {
-  it("offers the assembled feature, then folds it on a later pass nobody asked for", async () => {
+  it("makes a Ticket on the Feature's line, offers it there, folds it, then offers the line", async () => {
     const paths = sandbox();
-    const stub = stubManager({ deliveries: [{ cursor: "1", payload: convertible() }] });
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     const journal = memoryJournal();
     const host = await openHost(optionsFor(paths, stub), { journal });
 
     const first = await host.runOnce();
 
+    // The Feature opened: a line was cut for it, and its Ticket is with the Authority.
     assert.equal(first.lastRun?.outcome, "paused");
-    assert.deepEqual(first.reported, ["accepted", "planned", "progress", "submitted"]);
-    const submitted = await host.ledger.get(KEY);
+    assert.deepEqual(first.reported, ["accepted", "accepted", "submitted"]);
+    assert.deepEqual(stub.lines, [LINE]);
+    const opened = await host.ledger.getFeature(FEATURE);
+    assert.equal(opened.ok && opened.aggregate.state, "open");
+    assert.equal(opened.ok && opened.aggregate.line, LINE);
+    const submitted = await host.ledger.get(TICKET);
     assert.equal(submitted.ok && submitted.aggregate.state, "submitted");
-    assert.equal(submitted.ok && submitted.aggregate.submission?.reference, REFERENCE);
-    // What the manager is told to look at is the Publisher's name for the
-    // work, on the work line the config chose.
+    assert.equal(submitted.ok && submitted.aggregate.submission?.reference, TICKET_PR);
+    // The Ticket is offered to the line, not to the Project's final one, and
+    // under the Publisher's name for the work.
     assert.equal(stub.submissions.length, 1);
     assert.equal(stub.submissions[0]?.ref, "shelf/42");
-    assert.equal(stub.submissions[0]?.target, TARGET);
+    assert.equal(stub.submissions[0]?.target, LINE);
     assert.equal(stub.submissions[0]?.intention, "deliver the marker file");
-    // The work line is the Authority's to change, not Host's.
+    // The final line is the Authority's to change, not Host's.
     assert.equal(existsSync(join(paths.workLineStable, "delivered.txt")), false);
-    assert.ok(
-      journal.lines.some((line) => line.event === "submitted" && line.reference === REFERENCE),
-    );
 
-    // Nothing new from the tracker: the sweep alone drives the feature on.
+    // Nothing new from the tracker: the sweep alone drives it on, and the line
+    // is offered to the final line once its only Ticket has landed.
     const second = await host.runOnce();
 
-    assert.equal(second.lastRun?.outcome, "done");
-    assert.deepEqual(second.reported, ["done"], "the Plan was said once");
-    assert.deepEqual(stub.folds, [REFERENCE]);
-    const done = await host.ledger.get(KEY);
+    assert.deepEqual(second.reported, ["done", "progress", "submitted"]);
+    assert.deepEqual(stub.folds, [TICKET_PR]);
+    const done = await host.ledger.get(TICKET);
     assert.equal(done.ok && done.aggregate.state, "done");
-    // Whoever reads the tracker cannot open a directory on this machine.
-    assert.equal(stub.reports.at(-1)?.fields.reference, REFERENCE);
-    // The commit the Authority made travels Conductor → ledger → report.
-    assert.equal(stub.reports.at(-1)?.fields.integration_reference, "9aeff61");
-    assert.ok(journal.lines.some((line) => line.event === "sweep"));
-    assert.deepEqual(
-      journal.lines.filter((line) => line.event === "refresh").map((line) => line.outcome),
-      ["ok", "ok"],
+    assert.equal(stub.submissions.length, 2);
+    assert.equal(stub.submissions[1]?.target, TARGET);
+    const line = await host.ledger.getFeature(FEATURE);
+    assert.equal(line.ok && line.aggregate.state, "submitted");
+    assert.equal(line.ok && line.aggregate.submission?.reference, LINE_PR);
+    assert.deepEqual(eventsOf(stub, FEATURE), ["accepted", "progress", "submitted"]);
+    assert.equal(
+      stub.reports.find((r) => r.key === FEATURE && r.event === "progress")?.fields.summary,
+      "Landed 1 of 1: stub:42",
     );
+    assert.deepEqual(
+      journal.lines.filter((l) => l.event === "refresh").map((l) => [l.outcome, l.target]),
+      [
+        ["ok", LINE],
+        ["ok", LINE],
+      ],
+    );
+
+    // A human folds the line: the Feature is done, and nothing more is asked.
+    const third = await host.runOnce();
+    assert.deepEqual(third.reported, ["done"]);
+    const finished = await host.ledger.getFeature(FEATURE);
+    assert.equal(finished.ok && finished.aggregate.state, "done");
+    assert.equal(stub.reports.at(-1)?.fields.reference, LINE_PR);
+    assert.deepEqual(stub.folds, [TICKET_PR], "the system folded no line");
   });
 
-  it("reports done on the Feature that was driven, not on a Feature only just admitted", async () => {
+  it("waits for the human who folds the line, and starts no other Feature meanwhile", async () => {
     const paths = sandbox();
-    const stub = stubManager({ deliveries: [{ cursor: "1", payload: convertible() }] });
+    const stub = stubManager({
+      deliveries: [
+        { cursor: "1", payload: featurePayload("F1", { priority: 70 }, [{ id: "42" }]) },
+        { cursor: "2", payload: featurePayload("F2", { priority: 10 }, [{ id: "43" }]) },
+      ],
+      settledAnswers: ["open", "open", "folded"],
+    });
+    const host = await openHost(optionsFor(paths, stub));
+
+    await host.runOnce();
+    await host.runOnce();
+    const waiting = await host.runOnce();
+    assert.deepEqual(waiting.reported, []);
+    assert.deepEqual((await host.runOnce()).reported, []);
+    assert.equal((await host.ledger.getFeature(FEATURE)).ok, true);
+    const held = await host.ledger.getFeature(FEATURE);
+    assert.equal(held.ok && held.aggregate.state, "submitted");
+    const second = await host.ledger.getFeature("stub:F2");
+    assert.equal(second.ok && second.aggregate.state, "waiting");
+    assert.deepEqual(eventsOf(stub, "stub:F2"), []);
+
+    const merged = await host.runOnce();
+    assert.deepEqual(merged.reported, ["done"]);
+
+    const next = await host.runOnce();
+    assert.ok(next.reported.includes("accepted"));
+    assert.deepEqual(stub.lines, [LINE, "feature/F2"]);
+    const opened = await host.ledger.getFeature("stub:F2");
+    assert.equal(opened.ok && opened.aggregate.state, "open");
+  });
+
+  it("folds the line itself when the Feature says it may, once the checks agree", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
     const journal = memoryJournal();
     const host = await openHost(optionsFor(paths, stub), { journal });
 
-    const first = await host.runOnce();
-    assert.equal(first.lastRun?.outcome, "paused");
-    const submitted = await host.ledger.get(KEY);
-    assert.equal(submitted.ok && submitted.aggregate.state, "submitted");
+    await host.runOnce();
+    const closing = await host.runOnce();
+    assert.deepEqual(closing.reported, ["done", "progress", "submitted"]);
 
-    stub.deliveries.push({ cursor: "2", payload: convertible("43") });
-    const second = await host.runOnce();
-    assert.ok(second.reported.includes("accepted"));
-    assert.ok(second.reported.includes("done"));
-    const behind = await host.ledger.get("stub:43");
-    assert.equal(behind.ok && behind.aggregate.state, "received");
-    const folded = await host.ledger.get(KEY);
-    assert.equal(folded.ok && folded.aggregate.state, "done");
-    assert.deepEqual(
-      stub.reports.filter((report) => report.key === "stub:43").map((report) => report.event),
-      ["accepted"],
+    const folding = await host.runOnce();
+    assert.deepEqual(folding.reported, ["done"]);
+    assert.deepEqual(stub.folds, [TICKET_PR, LINE_PR]);
+    const done = await host.ledger.getFeature(FEATURE);
+    assert.equal(done.ok && done.aggregate.state, "done");
+    assert.equal(done.ok && done.aggregate.integration_reference, "9aeff61");
+    assert.equal(stub.reports.at(-1)?.fields.integration_reference, "9aeff61");
+  });
+
+  it("escalates the Feature when the checks on its line refuse it, and folds nothing", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        assembly: {
+          gates: [
+            {
+              id: "ci",
+              argv: [node, join(fixtures, "gate-fail-blocking.mjs")],
+              timeoutMs: 10_000,
+            },
+          ],
+        },
+      }),
     );
-    assert.ok(stub.reports.some((report) => report.key === KEY && report.event === "done"));
+    await host.runOnce();
+    // The Ticket is judged by the same sequence, so it escalates first.
+    const tick = await host.runOnce();
+    assert.ok(tick.reported.includes("escalated"));
+    assert.deepEqual(stub.folds, []);
+  });
 
-    const third = await host.runOnce();
-    assert.ok(third.reported.includes("submitted"));
+  it("escalates the Feature when the line is closed without being folded, and resumes it on ready", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload() }],
+      settledAnswers: ["closed", "folded"],
+    });
+    const host = await openHost(optionsFor(paths, stub));
+    await host.runOnce();
+    await host.runOnce();
+
+    const closed = await host.runOnce();
+    assert.deepEqual(closed.reported, ["escalated"]);
+    const frozen = await host.ledger.getFeature(FEATURE);
+    assert.equal(frozen.ok && frozen.aggregate.state, "escalated");
+    assert.match(frozen.ok ? (frozen.aggregate.escalation?.report ?? "") : "", /closed without/);
+
+    stub.deliveries.push({ cursor: "2", payload: featurePayload("F1", { kind: "resume" }) });
+    const resumed = await host.runOnce();
+    assert.ok(resumed.reported.includes("resumed"));
+    const back = await host.ledger.getFeature(FEATURE);
+    assert.equal(back.ok && back.aggregate.state, "submitted");
+    assert.equal(back.ok && back.aggregate.resumes, 1);
+    assert.equal(stub.submissions.length, 2, "the same Submission, not a second one");
+
+    const merged = await host.runOnce();
+    assert.deepEqual(merged.reported, ["done"]);
+  });
+
+  it("escalates the Feature when the Authority refuses its line", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload() }],
+      lineSubmitAnswer: { outcome: "refused", reason: "no commits between dev and the line" },
+    });
+    const host = await openHost(optionsFor(paths, stub));
+    await host.runOnce();
+
+    const tick = await host.runOnce();
+
+    assert.deepEqual(tick.reported, ["done", "progress", "escalated"]);
+    const got = await host.ledger.getFeature(FEATURE);
+    assert.equal(got.ok && got.aggregate.state, "escalated");
+    assert.match(got.ok ? (got.aggregate.escalation?.report ?? "") : "", /no commits/);
+  });
+
+  it("does not open a Feature whose Tickets are not all ready", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [
+        {
+          cursor: "1",
+          payload: featurePayload("F1", {}, [{ id: "42" }, { id: "43", task_ready: false }]),
+        },
+      ],
+    });
+    const journal = memoryJournal();
+    const host = await openHost(optionsFor(paths, stub), { journal });
+
+    const tick = await host.runOnce();
+
+    assert.deepEqual(tick.reported, []);
+    assert.deepEqual(stub.lines, []);
+    const waiting = await host.ledger.getFeature(FEATURE);
+    assert.equal(waiting.ok && waiting.aggregate.state, "waiting");
+    assert.equal((await host.ledger.get(TICKET)).ok, false);
+    assert.ok(journal.lines.some((line) => line.event === "waiting" && line.key === FEATURE));
+
+    // Written at last: the next pass opens it, with no delivery to say so.
+    stub.ticketsOf.set(FEATURE, [{ id: "42" }, { id: "43" }]);
+    const next = await host.runOnce();
+    assert.ok(next.reported.includes("accepted"));
+    const opened = await host.ledger.getFeature(FEATURE);
+    assert.equal(opened.ok && opened.aggregate.state, "open");
+    assert.deepEqual(opened.ok ? opened.aggregate.tickets : [], [TICKET, "stub:43"]);
+  });
+
+  it("makes the Tickets of a Feature in the order their blockers say", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [
+        {
+          cursor: "1",
+          payload: featurePayload("F1", {}, [{ id: "43", blocked_by: ["42"] }, { id: "42" }]),
+        },
+      ],
+    });
+    const host = await openHost(optionsFor(paths, stub));
+
+    await host.runOnce();
+    const first = await host.ledger.get("stub:42");
+    assert.equal(first.ok && first.aggregate.state, "submitted");
+    const second = await host.ledger.get("stub:43");
+    assert.equal(second.ok && second.aggregate.state, "received");
+    assert.deepEqual(second.ok ? second.aggregate.intention.blocked_by : [], ["stub:42"]);
+
+    await host.runOnce();
+    const done = await host.ledger.get("stub:42");
+    assert.equal(done.ok && done.aggregate.state, "done");
     const started = await host.ledger.get("stub:43");
     assert.equal(started.ok && started.aggregate.state, "submitted");
-    assert.deepEqual(
-      journal.lines.filter((line) => line.event === "refresh").map((line) => line.outcome),
-      ["ok", "ok", "ok"],
-    );
   });
 
   it("hands the Publisher the name the isolation strategy gave the Child", async () => {
     const paths = sandbox();
-    const stub = stubManager({ deliveries: [{ cursor: "1", payload: convertible() }] });
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     // A strategy that names its Children its own way. Host must not assume git.
     const naming = join(paths.root, "naming-strategy.mjs");
     const copyStrategy = import.meta.resolve("@bluewombat/isolation-copy");
@@ -358,13 +606,14 @@ describe("host with an Authority", () => {
     await host.runOnce();
 
     const argv: string[] = JSON.parse(readFileSync(argvFile, "utf8"));
-    assert.equal(argv[argv.indexOf("--ref") + 1], `shelf/${KEY.replaceAll(":", "-")}`);
+    assert.equal(argv[argv.indexOf("--ref") + 1], `shelf/${TICKET.replaceAll(":", "-")}`);
+    assert.equal(argv[argv.indexOf("--target") + 1], LINE);
     assert.equal(stub.submissions[0]?.ref, "published/42");
   });
 
   it("says on the tracker that the Submission was refused and a repair is on its way", async () => {
     const paths = sandbox();
-    const stub = stubManager({ deliveries: [{ cursor: "1", payload: convertible() }] });
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     const host = await openHost(
       optionsFor(paths, stub, {
         maxRefusals: 3,
@@ -387,7 +636,7 @@ describe("host with an Authority", () => {
     );
 
     const offered = await host.runOnce();
-    assert.deepEqual(offered.reported, ["accepted", "planned", "progress", "submitted"]);
+    assert.deepEqual(offered.reported, ["accepted", "accepted", "submitted"]);
 
     // The judge refuses: the tracker hears it, then Host re-drives the repair
     // and re-offer in the same tick (no poll wait for a local refusal).
@@ -396,6 +645,7 @@ describe("host with an Authority", () => {
     assert.ok(refused.reported.includes("progress"));
     const progress = stub.reports.find(
       (r) =>
+        r.key === TICKET &&
         r.event === "progress" &&
         typeof r.fields.summary === "string" &&
         /refused the Submission; a repair is on its way \(refusal 1 of 3\)/.test(r.fields.summary),
@@ -404,63 +654,19 @@ describe("host with an Authority", () => {
     assert.equal(progress?.fields.stage, "submitting");
     assert.equal(progress?.fields.trace, "lint failed");
     assert.equal(stub.submissions.length, 2);
-    const back = await host.ledger.get(KEY);
+    const back = await host.ledger.get(TICKET);
     assert.equal(back.ok && back.aggregate.state, "submitted");
 
     // Taken.
     const done = await host.runOnce();
-    assert.deepEqual(done.reported, ["done"]);
-    assert.deepEqual(stub.folds, [REFERENCE]);
-  });
-
-  it("an echo of Submitted while the Feature is submitted does not freeze as a plan refusal", async () => {
-    const paths = sandbox();
-    const stub = stubManager({ deliveries: [{ cursor: "1", payload: convertible() }] });
-    const journal = memoryJournal();
-    const host = await openHost(
-      optionsFor(paths, stub, {
-        maxRefusals: 3,
-        assembly: {
-          fix: {
-            cmd: [node, join(fixtures, "builder-write-marker.mjs")],
-            timeoutMs: 30_000,
-            gates: [],
-          },
-          gates: [
-            {
-              id: "ci",
-              argv: [node, join(fixtures, "gate-refuse-first-round.mjs")],
-              timeoutMs: 10_000,
-            },
-          ],
-        },
-      }),
-      { journal },
-    );
-
-    const offered = await host.runOnce();
-    assert.deepEqual(offered.reported, ["accepted", "planned", "progress", "submitted"]);
-    const submitted = await host.ledger.get(KEY);
-    assert.equal(submitted.ok && submitted.aggregate.state, "submitted");
-
-    // The tracker echoing ## Submitted: same body, delivered again. The judge
-    // refuses, then Host repairs and re-offers in the same tick.
-    stub.deliveries.push({ cursor: "2", payload: convertible() });
-    const refused = await host.runOnce();
-    assert.equal(refused.lastRun?.outcome, "paused");
-    assert.ok(refused.reported.includes("progress"));
-    assert.ok(journal.lines.some((line) => line.event === "skipped" && line.state === "submitted"));
-    const offeredAgain = await host.ledger.get(KEY);
-    assert.equal(offeredAgain.ok && offeredAgain.aggregate.state, "submitted");
-    assert.equal(offeredAgain.ok && offeredAgain.aggregate.pending_fingerprint, undefined);
-    assert.equal(offeredAgain.ok && offeredAgain.aggregate.escalation, undefined);
-    assert.equal(stub.submissions.length, 2);
+    assert.ok(done.reported.includes("done"));
+    assert.deepEqual(stub.folds, [TICKET_PR]);
   });
 
   it("escalates at the submitting stage when the Authority refuses the offer", async () => {
     const paths = sandbox();
     const stub = stubManager({
-      deliveries: [{ cursor: "1", payload: convertible() }],
+      deliveries: [{ cursor: "1", payload: featurePayload() }],
       submitAnswer: { outcome: "refused", reason: "not now" },
     });
     const host = await openHost(optionsFor(paths, stub));
@@ -468,28 +674,23 @@ describe("host with an Authority", () => {
     const tick = await host.runOnce();
 
     assert.equal(tick.lastRun?.outcome, "escalated");
-    assert.deepEqual(tick.reported, ["accepted", "planned", "progress", "escalated"]);
+    assert.deepEqual(tick.reported, ["accepted", "accepted", "escalated"]);
     assert.equal(stub.reports.at(-1)?.fields.stage, "submitting");
-    const got = await host.ledger.get(KEY);
+    const got = await host.ledger.get(TICKET);
     assert.equal(got.ok && got.aggregate.state, "escalated");
     assert.equal(got.ok && got.aggregate.escalation?.kind, "submitted");
     assert.equal(stub.folds.length, 0);
+
+    // The Feature waits on the Ticket: it is neither driven nor closed.
+    const again = await host.runOnce();
+    assert.deepEqual(again.reported, []);
   });
 
   it("does not refresh the work line on a pass with nothing to drive", async () => {
     const paths = sandbox();
     const stub = stubManager({ deliveries: [] });
     const journal = memoryJournal();
-    const host = await openHost(
-      optionsFor(paths, stub, {
-        authority: {
-          enabled: true,
-          publishArgv: slot(paths.root, "publisher", { ref: "shelf/42" }),
-          refreshArgv: slot(paths.root, "refresher", { ok: true }),
-        },
-      }),
-      { journal },
-    );
+    const host = await openHost(optionsFor(paths, stub), { journal });
 
     const tick = await host.runOnce();
     // A pass that found nothing is held, not written; closing flushes it with
@@ -505,9 +706,9 @@ describe("host with an Authority", () => {
     assert.equal(idle?.passes, 1);
   });
 
-  it("starts nothing when the work line cannot be brought up to date", async () => {
+  it("starts no Ticket when the work line cannot be brought up to date", async () => {
     const paths = sandbox();
-    const stub = stubManager({ deliveries: [{ cursor: "1", payload: convertible() }] });
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     const journal = memoryJournal();
     const options = optionsFor(paths, stub);
     const host = await openHost(
@@ -524,16 +725,33 @@ describe("host with an Authority", () => {
 
     const tick = await host.runOnce();
 
-    assert.deepEqual(tick, { listenerOutcome: "skipped", reported: [] });
-    // The tracker is asked — that is how the pass knows there is work — but
-    // nothing is admitted or driven, and the Cursor does not move.
-    assert.equal(stub.listens, 1);
-    assert.equal(stub.reports.length, 0);
-    assert.equal(existsSync(cursorPath(paths.ledgerRoot)), false);
+    assert.equal(tick.lastRun, undefined);
+    const waiting = await host.ledger.get(TICKET);
+    assert.equal(waiting.ok && waiting.aggregate.state, "received");
+    assert.equal(stub.submissions.length, 0);
     const refresh = journal.lines.find((line) => line.event === "refresh");
     assert.equal(refresh?.outcome, "failed");
     assert.equal(refresh?.detail, "diverged");
-    assert.equal(refresh?.target, TARGET);
+    assert.equal(refresh?.target, LINE);
+  });
+
+  it("leaves the Feature waiting when its line cannot be cut, and says so once", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload() }],
+      lineAnswer: { outcome: "refused", reason: "branch protected" },
+    });
+    const host = await openHost(optionsFor(paths, stub));
+
+    await host.runOnce();
+    await host.runOnce();
+
+    const waiting = await host.ledger.getFeature(FEATURE);
+    assert.equal(waiting.ok && waiting.aggregate.state, "waiting");
+    assert.deepEqual(
+      stub.reports.map((report) => [report.event, report.fields.summary]),
+      [["progress", "Its line could not be opened: branch protected"]],
+    );
   });
 });
 
@@ -550,6 +768,14 @@ describe("what openHost refuses to compose", () => {
     await assert.rejects(
       openHost(optionsFor(paths, stubManager({ foldsLocally: true }))),
       /cannot be an Authority/,
+    );
+  });
+
+  it("a manager that answers only the Features", async () => {
+    const paths = sandbox();
+    await assert.rejects(
+      openHost(optionsFor(paths, stubManager({ featuresOnly: true }))),
+      /no TicketTracker/,
     );
   });
 
@@ -573,7 +799,12 @@ describe("what openHost refuses to compose", () => {
       },
     };
     await assert.rejects(
-      openHost(optionsFor(paths, stubManager(), { manager: refusing })),
+      openHost(
+        optionsFor(paths, stubManager(), {
+          featureTracker: { package: refusing, options: {} },
+          ticketTracker: { package: refusing, options: {} },
+        }),
+      ),
       /token is not set/,
     );
   });
@@ -593,7 +824,7 @@ describe("one Host pass", () => {
     const stub = stubManager({
       deliveries: [
         { cursor: "1", payload: { unavailable: true } },
-        { cursor: "2", payload: convertible() },
+        { cursor: "2", payload: featurePayload() },
       ],
     });
     const host = await openHost(optionsFor(paths, stub));
@@ -630,7 +861,7 @@ describe("one Host pass", () => {
 
   it("run does not listen at all when already interrupted", async () => {
     const paths = sandbox();
-    const stub = stubManager({ deliveries: [{ cursor: "1", payload: convertible() }] });
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     const journal = memoryJournal();
     const host = await openHost(optionsFor(paths, stub, { interruptFlag: { interrupted: true } }), {
       journal,
@@ -647,36 +878,62 @@ describe("one Host pass", () => {
     );
   });
 
-  it("a gone probe cancels an escalation and starts the queue in the same pass", async () => {
+  it("a gone probe cancels a Feature, and the next one opens in the same pass", async () => {
     const paths = sandbox();
     let answer: ProbeResult = "present";
     const stub = stubManager({
-      deliveries: [{ cursor: "1", payload: convertible("42") }],
-      probe: async (key) => (key === KEY ? answer : "present"),
+      deliveries: [
+        { cursor: "1", payload: featurePayload("F1", { priority: 70 }, [{ id: "42" }]) },
+        { cursor: "2", payload: featurePayload("F2", { priority: 10 }, [{ id: "43" }]) },
+      ],
+      probe: async (key) => (key === FEATURE ? answer : "present"),
     });
     const host = await openHost(optionsFor(paths, stub, { builder: blockingBuilder() }));
     assert.ok((await host.runOnce()).reported.includes("escalated"));
-
-    stub.deliveries.push({ cursor: "2", payload: convertible("43") });
-    await host.runOnce();
-    const waiting = await host.ledger.get("stub:43");
-    assert.equal(waiting.ok && waiting.aggregate.state, "received");
+    const waiting = await host.ledger.getFeature("stub:F2");
+    assert.equal(waiting.ok && waiting.aggregate.state, "waiting");
 
     answer = "gone";
     stub.probes.length = 0;
     const tick = await host.runOnce();
-    assert.ok(stub.probes.includes(KEY));
+    assert.ok(stub.probes.includes(FEATURE));
     assert.ok(tick.reported.includes("cancelled"));
-    const cancelled = await host.ledger.get(KEY);
+    const cancelled = await host.ledger.getFeature(FEATURE);
     assert.equal(cancelled.ok && cancelled.aggregate.state, "cancelled");
-    const started = await host.ledger.get("stub:43");
-    assert.equal(started.ok && started.aggregate.state, "escalated");
+    const ticket = await host.ledger.get(TICKET);
+    assert.equal(ticket.ok && ticket.aggregate.state, "cancelled");
+    assert.ok(stub.lines.includes(LINE));
+    const started = await host.ledger.getFeature("stub:F2");
+    assert.equal(started.ok && started.aggregate.state, "open");
+    const next = await host.ledger.get("stub:43");
+    assert.equal(next.ok && next.aggregate.state, "escalated");
+  });
+
+  it("a gone probe on a Ticket abandons it alone", async () => {
+    const paths = sandbox();
+    let answer: ProbeResult = "present";
+    const stub = stubManager({
+      deliveries: [
+        { cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }, { id: "43" }]) },
+      ],
+      probe: async (key) => (key === TICKET ? answer : "present"),
+    });
+    const host = await openHost(optionsFor(paths, stub, { builder: blockingBuilder() }));
+    await host.runOnce();
+
+    answer = "gone";
+    const tick = await host.runOnce();
+    assert.ok(tick.reported.includes("cancelled"));
+    const ticket = await host.ledger.get(TICKET);
+    assert.equal(ticket.ok && ticket.aggregate.state, "cancelled");
+    const feature = await host.ledger.getFeature(FEATURE);
+    assert.equal(feature.ok && feature.aggregate.state, "open");
   });
 
   it("an unavailable probe leaves an escalation in place", async () => {
     const paths = sandbox();
     const stub = stubManager({
-      deliveries: [{ cursor: "1", payload: convertible() }],
+      deliveries: [{ cursor: "1", payload: featurePayload() }],
       probe: async () => "unavailable",
     });
     const host = await openHost(optionsFor(paths, stub, { builder: blockingBuilder() }));
@@ -684,16 +941,17 @@ describe("one Host pass", () => {
 
     stub.probes.length = 0;
     const tick = await host.runOnce();
-    assert.deepEqual(stub.probes, [KEY]);
+    assert.ok(stub.probes.includes(FEATURE));
+    assert.ok(stub.probes.includes(TICKET));
     assert.equal(tick.reported.includes("cancelled"), false);
-    const held = await host.ledger.get(KEY);
+    const held = await host.ledger.get(TICKET);
     assert.equal(held.ok && held.aggregate.state, "escalated");
   });
 
   it("a listen that missed the source does not probe", async () => {
     const paths = sandbox();
     const stub = stubManager({
-      deliveries: [{ cursor: "1", payload: convertible() }],
+      deliveries: [{ cursor: "1", payload: featurePayload() }],
       probe: async () => "gone",
     });
     const host = await openHost(optionsFor(paths, stub, { builder: blockingBuilder() }));
@@ -704,7 +962,25 @@ describe("one Host pass", () => {
     const tick = await host.runOnce();
     assert.deepEqual(stub.probes, []);
     assert.equal(tick.reported.includes("cancelled"), false);
-    const held = await host.ledger.get(KEY);
+    const held = await host.ledger.get(TICKET);
     assert.equal(held.ok && held.aggregate.state, "escalated");
+  });
+
+  it("resumes an escalated Ticket when its tracker says resume, and the Feature goes on", async () => {
+    const paths = sandbox();
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
+    const blocked = await openHost(optionsFor(paths, stub, { builder: blockingBuilder() }));
+    assert.ok((await blocked.runOnce()).reported.includes("escalated"));
+    await blocked.close();
+
+    // The human fixed what was wrong and put the Ticket back on its way.
+    stub.ticketsOf.set(FEATURE, [{ id: "42", resume: true }]);
+    const host = await openHost(optionsFor(paths, stub));
+    const tick = await host.runOnce();
+    assert.ok(tick.reported.includes("resumed"));
+    assert.ok(tick.reported.includes("submitted"));
+    const ticket = await host.ledger.get(TICKET);
+    assert.equal(ticket.ok && ticket.aggregate.state, "submitted");
+    assert.equal(ticket.ok && ticket.aggregate.resumes, 1);
   });
 });

@@ -11,7 +11,7 @@ process.stdout.write(
     is_error: false,
     result:
       "Each unit was already validated on its own before assembly. An earlier " +
-      "round of this same feature was refused for an unrelated reason that is " +
+      "round of this same ticket was refused for an unrelated reason that is " +
       "now fixed, so I only need to judge the whole against the intention.\n" +
       "MASON_VERDICT: VALIDATED",
   })}\n`,

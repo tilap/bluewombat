@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const KERNEL = join(ROOT, "packages", "kernel");
 /** Directory names under kernel/ that are Transformers. */
-const TRANSFORMER_DIRS = ["isolator", "implementer", "integrator", "feature-breakdown"];
+const TRANSFORMER_DIRS = ["isolator", "implementer", "integrator"];
 /** The only @bluewombat dependencies a kernel package may declare or import. */
 const ALLOWED_KERNEL_DEPS = { conductor: ["@bluewombat/work-ledger"] };
 const REQUIRED_FILES = ["package.json", "README.md", "src/index.ts", "tsconfig.json"];

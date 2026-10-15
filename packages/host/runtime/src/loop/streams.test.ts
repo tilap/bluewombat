@@ -58,12 +58,12 @@ async function fileWith(dir: string, lines: number): Promise<{ path: string; bod
 
 /** The one file a sink opened, read back. */
 function onlyFile(dir: string): { path: string; body: string } {
-  const featureDirs = readdirSync(dir);
-  assert.equal(featureDirs.length, 1, `one directory under ${dir}`);
-  const featureDir = join(dir, featureDirs[0] ?? "");
-  const files = readdirSync(featureDir);
-  assert.equal(files.length, 1, `one file under ${featureDir}`);
-  const path = join(featureDir, files[0] ?? "");
+  const ticketDirs = readdirSync(dir);
+  assert.equal(ticketDirs.length, 1, `one directory under ${dir}`);
+  const ticketDir = join(dir, ticketDirs[0] ?? "");
+  const files = readdirSync(ticketDir);
+  assert.equal(files.length, 1, `one file under ${ticketDir}`);
+  const path = join(ticketDir, files[0] ?? "");
   return { path, body: readFileSync(path, "utf8") };
 }
 
@@ -90,15 +90,15 @@ describe("streams", () => {
     assert.match(String(lines[0]?.at), /^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it("files a Task under its feature, the way a transcript is filed", async () => {
+  it("files a Task under its ticket, the way a transcript is filed", async () => {
     const dir = root();
     const streams = openStreams({ dir, keep: ["stderr"], journal: memoryJournal() });
 
-    streams.open({ key: "github:tilap/mason-test#67", id: "s1", attempt: 2 })?.close();
+    streams.open({ key: "github:owner/repo#67", id: "s1", attempt: 2 })?.close();
     await settle();
 
-    assert.deepEqual(readdirSync(dir), ["github-tilap-mason-test-67"]);
-    const [file] = readdirSync(join(dir, "github-tilap-mason-test-67"));
+    assert.deepEqual(readdirSync(dir), ["github-owner-repo-67"]);
+    const [file] = readdirSync(join(dir, "github-owner-repo-67"));
     assert.match(String(file), /^s1-attempt-2-\d{8}T\d{6}Z\.ndjson$/);
   });
 
@@ -130,7 +130,7 @@ describe("streams", () => {
     assert.equal(onlyFile(dir).path.endsWith(String(opened?.path)), true);
   });
 
-  it("a Task with no feature is filed apart rather than dropped", () => {
+  it("a Task with no ticket is filed apart rather than dropped", () => {
     const dir = root();
     const streams = openStreams({ dir, keep: ["stderr"], journal: memoryJournal() });
 
@@ -218,7 +218,7 @@ describe("streams", () => {
     assert.equal(journal.lines.filter((line) => line.event === "stream-closed").length, 1);
   });
 
-  it("discards one Feature's films and says how much there was", async () => {
+  it("discards one Ticket's films and says how much there was", async () => {
     const dir = root();
     const journal = memoryJournal();
     const streams = openStreams({ dir, keep: ["stderr"], journal });
@@ -232,7 +232,7 @@ describe("streams", () => {
     streams.discard("fake:42");
 
     assert.equal(existsSync(join(dir, "fake-42")), false);
-    assert.equal(existsSync(join(dir, "other-7")), true, "another Feature is untouched");
+    assert.equal(existsSync(join(dir, "other-7")), true, "another Ticket is untouched");
     const dropped = journal.lines.find((line) => line.event === "streams-discarded");
     assert.equal(dropped?.key, "fake:42");
     assert.equal(dropped?.files, 1);

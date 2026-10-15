@@ -8,7 +8,7 @@ import { openWarm } from "./warm.js";
 const node = process.execPath;
 
 describe("openWarm", () => {
-  it("runs the Project command in the Feature workspace and reports warmed", async () => {
+  it("runs the Project command in the Ticket workspace and reports warmed", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "warm-ok-"));
     const lines: Record<string, unknown>[] = [];
     const warm = openWarm({

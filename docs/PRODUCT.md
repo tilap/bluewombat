@@ -11,24 +11,27 @@ covers: []
 
 ## What it does
 
-bluewombat is an autonomous project-execution system. A human states an intention in an
-external FeatureManager. The system normalizes that intention, breaks it into Subtasks,
-executes them one at a time in isolated workspaces, validates each unit through a
-Project-defined sequence of Gates, then integrates the finished feature into
-WorkLineStable. When the Project has an Authority, the assembled feature waits
-in `submitted` until that Authority accepts it; only then does it enter the
-work line.
+bluewombat is an autonomous project-execution system. A human states a need as a
+**Feature** in an external FeatureTracker, and the work to do for it as
+**Tickets** in an external TicketTracker. When the Feature is ready, the system
+takes its Tickets one at a time, each in an isolated workspace, validates each
+through a Project-defined sequence of Gates, and lands it on the Feature's own
+line (a branch). When every Ticket has landed, the Feature's line is submitted
+to the Authority, which folds it into the Project's final line, with a human or
+without one.
 
-On the happy path there is no human in the loop. The human is an escape hatch: they
-read, correct, abandon, and signal `ready` only in the FeatureManager, with a Trace
+On the happy path there is no human in the loop. The human writes and validates
+the Feature and its Tickets, answers escalations, and merges the Feature's line
+unless the Feature says it may merge by itself. They read, correct, abandon, and
+signal `resume` only in the FeatureTracker and the TicketTracker, with a Trace
 when work has already been attempted.
 
 The operator meets the system as one command-line tool, **mason**: `mason init`
-sets a Project up, `mason run` is the process that listens, plans, builds,
-validates and folds, `mason watch`, `status`, `doctor`, `setup`, `cancel` are
-its levers. bluewombat is the whole — the packages, the rules, the words; mason
-is the name on the binary, the config file, the home directory, and the labels
-it writes on a tracker.
+sets a Project up, `mason run` is the process that listens, builds, validates
+and folds, `mason watch`, `status`, `doctor`, `setup`, `cancel` are its levers.
+bluewombat is the whole — the packages, the rules, the words; mason is the name
+on the binary, the config file, the home directory, and the labels it writes on
+a tracker.
 
 The repository is three groups of packages — kernel, host, plugins — on one
 TypeScript toolchain. This document is the product: the workflow, its rules,
@@ -37,151 +40,171 @@ next to that package. The stack is [DEVELOPMENT.md](./DEVELOPMENT.md).
 
 ## Who uses it
 
-| Role                 | Needs                                                                | Can do                                                                        | Cannot do                                                                |
-| -------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Human (project team) | A delivered result, or a clear block with a Trace                    | Create, edit, and abandon intentions; answer escalations; signal `ready`      | Drive the happy path; open the WorkLedger to know where a feature stands |
-| FeatureManager       | To remain the only human surface                                     | Host raw intentions and receive emitter events                                | Execute work or hold system truth                                        |
-| bluewombat (this system) | A FeatureStandard it can plan and run                                | Listen, normalize, break down, execute, validate, integrate, escalate, report | Invent business content; revert a feature already in WorkLineStable      |
-| Builder              | A Subtask intention, a definition of done, and an isolated workspace | Produce the unit of work                                                      | Integrate; talk to the FeatureManager; decide Gate verdicts              |
+| Role                     | Needs                                                                | Can do                                                                           | Cannot do                                                                 |
+| ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Human (project team)     | A delivered Feature, or a clear block with a Trace                   | Write Features and Tickets, signal them ready, edit and abandon them, answer escalations, merge a Feature's line | Drive the happy path; open the WorkLedger to know where a Ticket stands   |
+| FeatureTracker           | To remain the human surface for Features                             | Host raw Features and receive emitter events                                      | Execute work or hold system truth                                         |
+| TicketTracker            | To remain the human surface for Tickets                              | Host raw Tickets, their order, and receive emitter events                         | Execute work or hold system truth                                         |
+| bluewombat (this system) | A TicketStandard it can run                                          | Listen, normalize, execute, validate, integrate, escalate, report                 | Invent business content; revert a Ticket already in a Feature's line      |
+| Builder                  | A Ticket intention and an isolated workspace                         | Produce the unit of work                                                          | Integrate; talk to a tracker; decide Gate verdicts                        |
 
 ## Domain rules
 
 Business invariants that must hold regardless of implementation. Each one should be
 falsifiable — if code violates it, that is a bug, not a design choice.
 
-- One FeatureStandard belongs to exactly one Project.
-- A Project runs at most one active FeatureStandard at a time. Distinct Projects may
-  run in parallel.
-- Inside a feature, Subtasks run one at a time. The dependency graph chooses order;
-  it does not authorize parallelism.
-- Nothing enters WorkLineStable unless every Subtask passed the Project's Gate
-  sequence for a Subtask, **and** the assembled feature was judged — by its own
-  Gate sequence, by the Authority, or by both. The two sequences are separate:
-  a check that is right for one unit of work can be wrong for the whole.
+- A Feature belongs to exactly one Project. A Ticket belongs to exactly one Feature.
+- A Project has at most one open Feature at a time, and in it at most one active
+  Ticket. Distinct Projects may run in parallel.
+- A Feature opens only when it is **feature-ready**, every Feature that blocks it is
+  `done`, and every one of its Tickets is **task-ready**. A Feature whose Tickets are
+  not all task-ready does not open, whatever the others say. Among the Features
+  that may open, the one with the highest priority goes first, then the oldest.
+- A Ticket starts only when every Ticket that blocks it is `done`. Among the
+  Tickets that may start, the highest priority goes first, then the oldest.
+  Tickets of an open Feature run one at a time.
+- One open Feature has one **line**: a branch cut from the Project's final line
+  when the Feature opens. Each Ticket lands on that line, never on the final
+  line.
+- When every Ticket of the open Feature is `done`, its line is submitted to the
+  Authority for the final line. With **merge-when-ready** on the Feature, the
+  system folds it once the checks accept; without it, a human merges, and the
+  system starts no other Feature until that merge is done.
+- Nothing enters a Feature's line unless the Ticket passed the Project's Gate
+  sequence for a Ticket, **and** the assembled Ticket was judged — by its own Gate
+  sequence, by the Authority, or by both. The two sequences are separate: a check
+  that is right while the work is made can be wrong once it is assembled.
 - Durable state is written to the WorkLedger before it is acted on. Isolated workspaces
   are a consequence of that state, never the source of it.
-- After FeatureBreakdown accepts a plan, the plan is frozen. Automatic re-breakdown
-  of an in-flight feature is forbidden.
 - A Gate has three verdicts only: `pass`, `fail-retryable`, `fail-blocking`. The first
   non-pass stops the sequence. A retryable failure starts a new Attempt from the
   **first** Gate, not from the one that failed.
-- A Subtask is valid only when every Gate passes in the **same** Attempt.
+- A Ticket is valid only when every Gate passes in the **same** Attempt.
 - `fail-blocking` escalates immediately and does not consume remaining Attempts.
-- Escalation freezes the whole feature. Resume of a Subtask after `ready` starts from
-  zero; no opaque half-result is reused.
-- When the Project has an Authority, an assembled feature enters `submitted`.
+- Escalation freezes the Ticket, hence its Feature and its Project. Resume after
+  `resume` starts the Ticket from zero; no opaque half-result is reused.
+- When the Project has an Authority, an assembled Ticket enters `submitted`.
   It enters `merging` only once the assembly Gate sequence has passed on it. A
   refusal carries a report and feeds the next Attempt, exactly as any other Gate
   refusal does; it is not a second failure path. `submitted` survives a restart;
-  the feature is still in flight.
-- An accepted Submission moves the work line. The system's copy is brought up to the
+  the Ticket is still in flight. A Feature's line follows the same path, without
+  a Builder.
+- An accepted Submission moves its line. The system's copy is brought up to the
   Authority's state before the next Isolation, so later work starts from the new version.
 - Entering `merging` is a point of no return: abandon and intention edits are refused.
-  The only allowed human action is `ready`, which returns the feature to `integrating`.
-- An integrated Subtask is never undone. A later Subtask that proves earlier work
-  wrong escalates the FeatureStandard.
-- Bound breaches (Attempts, duration, budget, plan size) escalate. They never fail
-  silently.
+  The only allowed human action is `resume`, which returns the Ticket to `integrating`.
+- A landed Ticket is never undone. A later Ticket that proves earlier work wrong
+  escalates.
+- Bound breaches (Attempts, duration, budget) escalate. They never fail silently.
 - Admission is idempotent on the external identity (manager + origin id). A duplicate
   event does not restart work that already exists.
 - A Transformer does not depend on another Transformer, and a Transformer does not import a
   kernel sibling or a plugin. Wiring several Transformers together happens in Host
   (execution) or in a manager package (one tracker).
 
+## Signals
+
+Three words a human uses to say where a Feature or a Ticket stands. How each is
+written is the tracker's own (a label, a status, a field); the meaning is fixed.
+
+| Signal             | On      | Means                                                                                             |
+| ------------------ | ------- | ------------------------------------------------------------------------------------------------- |
+| `feature-ready`      | Feature | The Feature's content is final. Its Tickets may be written                                         |
+| `task-ready`        | Ticket  | The Ticket's specification is final. Set on all of a Feature's Tickets together, once the list is validated, so a half-written Feature never opens |
+| `merge-when-ready` | Feature | The Feature's line may be folded into the final line without a human                               |
+
 ## Bounds, leases, and stopping
 
 Every bound is the Project's, and a breach escalates — never a silent failure:
 
-- Subtasks per feature; Attempts per Subtask;
-- duration of an Attempt, of a Subtask, of a FeatureStandard;
-- a resource budget per FeatureStandard, opaque at this level.
+- Attempts per Ticket;
+- duration of an Attempt, of a Ticket;
+- a resource budget per Ticket, opaque at this level.
 
-Every feature or Subtask in flight holds a **lease** (a duration, renewed while
-work goes on). An expired lease makes the unit recoverable: the Subtask returns
-to `runnable`, its isolated directories are destroyed, and the next pass starts
-from zero and consumes an Attempt. At startup the system **reconciles** isolated
-directories against the WorkLedger and destroys every orphan; the WorkLedger
-decides, never the disk.
+Every Ticket in flight holds a **lease** (a duration, renewed while work goes
+on). An expired lease makes the Ticket recoverable: it returns to `received`, its
+isolated directory is destroyed, and the next pass starts from zero and consumes
+an Attempt. At startup the system **reconciles** isolated directories against the
+WorkLedger and destroys every orphan; the WorkLedger decides, never the disk.
 
-Two ways to stop. A **pause** admits nothing new and starts no Subtask; the
-current one runs to its end and nothing is folded into WorkLineStable. An
-**emergency stop** interrupts the Implementer; affected Subtasks return to
-`runnable` and their directories are destroyed.
+Two ways to stop. A **pause** admits nothing new and starts no Ticket; the
+current one runs to its end and nothing is folded. An **emergency stop**
+interrupts the Implementer; the Ticket in flight returns to `received` and its
+directory is destroyed.
 
 ## The human surface
 
 A human acts in three cases only — escalation, abandon (including a deletion on
-the FeatureManager side), and a corrected intention — and always through the
-FeatureManager. A poll cannot see a deletion: the item is missing from every
-later page. The FeatureManager is asked whether the intention that key named
-is still there; gone is abandon.
+a tracker), and a corrected intention — and always through a tracker, plus the
+merge of a Feature's line when the Feature does not merge itself. A poll cannot
+see a deletion: the item is missing from every later page. The tracker is asked
+whether the item that key named is still there; gone is abandon.
 
-**Escalation.** The Subtask and/or the FeatureStandard go `escalated`; the whole
-feature is frozen. The Subtask's directories are kept for inspection. The
-emitter reports the reason, the Trace, and the bound counters, and reminds
-periodically while nobody answers; there is no time limit. On `ready`: a plan
-escalation returns to `planning` and the breakdown is replayed; a Subtask
-escalation restarts that Subtask from zero, integrated ones untouched; an
-escalation born in `merging` returns to `integrating`. When the plan itself is
-wrong and the feature is not in `merging`, the answer is abandon and recreate —
-never a re-breakdown in flight.
+**Escalation.** The Ticket goes `escalated`; its Feature and its Project are
+frozen. The Ticket's directory is kept for inspection. The emitter reports the
+reason, the Trace, and the bound counters, and reminds periodically while nobody
+answers; there is no time limit. On `resume`: a Ticket restarts from zero; an
+escalation born in `merging` returns to `integrating`. A Feature's line refused
+by the Authority escalates the Feature the same way and, on `resume`, is
+submitted again.
 
-**An intention edited while in flight** is recorded and does not touch the
-frozen plan; at the end of the current Subtask the feature escalates so a human
-decides. In `merging` the edit is refused as too late (`reject_late`). An edit
-is a change to the words of the intention, as the FeatureManager reads them —
-not a comment, a label, or a box ticked on a checklist; each manager says what
-its tracker's own furniture is (manager-github: SPECS §3b).
+**An intention edited while in flight** is recorded; at the end of the current
+Ticket it escalates so a human decides. In `merging` the edit is refused as too
+late (`reject_late`). An edit is a change to the words of the intention, as the
+tracker reads them — not a comment, a label, or a box ticked on a checklist;
+each manager says what its tracker's own furniture is (manager-github: SPECS §3b).
 
-**Abandon**, by where the feature stands:
+**Abandon**, by where a Ticket stands:
 
-| Feature is…                        | Result                                                                                                                                                                                                                     |
+| Ticket is…                         | Result                                                                                                                                                                                                                     |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| not started (no Subtask)           | `cancelled`; nothing on disk                                                                                                                                                                                               |
-| started, before `merging`          | the Implementer is interrupted, Subtask directories destroyed, remaining Subtasks cancelled, feature `cancelled`. The feature directory is never folded; it is kept and named to the FeatureManager for a human to recover |
-| in `merging`, or escalated from it | **refused** — point of no return. Only `ready` moves it, back to `integrating`                                                                                                                                             |
+| not started                        | `cancelled`; nothing on disk                                                                                                                                                                                               |
+| started, before `merging`          | the Implementer is interrupted, the directory is kept and named to the tracker for a human to recover, the Ticket is `cancelled`                                                                                            |
+| in `merging`, or escalated from it | **refused** — point of no return. Only `resume` moves it, back to `integrating`                                                                                                                                             |
 | `done`                             | too late; no revert. Reported as arrived after integration, with the integration reference                                                                                                                                 |
 
-**Conflicts** are never forced: Subtask into feature escalates the Subtask;
-feature into WorkLineStable escalates the feature.
+Abandoning a Feature cancels all its Tickets that are not `done` and deletes its
+line. A Feature whose line is in `merging` is refused the same way.
 
-**Events** the emitter writes back, each carrying the feature's external
-identity, its Project, and a timestamp. The form (a comment, a label, a status)
-is the FeatureManager's; the meaning is fixed:
+**Conflicts** are never forced: a Ticket into its Feature's line escalates the
+Ticket; a Feature's line into the final line escalates the Feature.
+
+**Events** the emitter writes back, each carrying the item's external identity,
+its Project, and a timestamp. A Ticket's events go to the TicketTracker, a
+Feature's to the FeatureTracker. The form (a comment, a label, a status) is the
+tracker's; the meaning is fixed:
 
 | Event                 | When                                                                   | Carries                                                                                                       |
 | --------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `invalid`             | the Adapter could not convert                                          | what is missing or unreadable                                                                                 |
-| `accepted`            | written as `received`, admitted                                        | the priority retained                                                                                         |
-| `planned`             | FeatureBreakdown accepted                                              | the plan: Subtasks and dependencies                                                                           |
-| `progress`            | a Subtask reaches `integrated`; a refused Submission is being repaired | one sentence: what landed and how far along ("Landed 1 of 2: …"), or who refused and what happens next        |
-| `escalated`           | entering `escalated`                                                   | reason, stage (plan / unit / integrating / submitting / merging), Trace, counters, "the feature is frozen" |
+| `accepted`            | a Ticket written as `received`; a Feature opened                       | the priority retained                                                                                         |
+| `progress`            | a Ticket reaches `done`, on its Feature; a refused Submission is being repaired | one sentence: what landed and how far along ("Landed 1 of 3: …"), or who refused and what happens next |
+| `escalated`           | entering `escalated`                                                   | reason, stage (unit / integrating / submitting / merging), Trace, counters, "the Ticket is frozen"            |
 | `escalation_reminder` | an escalation left unanswered                                          | the same diagnosis, "still waiting"                                                                           |
-| `resumed`             | `ready` taken into account                                             | where it resumes (`planning` / `running` / `integrating`)                                                     |
-| `submitted`           | the assembled feature is in front of the Authority                     | where it can be seen — the Submission reference                                                               |
-| `done`                | folded into WorkLineStable                                             | the Submission reference and the work line's own name for the fold (a commit) when there was an Authority; nothing to open otherwise — never a path on the operator's machine |
-| `cancelled`           | abandon accepted                                                       | the state at that moment; the kept feature directory when work was partial                                    |
+| `resumed`             | `resume` taken into account                                             | where it resumes (`running` / `integrating`)                                                                  |
+| `submitted`           | the assembled Ticket, or the Feature's line, is in front of the Authority | where it can be seen — the Submission reference                                                            |
+| `done`                | folded into its line                                                   | the Submission reference and the line's own name for the fold (a commit) when there was an Authority; nothing to open otherwise — never a path on the operator's machine |
+| `cancelled`           | abandon accepted                                                       | the state at that moment; the kept directory when work was partial                                            |
 | `reject_late`         | abandon or edit in `merging` / `done`                                  | "too late", the integration reference when `done`                                                             |
 
 These events are the whole human surface: nobody should need to open the
-WorkLedger to know where a feature stands. What the WorkLedger must let an
-operator see, for the system to be operable at all: every state, every
-dependency, the unit `running` and since when; the reason and Trace of the last
+WorkLedger to know where a Ticket stands. What the WorkLedger must let an
+operator see, for the system to be operable at all: every state, every blocker,
+the Ticket `running` and since when; the reason and Trace of the last
 escalation; the source intention; the bound counters consumed.
 
 ## What success means
 
-1. Every admitted intention reaches an explicit state — `done`, `cancelled`,
-   `escalated`, or `invalid` — never a silent limbo.
-2. Nothing enters WorkLineStable without validated Subtasks **and** a judged
-   assembly.
-3. The FeatureManager, the isolation method, the persistence, the Builder are
-   interchangeable without touching the kernel.
-4. A human is asked only on escalation, abandon, integration conflict, or an
-   invalid intention — always in the FeatureManager, with a Trace when there is
-   one.
+1. Every admitted Ticket and Feature reaches an explicit state — `done`,
+   `cancelled`, `escalated`, or `invalid` — never a silent limbo.
+2. Nothing enters a line without a validated Ticket **and** a judged assembly.
+3. The FeatureTracker, the TicketTracker, the isolation method, the persistence,
+   the Builder are interchangeable without touching the kernel.
+4. A human is asked only on escalation, abandon, integration conflict, an
+   invalid intention, or the merge of a Feature's line — always in a tracker,
+   with a Trace when there is one.
 5. After an escalation is answered, resume is unambiguous: from zero on the
-   unit concerned, or `integrating` when it was born in `merging`.
+   Ticket concerned, or `integrating` when it was born in `merging`.
 6. A crash or restart is recoverable: lease plus WorkLedger as the source of
    truth, nothing on disk decides.
 
@@ -194,44 +217,43 @@ shape, no Builder or Gate implementation; that is what each package's
 The words used in code, database columns, UI, and conversation. One row per concept.
 If two words mean the same thing, pick one and mark the other as an alias to retire.
 
-| Term             | Means                                                                                                                                                                        | Does **not** mean                                                                       | Where it lives in code                                                            |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| FeatureManager   | External tool where raw intentions live; the only human surface                                                                                                              | The WorkLedger; any internal store                                                      | A manager package (`packages/plugins/manager-*`)                                  |
-| FeatureListener  | Subscribes to FeatureManager events (create, update, `ready`, cancel, delete)                                                                                                | The component that converts or executes                                                 | Inside a manager package (`listen`)                                               |
-| FeatureAdapter   | Turns a raw intention into a FeatureStandard; may fetch extra context                                                                                                        | A generic HTTP client                                                                   | Inside a manager package (`adapt`)                                                |
-| FeatureEmitter   | Reports semantic events back to the FeatureManager                                                                                                                           | Logging; the WorkLedger                                                                 | Inside a manager package (`report`)                                               |
-| Project          | Target of work: owns WorkLineStable, one Gate sequence, and the bounds                                                                                                       | A git repository by itself                                                              | `mason.config.yaml`, read by `packages/host/runtime`                              |
-| FeatureStandard  | Normalized intention: external identity, Project, intention, priority, state, bounds counters                                                                      | A Subtask; a raw tracker ticket                                                         | Adapter OUT; `manager-kit` types                                                  |
-| Subtask          | Executable unit of a FeatureStandard, with dependencies inside that feature only                                                                                             | A standalone job; a FeatureStandard                                                     | `packages/kernel/feature-breakdown`                                               |
-| Stage            | Where an escalation stopped, as an Event field: `plan` (the Plan was refused, or the intention edited in flight), `unit` (a Subtask), `integrating` (the assembled feature), `submitting` (the Submission: the offer refused before one existed, or one under review in state `submitted`), `merging` (the fold)| A FeatureStandard state; a Transformer                                                  |
-| WorkLedger       | Store of FeatureStandards, Subtasks, states, Attempts, and Traces. System source of truth                                                                                    | The FeatureManager; a workspace on disk; a visual task board                            | `packages/kernel/work-ledger`                                                     |
-| Attempt          | One execution pass of a Subtask (Builder + Gate sequence). Numbered, tied to a Trace                                                                                         | A Gate; a retry counter with no artifact                                                | `packages/kernel/implementer`                                                     |
-| Trace            | What an Attempt leaves so a human can understand without replaying: input, Builder output, Gate verdicts, failure reason                                                     | Application logs                                                                        | `packages/kernel/implementer`                                                     |
-| FeatureBreakdown | Turns a FeatureStandard into Subtasks and dependencies. May refuse → escalate                                                                                                | Re-planning an in-flight feature                                                        | `packages/kernel/feature-breakdown`                                               |
-| Conductor        | Glue that sequences Transformers for one FeatureStandard (bail, loop, pause). Not Transformer-shaped                                                                         | A Transformer that creates directories or runs Attempts                                 | `packages/kernel/conductor`                                                       |
-| Host             | The process: Cursor, admission, Conductor, report. Loads one manager package. Does not know a tracker                                                                        | A Transformer; a FeatureManager                                                         | `packages/host/runtime`                                                           |
-| Manager kit      | The FeatureManager plugin contract: types a manager package implements                                                                                                       | Host; a Transformer                                                                     | `packages/host/manager-kit`                                                       |
-| Manager package  | Composition root for one FeatureManager triplet: exports `createManager`, speaks `ManagerPort`                                                                               | The Transformers it wires; Host                                                         | `packages/plugins/manager-*`                                                      |
-| Implementer      | Runs one Task in an existing directory: Builder, then Gates, until success or bounds. Does not create or delete the directory                                                | The glue; the Builder                                                                   | `packages/kernel/implementer`                                                     |
-| Isolator         | One parent directory in; one isolated child directory out. That path is Implementer's `--workspace`                                                                          | Integrator; Implementer; WorkLineStable                                                 | `packages/kernel/isolator`                                                        |
-| Integrator       | Merges a child directory into a parent directory. Never forced: `integrated` or `conflict`                                                                                   | Isolator; Implementer                                                                   | `packages/kernel/integrator`                                                      |
-| Builder          | Opaque producer that realizes a Subtask in an isolated workspace                                                                                                             | A Gate; the Conductor                                                                   | A slot: `packages/plugins/slots`, spawned by Implementer                          |
-| Gate             | Validation step in the Project's ordered sequence. Verdicts: `pass`, `fail-retryable`, `fail-blocking`                                                                       | A human approval step on the happy path                                                 | A slot: `packages/plugins/slots`, spawned by Implementer                          |
-| WorkLineStable   | Pre-existing "already good" work line into which finished features integrate. The system's copy of it when an Authority holds the reference                                  | A workspace the system creates; the Submission; the Authority's own copy                | Host `workLine.stable`, or `<home>/work-line` copied from the manager's reference |
-| Authority        | Outside holder of the reference work line: it takes a Submission and folds it once the Gates accept. It does not judge. Optional: with none, WorkLineStable is the reference | A Gate; the FeatureManager's reporting surface; a human on the happy path               | A manager package (`submit`, `fold`)                                              |
-| Submission       | An assembled feature placed where the Authority can judge it. Carries an opaque reference the system does not read                                                           | The fold itself; a report; a human approval step; the FeatureStandard state `submitted` | `manager-kit` types; a manager package                                            |
-| submitted        | FeatureStandard state: the assembled feature is with the Authority, waiting for a verdict                                                                                    | The Submission (the offer); `merging`; a Gate that happens to wait                      | `packages/kernel/work-ledger` (`FeatureState`)                                    |
-| WorkSpaceFeature | Isolated directory for one feature, Isolator OUT from WorkLineStable                                                                                                         | WorkLineStable; a Subtask directory                                                     | `<workspaceRoot>/<feature>`, made by Isolator for Conductor                       |
-| WorkSpaceSubtask | Isolated directory for one Subtask, Isolator OUT from the current WorkSpaceFeature                                                                                           | The feature directory after Integrator                                                  | `<workspaceRoot>/<feature>/<subtask>`, the same way                               |
-| Escalate         | Freeze the whole feature pending a human, with a Trace when an Attempt exists                                                                                                | A retry; a silent timeout                                                               | Host + FeatureEmitter (`escalated`)                                               |
-| Ready            | Human signal in the FeatureManager that authorizes resume                                                                                                                    | Subtask state `runnable`                                                                | Whatever that manager's `signalsReady` reads                                      |
-| runnable         | Subtask state: dependencies resolved, waiting for its turn                                                                                                                   | The human `ready` signal                                                                | `packages/kernel/work-ledger` (`SubtaskState`)                                    |
-| Transformer      | Independent unit under `packages/kernel/` (e.g. `isolator`): one IN, one OUT, own binary and CLI. Shared contract in `packages/kernel/README.md` (§ Transformers)            | An example; an integration assembly; a shared library every Transformer must import     | `packages/kernel/{isolator,implementer,integrator,feature-breakdown}`             |
-| Port             | A contract injected into a kernel piece by whoever wires it — Transformer Port, Authority Port, Manager Port, Persist Port. The build vocabulary is in ARCHITECTURE.md, "Vocabulary"| A Plugin (its implementation); a Slot                                                   | `conductor/src/transformers/port.ts`; the kits                                    |
-| Plugin           | A package a config names and Host loads at run time: a manager, an isolation strategy, a persistence backend                                                                 | A Slot (spawned, never imported); a Transformer                                         | `packages/plugins/{manager,isolation,persist}-*`                                  |
-| Slot             | An opaque command a config names and the system spawns — Planner, Builder, Gate, Publisher, Refresher, Describer. One JSON line out                                          | A Plugin; a Transformer                                                                 | `packages/plugins/slots/**`, any script                                           |
-| bluewombat       | The system as a whole: the packages `@bluewombat/*`, the rules, the words in this document                                                                                    | A command; a package name on its own                                                    | The repository `tilap/bluewombat`; the npm scope                                  |
-| mason            | The command-line tool the operator runs — `init`, `doctor`, `setup`, `run`, `watch`, `status`, `cancel` — and the name on what it owns: `mason.config.yaml`, `.mason/`, the tracker labels | The system, a package, or a branch: a branch is `issue/<n>`                             | `PRODUCT` in `packages/host/manager-kit/src/product.ts`; `bin` of `@bluewombat/runtime` |
+| Term | Means | Does **not** mean | Where it lives in code |
+| --- | --- | --- | --- |
+| FeatureTracker | External tool where Features live (a need, in the product's words). A human surface | The WorkLedger; any internal store; a Ticket tracker | A manager package (`packages/plugins/manager-*`) |
+| TicketTracker | External tool where Tickets live (the work to build, in the code tracker). A human surface | The WorkLedger; the FeatureTracker; the Authority | A manager package |
+| Authority | Outside holder of the lines: it opens a Feature's line, takes a Submission and folds it once the Gates accept. It does not judge. Optional: with none, WorkLineStable is the reference | A Gate; a tracker's reporting surface; a human on the happy path | A manager package (`openLine`, `submit`, `verdict`, `fold`) |
+| Listener / Adapter / Emitter | The three parts of a manager: subscribe to events (`listen`), turn a raw item into a Standard (`adapt`), report semantic events back (`report`) | A generic HTTP client; logging; the WorkLedger | Inside a manager package |
+| Project | Target of work: owns WorkLineStable, one Gate sequence, and the bounds | A git repository by itself | `mason.config.yaml`, read by `packages/host/runtime` |
+| Feature | The functional unit: a need with a title, an intention, a priority, the Features that block it, and the signals `feature-ready` and `merge-when-ready`. Has Tickets and one line | A Ticket; a unit of work a Builder runs | A FeatureTracker; `FeatureStandard` in `manager-kit` |
+| FeatureStandard | A Feature normalized: external identity, Project, intention, priority, blockers, signals, state | A raw tracker item; a TicketStandard | Adapter OUT; `manager-kit` types |
+| Ticket | The technical unit bluewombat builds: one unit of work, in one isolated workspace, validated by Gates, landed as one change on its Feature's line | A Feature; a step of a plan (there is none) | A TicketTracker; `TicketStandard` in `manager-kit` |
+| TicketStandard | A Ticket normalized: external identity, Feature, Project, intention, priority, blockers, the signal `task-ready`, state, bounds counters | A Feature; a raw tracker item | Adapter OUT; `manager-kit` types |
+| Line | A Feature's branch, cut from the Project's final line when the Feature opens. Tickets land on it; it is submitted whole when they are all `done` | The final line; a Ticket's own branch | Named by the Authority (`openLine`) |
+| Stage | Where an escalation stopped, as an Event field: `unit` (the Ticket's Attempts), `integrating` (the assembled Ticket), `submitting` (the Submission: the offer refused before one existed, or one under review in state `submitted`), `merging` (the fold) | A state; a Transformer | `manager-kit` (`EventFields`) |
+| WorkLedger | Store of Features, Tickets, states, Attempts, and Traces. System source of truth | A tracker; a workspace on disk; a visual task board | `packages/kernel/work-ledger` |
+| Attempt | One execution pass of a Ticket (Builder + Gate sequence). Numbered, tied to a Trace | A Gate; a retry counter with no artifact | `packages/kernel/implementer` |
+| Trace | What an Attempt leaves so a human can understand without replaying: input, Builder output, Gate verdicts, failure reason | Application logs | `packages/kernel/implementer` |
+| Conductor | Glue that sequences Transformers for one Ticket and closes a Feature (bail, loop, pause). Not Transformer-shaped | A Transformer that creates directories or runs Attempts | `packages/kernel/conductor` |
+| Host | The process: Cursor, admission, Conductor, report. Loads the manager packages. Does not know a tracker | A Transformer; a tracker | `packages/host/runtime` |
+| Manager kit | The manager plugin contract: the Ports a manager package implements | Host; a Transformer | `packages/host/manager-kit` |
+| Manager package | Composition root for one tracker: exports `createManager`, speaks the Ports it answers (`FeatureTrackerPort`, `TicketTrackerPort`, `AuthorityPort`) | The Transformers it wires; Host | `packages/plugins/manager-*` |
+| Implementer | Runs one Task in an existing directory: Builder, then Gates, until success or bounds. Does not create or delete the directory | The glue; the Builder | `packages/kernel/implementer` |
+| Isolator | One parent directory in; one isolated child directory out. That path is Implementer's `--workspace` | Integrator; Implementer; WorkLineStable | `packages/kernel/isolator` |
+| Integrator | Merges a child directory into a parent directory. Never forced: `integrated` or `conflict` | Isolator; Implementer | `packages/kernel/integrator` |
+| Builder | Opaque producer that realizes a Ticket in an isolated workspace | A Gate; the Conductor | A slot: `packages/plugins/slots`, spawned by Implementer |
+| Gate | Validation step in the Project's ordered sequence. Verdicts: `pass`, `fail-retryable`, `fail-blocking` | A human approval step on the happy path | A slot: `packages/plugins/slots`, spawned by Implementer |
+| WorkLineStable | The system's copy of the line Tickets land on: the Feature's line while a Feature is open, the final line otherwise | A workspace the system creates; the Submission; the Authority's own copy | Host `workLine.stable`, or `<home>/work-line` copied from the manager's reference |
+| Submission | An assembled Ticket, or a Feature's line, placed where the Authority can judge it. Carries an opaque reference the system does not read | The fold itself; a report; a human approval step; the state `submitted` | `manager-kit` types; a manager package |
+| submitted | Ticket or Feature state: the work is with the Authority, waiting for a verdict (for a Feature without `merge-when-ready`, for a human's merge) | The Submission (the offer); `merging`; a Gate that happens to wait | `packages/kernel/work-ledger` (`TicketState`, `FeatureState`) |
+| WorkSpaceTicket | Isolated directory for one Ticket, Isolator OUT from WorkLineStable | WorkLineStable | `<workspaceRoot>/<ticket>`, made by Isolator for Conductor |
+| Escalate | Freeze the Ticket, hence its Feature, pending a human, with a Trace when an Attempt exists | A retry; a silent timeout | Host + Emitter (`escalated`) |
+| Resume | Human signal in a tracker that authorizes resume | `feature-ready`, `task-ready` (those open work, they do not resume it) | Whatever that manager's `signalsResume` reads |
+| Transformer | Independent unit under `packages/kernel/` (e.g. `isolator`): one IN, one OUT, own binary and CLI. Shared contract in `packages/kernel/README.md` (§ Transformers) | An example; an integration assembly; a shared library every Transformer must import | `packages/kernel/{isolator,implementer,integrator}` |
+| Port | A contract injected into a kernel piece by whoever wires it — Transformer Port, Authority Port, Manager Ports, Persist Port. The build vocabulary is in ARCHITECTURE.md, "Vocabulary" | A Plugin (its implementation); a Slot | `conductor/src/transformers/port.ts`; the kits |
+| Plugin | A package a config names and Host loads at run time: a manager, an isolation strategy, a persistence backend | A Slot (spawned, never imported); a Transformer | `packages/plugins/{manager,isolation,persist}-*` |
+| Slot | An opaque command a config names and the system spawns — Builder, Gate, Publisher, Refresher, Describer. One JSON line out | A Plugin; a Transformer | `packages/plugins/slots/**`, any script |
+| bluewombat | The system as a whole: the packages `@bluewombat/*`, the rules, the words in this document | A command; a package name on its own | The repository `tilap/bluewombat`; the npm scope |
+| mason | The command-line tool the operator runs — `init`, `doctor`, `setup`, `run`, `watch`, `status`, `cancel` — and the name on what it owns: `mason.config.yaml`, `.mason/`, the tracker labels | The system, a package, or a branch: a Ticket's branch is `issue/<n>` | `PRODUCT` in `packages/host/manager-kit/src/product.ts`; `bin` of `@bluewombat/runtime` |
 
 Rules:
 
@@ -245,13 +267,12 @@ Rules:
 What this product deliberately does not do, so the question stops coming back.
 
 - The business content of what is produced (code, chapter, design, or anything else)
-- Choosing a concrete FeatureManager, versioning tool, or Builder
-- Everything after the integration work line (release, deploy, final publication, and folding that
-  line onto a reference line such as `main`)
-- Automatic revert or repair of a feature already in WorkLineStable
-- Parallel Subtasks inside one feature
-- Automatic re-breakdown of an in-flight feature
-- Concurrent features on the same Project (they are serialized)
+- Choosing a concrete FeatureTracker, TicketTracker, versioning tool, or Builder
+- Everything after the final line (release, deploy, final publication)
+- Automatic revert or repair of a Ticket already landed
+- Splitting a Ticket into smaller units: the Ticket is the unit
+- Parallel Tickets inside one Feature
+- Concurrent Features on the same Project (they are serialized)
 - A shared runtime library that Transformers import
 - Documenting a Transformer's internals or CLI in root `docs/`
 

@@ -1,4 +1,4 @@
-import { PRODUCT } from "@bluewombat/manager-kit";
+import { CLI_NAME } from "@bluewombat/manager-kit";
 import { parseArgs } from "../config/parse-args.js";
 import type { HostOptions } from "../config/types.js";
 import { openHost } from "../loop/open-host.js";
@@ -12,9 +12,9 @@ export type CancelInput = {
 };
 
 /**
- * Abandon one Feature by key.
+ * Abandon one Ticket by key.
  *
- * The team still abandons in the FeatureManager. This is the hatch when the
+ * The team still abandons in the TicketTracker. This is the hatch when the
  * tracker cannot say the intention is gone — a manager with no `probe`, or
  * an operator who already knows — and the ledger would otherwise freeze the
  * Project. It takes the ledger lock: stop `run` first if it holds it.
@@ -22,7 +22,7 @@ export type CancelInput = {
 export async function runCancel(input: CancelInput): Promise<number> {
   const peeled = peelKey(input.argv);
   if (peeled.key === undefined) {
-    input.write(`Usage: ${PRODUCT} cancel <key>\n`);
+    input.write(`Usage: ${CLI_NAME} cancel <key>\n`);
     return 2;
   }
   const { key } = peeled;
@@ -52,10 +52,10 @@ export async function runCancel(input: CancelInput): Promise<number> {
         input.write(`Already cancelled.\n`);
         return 0;
       case "not-found":
-        input.write(`No Feature named "${key}" in the ledger.\n`);
+        input.write(`No Ticket named "${key}" in the ledger.\n`);
         return 2;
       case "done":
-        input.write("Too late: that Feature is already done.\n");
+        input.write("Too late: that Ticket is already done.\n");
         return 1;
       case "point-of-no-return":
         input.write("Too late: abandon is refused after merging.\n");

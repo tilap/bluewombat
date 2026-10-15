@@ -1,8 +1,9 @@
 # Manager: GitHub Issues
 
-A plugin, not a Transformer. GitHub Issues in, issue comments (and optional
-state labels) out, as one `ManagerPort`. Listen / adapt / report live in this
-package. GitHub-the-git-host is out of scope — only the tracker.
+A plugin, not a Transformer. GitHub Issues in (Features and their sub-issues),
+issue comments (and optional state labels) out, and the lines and pull requests
+of the same repository, as one `Manager` (`features` and `tickets`). Listen /
+adapt / report live in this package.
 
 ## 1. Job
 
@@ -10,15 +11,18 @@ package. GitHub-the-git-host is out of scope — only the tracker.
   Host                          manager-github
   ----                          --------------
   managerOptions                read repo / labels / token
-  a Cursor                      poll the issue list
+  a Cursor                      poll the issues labelled feature-ready
+  a Feature                     list its sub-issues and blockers
   a key                         probe: is the issue still there
   one semantic Event            comment, and maybe label
+  a Feature's line              openLine: cut feature/<n>; dropLine
   a published branch            submit: open (or reuse) the pull request
-  a Submission reference        fold: squash-merge it, delete the branch unless keepBranch
-                            ←   ManagerPort
+  a Submission reference        fold: squash-merge it, delete the branch unless keepBranch;
+                                settled: open / folded / closed
+                            ←   Manager
 ```
 
-**In:** a `ManagerContext`. **Out:** a `ManagerPort`, or a reason.
+**In:** a `ManagerContext`. **Out:** a `Manager`, or a reason.
 
 ## 2. The token
 
@@ -29,7 +33,7 @@ or written to a Thread.
 
 ## 3. Keys
 
-`github:<owner>/<name>#<issue>`, or `github:unconvertible` when the payload
+Features and Tickets share one spelling: `github:<owner>/<name>#<issue>`, or `github:unconvertible` when the payload
 carries no issue number. `report` recovers the issue from the key: every key
 this package mints ends in `#<issue>`, so no issue number crosses the Port.
 
@@ -42,18 +46,28 @@ normalised, trailing blanks and runs of blank lines collapsed. Nothing is read:
 no criteria, no headings, no meaning. A body that was only that falls back to
 the title, like no body at all.
 
-The FeatureStandard's `fingerprint` hashes that intention with the title, the
+The FeatureStandard's and TicketStandard's `fingerprint` hashes that intention with the title, the
 project and the priority. It is what tells an **edit** from an **echo** — a
 comment or a state label moves `updated_at` and delivers the issue again, and
 so does a human ticking a box. None of those is a change of mind, so none of
-them changes the fingerprint; a different fingerprint on a Feature in flight
+them changes the fingerprint; a different fingerprint on a Ticket in flight
 is recorded as pending and freezes it once the current unit lands
 (PRODUCT.md, "An intention edited while in flight"). Rewording the body is an
 edit. Ticking a box is not.
 
-## 4. Ready
+## 3c. Features and Tickets
 
-`signalsReady` is true when the payload carries `readyLabel`, ignoring case, in
+A Feature is listed when the issue has no parent (`parent_issue_url` is null) and carries `featureReadyLabel`
+(`labels=<featureReadyLabel>` on the list call). Its `blocked_by` are read from
+`GET /issues/{n}/dependencies/blocked_by`, its `merge_when_ready` from
+`mergeWhenReadyLabel`. `tickets(feature)` reads `GET /issues/{n}/sub_issues`
+and, per sub-issue, its blockers; `task_ready` is `ticketReadyLabel`, `resume` is
+`resumeLabel`, `open` is the issue state. Every failed read is `unavailable`,
+never an empty list.
+
+## 4. Resume
+
+`signalsResume` is true when the payload carries `resumeLabel`, ignoring case, in
 either label spelling GitHub uses (a string, or an object with `name`). A poll
 returns a snapshot with no `labeled` edge, so the label on the snapshot is the
 only signal there is.
@@ -76,13 +90,12 @@ it", because from here the two are the same answer.
 ## 6. Doctor
 
 `checkManager` reports the repository, whether the token variable is set
-(`fail` when it is not), whether labels narrow the Source (`warn` when they do
-not — every open issue would be admitted), and reminds which labels the
-repository needs. It never calls the API: the answer must be the same offline.
+(`fail` when it is not), and names the labels the repository needs (`featureReadyLabel`,
+`ticketReadyLabel`, `mergeWhenReadyLabel`, `resumeLabel`). It never calls the API: the answer must be the same offline.
 
 ## 6. Init
 
-`scaffoldManager` fills `repo`, `tokenEnv`, `labels`, `readyLabel` and
+`scaffoldManager` fills `repo`, `tokenEnv`, `resumeLabel` and
 `defaultProject`. It does not create labels on the repository: that needs the
 network, and the operator still owns the tracker. A `repo` already in
 `managerOptions` is kept.
@@ -99,19 +112,26 @@ with no issue number is `unavailable`, not `gone`.
 not answer says nothing about the intention being converted. Probe is the
 path that may read a 404 as absence.
 
+## 7b. Lines
+
+`openLine({line, from})` reads `git/ref/heads/<from>` and creates `refs/heads/<line>`
+at that commit; a 422 (the ref exists) is a success. `dropLine` deletes the ref
+and ignores a refusal. `settled({reference})` reads the pull request: merged is
+`folded`, closed unmerged is `closed`, otherwise `open`.
+
 ## 8. Acceptance
 
 1. A token in the variable named by `tokenEnv` is enough to build the Port.
 2. No token → a reason naming the variable it looked in.
 3. A missing `repo`, a `repo` that is not `owner/name`, and an unknown option
    key each return a reason.
-4. `checkManager` fails on a missing token and warns when no label is set.
+4. `checkManager` fails on a missing token and names the four labels.
 5. `setup` without `apply` writes nothing; with `apply` it creates only the
    missing labels, and a second `apply` writes nothing at all.
 6. Disabled issues, a read-only token, and an unreachable repository each block
    before any label is created.
 7. `scaffoldManager` keeps a `repo` it was given and names `GITHUB_TOKEN`.
-8. `invalid`, `accepted`, `planned`, `escalated`, `escalation_reminder` and
+8. `invalid`, `accepted`, `escalated`, `escalation_reminder` and
    `resumed` comments are written as string literals, not a field dump. An
    `invalid` comment is the heading and the reason as a paragraph, with no
    `- reason:` bullet.
@@ -124,12 +144,17 @@ path that may read a 404 as absence.
 11. `setup` blocks on a `branch` the repository does not have, and names the
     repository's default branch when the config named none.
 12. An `escalated` comment says what a human can do from the issue, in this
-    tracker's gestures: add `readyLabel` to resume, close the issue to
+    tracker's gestures: add `resumeLabel` to resume, close the issue to
     abandon — and, for an escalation born in `merging`, only the first, since
     a close there is refused. An `escalation_reminder` is the same comment
     under "Still escalated": same diagnosis, same answers.
 13. A Trace renders the same under every Event that carries one: a `Trace`
     heading, one line saying it is the stopping step's own words written for
     the agent that repairs it, then the text fenced and folded at 80 columns.
+
+14. A Feature is listed only with `featureReadyLabel`; its Tickets are its sub-issues;
+    a blocker read that fails is `unavailable`, never an empty list.
+15. `openLine` of an existing line succeeds; `settled` distinguishes a merge
+    from a close.
 
 How to build and configure: [README.md](./README.md).

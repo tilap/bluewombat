@@ -1,4 +1,4 @@
-/** Domain types owned by FeatureListener. Names match the Block perimeter only. */
+/** Domain types owned by Listener. Names match the Block perimeter only. */
 
 export type RunOutcome = "completed" | "source-lost" | "invalid-invocation" | "interrupted";
 

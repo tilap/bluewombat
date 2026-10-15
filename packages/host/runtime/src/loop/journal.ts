@@ -106,7 +106,7 @@ function isQuietListen(line: Record<string, unknown>): boolean {
 
 /**
  * Split a file chunk into complete JSON objects. A truncated last line stays
- * in `remainder` and is not parsed as a Feature.
+ * in `remainder` and is not parsed as a Ticket.
  */
 export function parseJournalChunk(
   chunk: string,
@@ -126,7 +126,7 @@ export function parseJournalChunk(
         lines.push(parsed as Record<string, unknown>);
       }
     } catch {
-      // Garbage or a split object that gained a newline: skip, do not invent a Feature.
+      // Garbage or a split object that gained a newline: skip, do not invent a Ticket.
     }
   }
   return { lines, remainder: nextRemainder };

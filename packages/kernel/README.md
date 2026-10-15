@@ -1,7 +1,7 @@
 # Kernel
 
 Tracker-agnostic core. The same packages could deliver a book: they speak
-intention, plan, attempt, directory — not GitHub, not a git remote, not a file
+intention, attempt, directory — not GitHub, not a git remote, not a file
 format.
 
 | Package          | Directory                                    | Shape                                                                  |
@@ -9,7 +9,6 @@ format.
 | Isolator         | [`isolator/`](./isolator/)                   | Transformer — Parent directory in, isolated Child out                  |
 | Implementer      | [`implementer/`](./implementer/)             | Transformer — one Task in an existing directory                        |
 | Integrator       | [`integrator/`](./integrator/)               | Transformer — fold Child into Parent, never forced                     |
-| FeatureBreakdown | [`feature-breakdown/`](./feature-breakdown/) | Transformer — FeatureStandard in, Plan or refuse                       |
 | Conductor        | [`conductor/`](./conductor/)                 | Sequencer. Many operations. Injected transformers, writes WorkLedger first   |
 | WorkLedger       | [`work-ledger/`](./work-ledger/)             | Durable store. Persistence Port only — adapters live under `packages/` |
 
@@ -58,10 +57,9 @@ a sequencer, not a process, not a tracker plugin.
 | Isolator         | [`isolator/`](./isolator/)                   | parent directory + an id           | a new isolated child directory            |
 | Implementer      | [`implementer/`](./implementer/)             | prompt + an existing directory     | `validated` / `escalated` / `interrupted` |
 | Integrator       | [`integrator/`](./integrator/)               | child directory + parent directory | `integrated` or `conflict` (never forced) |
-| FeatureBreakdown | [`feature-breakdown/`](./feature-breakdown/) | FeatureStandard                    | Plan (Subtasks) or refuse                 |
 
 Host wires them. Conductor sequences them through an injected Transformer Port. A
-FeatureManager lives under [`packages/`](../README.md) (`manager-*`).
+TicketTracker lives under [`packages/`](../README.md) (`manager-*`).
 
 ### Contract (all of them)
 

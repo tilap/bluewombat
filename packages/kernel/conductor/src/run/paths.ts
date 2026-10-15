@@ -25,14 +25,6 @@ export function pathSegment(raw: string): string {
   return slug === "" ? hash : `${slug}-${hash}`;
 }
 
-export function featureWorkspacePath(workspaceRoot: string, key: string): string {
-  return join(workspaceRoot, pathSegment(key), "feature");
-}
-
-export function subtaskWorkspacePath(
-  workspaceRoot: string,
-  key: string,
-  subtaskId: string,
-): string {
-  return join(workspaceRoot, pathSegment(key), `subtask-${pathSegment(subtaskId)}`);
+export function ticketWorkspacePath(workspaceRoot: string, key: string): string {
+  return join(workspaceRoot, pathSegment(key), "ticket");
 }

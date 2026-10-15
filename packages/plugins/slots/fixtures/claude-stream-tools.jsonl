@@ -1,6 +1,6 @@
-{"type": "system", "subtype": "init", "cwd": "/work/feature"}
+{"type": "system", "subtype": "init", "cwd": "/work/ticket"}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_01", "name": "Skill", "input": {"skill": "builder:repo-recon"}}]}, "session_id": "s"}
-{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_02", "name": "Read", "input": {"file_path": "/work/feature/docs/INDEX.md"}}]}, "session_id": "s"}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_02", "name": "Read", "input": {"file_path": "/work/ticket/docs/INDEX.md"}}]}, "session_id": "s"}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_03", "name": "Read", "input": {"file_path": "/home/someone/.config/notes.md"}}]}, "session_id": "s"}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_04", "name": "WebFetch", "input": {"url": "https://example.com/xslt", "prompt": "How is XSLT used for RSS?"}}]}, "session_id": "s"}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_05", "name": "WebSearch", "input": {"query": "rss xslt stylesheet"}}]}, "session_id": "s"}

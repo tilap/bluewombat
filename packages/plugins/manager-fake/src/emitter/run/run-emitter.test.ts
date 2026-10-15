@@ -8,7 +8,7 @@ import type { Invocation } from "../types.js";
 import { runEmitter } from "./run-emitter.js";
 
 function targetDir(): string {
-  return mkdtempSync(join(tmpdir(), "feature-emitter-run-"));
+  return mkdtempSync(join(tmpdir(), "ticket-emitter-run-"));
 }
 
 function invocation(target: string, overrides: Partial<Invocation> = {}): Invocation {
@@ -60,9 +60,9 @@ describe("runEmitter", () => {
     runEmitter({ invocation: invocation(target), write });
     runEmitter({
       invocation: invocation(target, {
-        event: "planned",
+        event: "progress",
         at: "2026-09-05T11:00:00.000Z",
-        fields: { plan: "two units" },
+        fields: { summary: "Landed 1 of 2" },
       }),
       write,
     });
@@ -72,7 +72,7 @@ describe("runEmitter", () => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line).event);
-    assert.deepEqual(events, ["accepted", "planned"]);
+    assert.deepEqual(events, ["accepted", "progress"]);
     assert.equal(files.page.match(/^## /gm)?.length, 2);
     assert.equal(files.page.match(/^# fake:42$/gm)?.length, 1);
     assert.deepEqual(readdirSync(target).length, 2);
@@ -179,7 +179,6 @@ describe("runEmitter", () => {
         fields: {
           reason: "a forbidden path is required",
           stage: "unit",
-          unit: "u-2",
           trace: "attempt 3 of 3\nthe check refused",
           counters: { attempts: "3/3" },
         },

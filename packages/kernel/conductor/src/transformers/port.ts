@@ -6,32 +6,13 @@ export type IsolateInput = {
   /**
    * The larger piece of work this isolation serves.
    *
-   * The id names the space — `key`, or `key:subtaskId` — and a reader parsing
-   * the feature back out of it is guessing at a format nobody promised. Said
-   * here, it is a fact.
+   * The id names the space, and a reader parsing the Ticket back out of it is
+   * guessing at a format nobody promised. Said here, it is a fact.
    */
   context?: string;
 };
 
 export type IsolateOutcome = "isolated" | "failed" | "invalid-invocation" | "interrupted";
-
-export type BreakDownInput = {
-  featureJson: string;
-};
-
-export type PlannedSubtask = {
-  id: string;
-  intention: string;
-  definition_of_done: string;
-  depends_on: string[];
-};
-
-export type BreakDownResult =
-  | { outcome: "planned"; subtasks: PlannedSubtask[]; plannedAt: string }
-  | { outcome: "refused"; code: string; reason: string }
-  | { outcome: "unavailable" }
-  | { outcome: "interrupted" }
-  | { outcome: "invalid-invocation" };
 
 export type ImplementTrace = {
   ended: string;
@@ -56,12 +37,6 @@ export type ImplementTrace = {
 export type ImplementInput = {
   id: string;
   intention: string;
-  /**
-   * How this Task is declared finished. A Subtask has one, from the Plan.
-   * An assembly has none: what it must meet is the Subtasks it is made of,
-   * and they were each judged on their own.
-   */
-  definitionOfDone?: string;
   workspace: string;
   /** What a pass before this one left unresolved. Read by the producer. */
   report?: string;
@@ -76,7 +51,7 @@ export type ImplementInput = {
    */
   context?: string;
   /**
-   * What is being judged: one unit of work, or the feature they assemble into.
+   * What is being judged: the unit of work, or the work once assembled.
    *
    * They are not the same situation, and a check written for one can be wrong
    * for the other — "nothing changed" means nothing was done in a unit, and is
@@ -92,14 +67,14 @@ export type ImplementInput = {
    */
   produce?: boolean;
   /**
-   * The read-only judge of an assembled feature, distinct from both halves
+   * The read-only judge of an assembled ticket, distinct from both halves
    * `produce` already names.
    *
    * `produce: false` is the Gate sequence: it reads what was published.
    * `produce: true` is `assembly.fix`: it writes. `validate: true` is neither —
    * it reads the diff against the intention and answers directly, before there
    * is anything for a Gate to read or a Submission to hold its verdict. Absent:
-   * `stage` and `produce` decide alone, as before.
+   * `stage` and `produce` decide alone.
    */
   validate?: boolean;
 };
@@ -131,7 +106,6 @@ export type IntegrateOutcome =
 
 export type TransformerPort = {
   isolate(input: IsolateInput): Promise<{ outcome: IsolateOutcome }>;
-  breakDown(input: BreakDownInput): Promise<BreakDownResult>;
   implement(input: ImplementInput): Promise<ImplementResult>;
   integrate(input: IntegrateInput): Promise<{ outcome: IntegrateOutcome }>;
 };
@@ -140,7 +114,7 @@ export type TransformerPort = {
  * The outside judge of a Submission.
  *
  * Conductor knows nothing of what an Authority is made of: whoever wires it
- * decides. With no Authority, an assembled feature is folded into the work line
+ * decides. With no Authority, an assembled ticket is folded into the work line
  * directly, which is what happened before any of this existed.
  */
 export type SubmitInput = {
@@ -150,12 +124,15 @@ export type SubmitInput = {
   ref: string;
   /** The work line it is offered to. */
   target: string;
-  /** The feature's workspace, where the whole change is: absolute. */
+  /** The Ticket's workspace, where the whole change is: absolute. */
   workspace: string;
   title?: string;
   intention?: string;
-  /** The Plan's Subtasks, in order — what the Submission is made of. */
-  steps?: string[];
+  /**
+   * A name the work already has at the Authority: a Feature's line. Absent, the
+   * work is published under the name the isolation strategy gives `ref`.
+   */
+  branch?: string;
 };
 
 export type SubmitResult =

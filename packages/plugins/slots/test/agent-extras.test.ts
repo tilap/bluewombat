@@ -108,7 +108,7 @@ describe("toolsFromCursor", () => {
   // Shapes taken from real cursor-agent streams: a WebFetch probe and issue
   // #11 of tilap/orangemonkey-site (MCP reads, three subagents).
   const stdout = readFileSync(join(fixtures, "cursor-stream-tools.jsonl"), "utf8");
-  const tools = toolsFromCursor(stdout, "/work/feature");
+  const tools = toolsFromCursor(stdout, "/work/ticket");
 
   it("counts every call once, under the tool's own name", () => {
     assert.equal(tools?.calls.webFetch, 2);
@@ -160,13 +160,13 @@ describe("toolsFromCursor", () => {
 
   it("is unknown when nothing is JSON, or not a stream", () => {
     assert.equal(toolsFromCursor("not json", "/work"), null);
-    assert.equal(extrasFromCursor(stdout, "json", "/work/feature").tools, null);
+    assert.equal(extrasFromCursor(stdout, "json", "/work/ticket").tools, null);
   });
 });
 
 describe("toolsFromClaude", () => {
   const stdout = readFileSync(join(fixtures, "claude-stream-tools.jsonl"), "utf8");
-  const tools = toolsFromClaude(stdout, "/work/feature");
+  const tools = toolsFromClaude(stdout, "/work/ticket");
 
   it("counts tool_use blocks once each, by name", () => {
     assert.deepEqual(tools?.calls, {
@@ -195,6 +195,6 @@ describe("toolsFromClaude", () => {
 
   it("is unknown when nothing is JSON, or not a stream", () => {
     assert.equal(toolsFromClaude("plain text", "/work"), null);
-    assert.equal(extrasFromClaude(stdout, "json", "/work/feature").tools, null);
+    assert.equal(extrasFromClaude(stdout, "json", "/work/ticket").tools, null);
   });
 });

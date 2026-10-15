@@ -36,7 +36,7 @@ export type Invocation = {
    * The larger piece of work this Task serves.
    *
    * The id names the space; this names what the space is part of. Passed down
-   * untouched, for whoever reads the film and has to group by feature.
+   * untouched, for whoever reads the film and has to group by ticket.
    */
   context?: string;
   onStatusArgv?: string[];

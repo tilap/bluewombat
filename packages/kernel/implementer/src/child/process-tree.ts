@@ -41,7 +41,7 @@ export function ownGroup(): { detached: boolean } {
 
 /**
  * Remember a running child so it does not outlive this process: a group of its
- * own no longer shares the terminal's Ctrl-C, nor dies by accident with us.
+ * own does not share the terminal's Ctrl-C, nor die by accident with us.
  * Forgotten on its own once it closes.
  */
 export function track(child: ChildProcess): void {

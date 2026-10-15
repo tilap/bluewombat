@@ -8,10 +8,9 @@ import type { GateSpec } from "@bluewombat/implementer";
 import { openHost } from "./open-host.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "../../fixtures");
-const plannerPath = join(fixtures, "planner-one-subtask.mjs");
 const node = process.execPath;
 const SEED = "already good\n";
-const MARKER = "subtask done\n";
+const MARKER = "work done\n";
 const KEY = "github:tilap/mason#42";
 
 type Paths = {
@@ -46,47 +45,82 @@ function issueBody(): string {
   return "Deliver the marker file: delivered.txt must exist.\n";
 }
 
-function issueOf(over: Record<string, unknown> = {}): Record<string, unknown> {
+const FEATURE = "github:tilap/mason#10";
+
+type Issues = {
+  feature: Record<string, unknown> | undefined;
+  ticket: Record<string, unknown>;
+};
+
+function featureIssue(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    number: 10,
+    title: "A feature",
+    body: "What it is for.\n",
+    state: "open",
+    labels: [{ name: "project:proj" }, { name: "feature-ready" }],
+    html_url: "https://github.com/tilap/mason/issues/10",
+    updated_at: "2026-09-06T10:00:00Z",
+    ...over,
+  };
+}
+
+function ticketIssue(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     number: 42,
     title: "Deliver the marker",
     body: issueBody(),
     state: "open",
-    labels: [{ name: "project:proj" }],
+    labels: [{ name: "task-ready" }],
     html_url: "https://github.com/tilap/mason/issues/42",
     updated_at: "2026-09-06T10:00:00Z",
     ...over,
   };
 }
 
-function githubFetchOf(currentIssue: () => Record<string, unknown>): {
+function issuesOf(over: Partial<Issues> = {}): Issues {
+  return { feature: featureIssue(), ticket: ticketIssue(), ...over };
+}
+
+/** The repository as GitHub would answer: a Feature, its sub-issue, and nothing blocking either. */
+function githubFetchOf(current: () => Issues): {
   fetch: typeof fetch;
-  comments: string[];
+  comments: Map<number, string[]>;
 } {
-  const comments: string[] = [];
+  const comments = new Map<number, string[]>();
   const fetch = (async (input: unknown, init: { method?: string; body?: unknown } = {}) => {
-    const url = String(input);
     const method = String(init.method ?? "GET").toUpperCase();
-    const path = new URL(url).pathname;
-    const issue = currentIssue();
+    const path = new URL(String(input)).pathname;
+    const { feature, ticket } = current();
 
     if (method === "GET" && path === "/repos/tilap/mason/issues") {
-      return json(200, [issue]);
+      return json(200, feature === undefined ? [] : [feature]);
+    }
+    if (method === "GET" && path === "/repos/tilap/mason/issues/10") {
+      return feature === undefined ? json(404, { message: "Not Found" }) : json(200, feature);
     }
     if (method === "GET" && path === "/repos/tilap/mason/issues/42") {
-      return json(200, issue);
+      return json(200, ticket);
     }
-    if (method === "GET" && path === "/repos/tilap/mason/issues/42/comments") {
+    if (method === "GET" && path === "/repos/tilap/mason/issues/10/sub_issues") {
+      return json(200, feature === undefined ? [] : [ticket]);
+    }
+    if (method === "GET" && /\/issues\/(10|42)\/dependencies\/blocked_by$/.test(path)) {
       return json(200, []);
     }
-    if (method === "POST" && path === "/repos/tilap/mason/issues/42/comments") {
+    if (method === "GET" && /\/issues\/(10|42)\/comments$/.test(path)) {
+      return json(200, []);
+    }
+    const posted = /\/issues\/(10|42)\/comments$/.exec(path);
+    if (method === "POST" && posted?.[1] !== undefined) {
       const parsed = typeof init.body === "string" ? JSON.parse(init.body) : {};
       if (typeof parsed.body === "string") {
-        comments.push(parsed.body);
+        const number = Number(posted[1]);
+        comments.set(number, [...(comments.get(number) ?? []), parsed.body]);
       }
-      return json(201, { html_url: "https://github.com/tilap/mason/issues/42#issuecomment-1" });
+      return json(201, { html_url: "https://github.com/tilap/mason/issues/10#issuecomment-1" });
     }
-    if (path === "/repos/tilap/mason/issues/42/labels") {
+    if (/\/issues\/(10|42)\/labels/.test(path)) {
       return json(200, []);
     }
     return json(404, { message: `No fixture for ${method} ${path}` });
@@ -103,18 +137,28 @@ function json(status: number, body: unknown): Response {
 
 async function hostFor(paths: Paths, gates: GateSpec[], fetch: typeof globalThis.fetch) {
   return await openHost({
-    manager: "@bluewombat/manager-github",
-    managerOptions: {
-      repo: "tilap/mason",
-      token: "test-token",
-      fetch,
-      defaultProject: "proj",
+    featureTracker: {
+      package: "@bluewombat/manager-github",
+      options: {
+        repo: "tilap/mason",
+        token: "test-token",
+        fetch,
+        defaultProject: "proj",
+      },
+    },
+    ticketTracker: {
+      package: "@bluewombat/manager-github",
+      options: {
+        repo: "tilap/mason",
+        token: "test-token",
+        fetch,
+        defaultProject: "proj",
+      },
     },
     workLineStable: paths.workLineStable,
     workLineIsolation: "@bluewombat/isolation-copy",
     workspaceRoot: paths.workspaceRoot,
     ledgerRoot: paths.ledgerRoot,
-    planner: { cmd: [node, plannerPath], timeoutMs: 30_000, gates: [] },
     builder: {
       producer: {
         cmd: [node, join(fixtures, "builder-write-marker.mjs")],
@@ -133,44 +177,51 @@ async function hostFor(paths: Paths, gates: GateSpec[], fetch: typeof globalThis
 }
 
 describe("host GitHub", () => {
-  it("1. convertible issue: marker on WorkLineStable, accepted planned done", async () => {
+  it("1. a Feature with a task-ready sub-issue: marker on WorkLineStable, both issues told", async () => {
     const paths = sandbox();
-    const issue = issueOf();
-    const { fetch, comments } = githubFetchOf(() => issue);
+    const issues = issuesOf();
+    const { fetch, comments } = githubFetchOf(() => issues);
     const host = await hostFor(paths, passingGates(), fetch);
     const tick = await host.runOnce();
     assert.equal(tick.lastRun?.outcome, "done");
-    assert.deepEqual(tick.reported, ["accepted", "planned", "progress", "done"]);
+    assert.deepEqual(tick.reported, ["accepted", "accepted", "done", "progress", "done"]);
     assert.equal(readFileSync(join(paths.workLineStable, "delivered.txt"), "utf8"), MARKER);
-    assert.equal(comments.length, 4);
+    assert.equal(comments.get(10)?.length, 3);
+    assert.equal(comments.get(42)?.length, 2);
+    const feature = await host.ledger.getFeature(FEATURE);
+    assert.equal(feature.ok && feature.aggregate.state, "done");
     const got = await host.ledger.get(KEY);
     assert.equal(got.ok && got.aggregate.state, "done");
+    assert.equal(got.ok && got.aggregate.intention.feature, FEATURE);
   });
 
-  it("2. nothing saying what to do: invalid, seed-only", async () => {
+  it("2. a Feature with nothing saying what it is: invalid, seed-only", async () => {
     const paths = sandbox();
-    const { fetch, comments } = githubFetchOf(() => issueOf({ body: null, title: null }));
+    const issues = issuesOf({ feature: featureIssue({ body: null, title: null }) });
+    const { fetch, comments } = githubFetchOf(() => issues);
     const host = await hostFor(paths, passingGates(), fetch);
     const tick = await host.runOnce();
     assert.equal(tick.lastRun, undefined);
     assert.deepEqual(tick.reported, ["invalid"]);
-    assert.equal(comments.length, 1);
-    const got = await host.ledger.get(KEY);
-    assert.equal(got.ok && got.aggregate.state, "invalid");
+    assert.equal(comments.get(10)?.length, 1);
+    assert.equal((await host.ledger.getFeature(FEATURE)).ok, false);
   });
 
-  it("3. fail-blocking then ready label on the same snapshot: escalated, resumed, done", async () => {
+  it("3. a Ticket escalates, its issue gets the resume label, it resumes and the Feature is done", async () => {
     const paths = sandbox();
-    let issue = issueOf();
-    const { fetch } = githubFetchOf(() => issue);
+    let issues = issuesOf();
+    const { fetch } = githubFetchOf(() => issues);
     const blocked = await hostFor(paths, blockingGates(), fetch);
     const first = await blocked.runOnce();
     assert.equal(first.lastRun?.outcome, "escalated");
     assert.ok(first.reported.includes("escalated"));
+    await blocked.close();
 
-    issue = issueOf({
-      labels: [{ name: "project:proj" }, { name: "ready" }],
-      updated_at: "2026-09-06T11:00:00Z",
+    issues = issuesOf({
+      ticket: ticketIssue({
+        labels: [{ name: "task-ready" }, { name: "to-resume" }],
+        updated_at: "2026-09-06T11:00:00Z",
+      }),
     });
     const resumed = await hostFor(paths, passingGates(), fetch);
     const second = await resumed.runOnce();
@@ -180,58 +231,35 @@ describe("host GitHub", () => {
     assert.equal(readFileSync(join(paths.workLineStable, "delivered.txt"), "utf8"), MARKER);
   });
 
-  it("4. closed issue while escalated: cancelled", async () => {
+  it("4. the Feature's issue closed while a Ticket is escalated: both cancelled", async () => {
     const paths = sandbox();
-    let issue = issueOf();
-    const { fetch } = githubFetchOf(() => issue);
+    let issues = issuesOf();
+    const { fetch } = githubFetchOf(() => issues);
     const blocked = await hostFor(paths, blockingGates(), fetch);
     await blocked.runOnce();
-    issue = issueOf({ state: "closed", updated_at: "2026-09-06T11:00:00Z" });
+    issues = issuesOf({
+      feature: featureIssue({ state: "closed", updated_at: "2026-09-06T11:00:00Z" }),
+    });
     const tick = await blocked.runOnce();
-    assert.deepEqual(tick.reported, ["cancelled"]);
+    assert.deepEqual(tick.reported, ["cancelled", "cancelled"]);
+    const feature = await blocked.ledger.getFeature(FEATURE);
+    assert.equal(feature.ok && feature.aggregate.state, "cancelled");
     const got = await blocked.ledger.get(KEY);
     assert.equal(got.ok && got.aggregate.state, "cancelled");
   });
 
-  it("5. deleted issue while escalated: cancelled, even though the listing never mentions it", async () => {
+  it("5. the Feature's issue deleted while a Ticket is escalated: cancelled, even though the listing never mentions it", async () => {
     const paths = sandbox();
-    let issue: Record<string, unknown> | undefined = issueOf();
-    const fetch = (async (input: unknown, init: { method?: string; body?: unknown } = {}) => {
-      const method = String(init.method ?? "GET").toUpperCase();
-      const path = new URL(String(input)).pathname;
-      if (issue === undefined) {
-        if (method === "GET" && path === "/repos/tilap/mason/issues") {
-          return json(200, []);
-        }
-        if (method === "GET" && path === "/repos/tilap/mason/issues/42") {
-          return json(404, { message: "Not Found" });
-        }
-        return json(404, { message: `No fixture for ${method} ${path}` });
-      }
-      if (method === "GET" && path === "/repos/tilap/mason/issues") {
-        return json(200, [issue]);
-      }
-      if (method === "GET" && path === "/repos/tilap/mason/issues/42") {
-        return json(200, issue);
-      }
-      if (method === "GET" && path === "/repos/tilap/mason/issues/42/comments") {
-        return json(200, []);
-      }
-      if (method === "POST" && path === "/repos/tilap/mason/issues/42/comments") {
-        return json(201, { html_url: "https://github.com/tilap/mason/issues/42#issuecomment-1" });
-      }
-      if (path === "/repos/tilap/mason/issues/42/labels") {
-        return json(200, []);
-      }
-      return json(404, { message: `No fixture for ${method} ${path}` });
-    }) as unknown as typeof globalThis.fetch;
-
+    let issues = issuesOf();
+    const { fetch } = githubFetchOf(() => issues);
     const blocked = await hostFor(paths, blockingGates(), fetch);
     const first = await blocked.runOnce();
     assert.equal(first.lastRun?.outcome, "escalated");
 
-    issue = undefined;
+    issues = issuesOf({ feature: undefined });
     await blocked.runOnce();
+    const feature = await blocked.ledger.getFeature(FEATURE);
+    assert.equal(feature.ok && feature.aggregate.state, "cancelled");
     const got = await blocked.ledger.get(KEY);
     assert.equal(got.ok && got.aggregate.state, "cancelled");
     assert.match(

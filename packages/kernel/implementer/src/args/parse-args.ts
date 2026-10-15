@@ -5,7 +5,6 @@ import type { GateSpec, Invocation, ParseResult } from "../types.js";
 const IMPLEMENTER_FLAGS = new Set([
   "--id",
   "--intention",
-  "--definition-of-done",
   "--report",
   "--report-from",
   "--context",
@@ -77,7 +76,6 @@ function parsePositiveInt(raw: string): number | null {
 export function parseArgs(argv: string[]): ParseResult {
   let id: string | undefined;
   let intention: string | undefined;
-  let definitionOfDone: string | undefined;
   let report: string | undefined;
   let reportFrom: string | undefined;
   let context: string | undefined;
@@ -119,16 +117,6 @@ export function parseArgs(argv: string[]): ParseResult {
         return { ok: false, reason: "Missing value for --intention." };
       }
       intention = taken.value;
-      i = taken.next;
-      continue;
-    }
-
-    if (token === "--definition-of-done") {
-      const taken = takeValue(argv, i);
-      if (!taken) {
-        return { ok: false, reason: "Missing value for --definition-of-done." };
-      }
-      definitionOfDone = taken.value;
       i = taken.next;
       continue;
     }
@@ -345,9 +333,6 @@ export function parseArgs(argv: string[]): ParseResult {
   if (intention === undefined) {
     return { ok: false, reason: "Missing required --intention." };
   }
-  if (definitionOfDone === undefined) {
-    return { ok: false, reason: "Missing required --definition-of-done." };
-  }
   if (workspace === undefined) {
     return { ok: false, reason: "Missing required --workspace." };
   }
@@ -378,7 +363,6 @@ export function parseArgs(argv: string[]): ParseResult {
   const invocation: Invocation = {
     id,
     intention,
-    definitionOfDone,
     workspace,
     ...(builderArgv === undefined ? {} : { builderArgv }),
     ...(repairArgv === undefined ? {} : { repairArgv }),

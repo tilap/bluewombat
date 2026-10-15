@@ -1,10 +1,10 @@
-{"type": "system", "subtype": "init", "cwd": "/work/feature"}
+{"type": "system", "subtype": "init", "cwd": "/work/ticket"}
 {"type": "tool_call", "subtype": "started", "call_id": "call-b6c9666d-3c77-4044-9182-8a7a54da3f7", "tool_call": {"mcpToolCall": {"args": {"providerIdentifier": "github", "toolName": "issue_read"}}}, "timestamp_ms": 1791139631156}
 {"type": "tool_call", "subtype": "completed", "call_id": "call-b6c9666d-3c77-4044-9182-8a7a54da3f7", "tool_call": {"mcpToolCall": {"args": {"providerIdentifier": "github", "toolName": "issue_read"}}}, "timestamp_ms": 1791139636110}
 {"type": "tool_call", "subtype": "started", "call_id": "call-873e39f4-f300-47af-a1f0-d742f9ff998", "tool_call": {"mcpToolCall": {"args": {"providerIdentifier": "github", "toolName": "issue_read"}}}, "timestamp_ms": 1791139641680}
 {"type": "tool_call", "subtype": "completed", "call_id": "call-873e39f4-f300-47af-a1f0-d742f9ff998", "tool_call": {"mcpToolCall": {"args": {"providerIdentifier": "github", "toolName": "issue_read"}}}, "timestamp_ms": 1791139644781}
 {"type": "tool_call", "subtype": "started", "call_id": "call-b1c77392-a1b8-4379-a5e9-038d76ae542", "tool_call": {"readToolCall": {"args": {"path": "/home/mason/ai-plugins/core/builder/skills/repo-recon/SKILL.md"}}}, "timestamp_ms": 1791139289031}
-{"type": "tool_call", "subtype": "started", "call_id": "call-949ba9b4-674a-435a-bb2f-eeaaabec808", "tool_call": {"readToolCall": {"args": {"path": "/work/feature/docs/INDEX.md"}}}, "timestamp_ms": 1791139294147}
+{"type": "tool_call", "subtype": "started", "call_id": "call-949ba9b4-674a-435a-bb2f-eeaaabec808", "tool_call": {"readToolCall": {"args": {"path": "/work/ticket/docs/INDEX.md"}}}, "timestamp_ms": 1791139294147}
 {"type": "tool_call", "subtype": "started", "call_id": "call-4e3d878f-967e-4700-80d2-9677fbb49ba", "tool_call": {"taskToolCall": {"args": {"description": "RSS XSLT human-readable"}}}, "timestamp_ms": 1791139355209}
 {"type": "tool_call", "subtype": "completed", "call_id": "call-4e3d878f-967e-4700-80d2-9677fbb49ba", "tool_call": {"taskToolCall": {"args": {"description": "RSS XSLT human-readable"}}}, "timestamp_ms": 1791139431408}
 {"type": "tool_call", "subtype": "started", "call_id": "call-506b4933-03ff-4025-bd81-cd06e38461c", "tool_call": {"taskToolCall": {"args": {"description": "Vitest RSS XSLT proofs"}}}, "timestamp_ms": 1791139445192}

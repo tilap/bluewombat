@@ -35,20 +35,7 @@ function gitCommit(dir: string, message: string): void {
 function run(script: string, cwd: string, extra: string[] = []) {
   return spawnSync(
     node,
-    [
-      script,
-      ...extra,
-      "--id",
-      "t",
-      "--attempt",
-      "1",
-      "--gate-id",
-      "g",
-      "--intention",
-      "i",
-      "--definition-of-done",
-      "d",
-    ],
+    [script, ...extra, "--id", "t", "--attempt", "1", "--gate-id", "g", "--intention", "i"],
     { cwd, encoding: "utf8" },
   );
 }
@@ -194,7 +181,7 @@ describe("ci-green", () => {
 
   /**
    * A GitHub that answers the three reads this Gate makes, for one open pull
-   * request on `feature` at sha `abc`. `statuses` is called on every read, so a
+   * request on `ticket` at sha `abc`. `statuses` is called on every read, so a
    * test can move a status from pending to settled between polls; `undefined`
    * answers 404, as for a token that may not read them.
    */
@@ -222,12 +209,12 @@ describe("ci-green", () => {
     return { base: `http://127.0.0.1:${address.port}`, close: () => server.close() };
   }
 
-  function onFeatureBranch(): string {
+  function onTicketBranch(): string {
     const cwd = sandbox();
     gitInit(cwd);
     writeFileSync(join(cwd, "a.txt"), "a\n");
     gitCommit(cwd, "seed");
-    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "feature"]);
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "ticket"]);
     execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:o/r.git"]);
     return cwd;
   }
@@ -258,8 +245,6 @@ describe("ci-green", () => {
           "g",
           "--intention",
           "i",
-          "--definition-of-done",
-          "d",
           ...extra,
         ],
         { cwd, env: { ...process.env, CI_GREEN_TEST_TOKEN: "t0ken" } },
@@ -282,7 +267,7 @@ describe("ci-green", () => {
       { context: "Vercel", state: "success", description: "Deployment has completed" },
     ]);
     try {
-      assert.equal((await judge(onFeatureBranch(), github.base)).verdict, "pass");
+      assert.equal((await judge(onTicketBranch(), github.base)).verdict, "pass");
     } finally {
       github.close();
     }
@@ -300,7 +285,7 @@ describe("ci-green", () => {
       },
     ]);
     try {
-      const result = await judge(onFeatureBranch(), github.base);
+      const result = await judge(onTicketBranch(), github.base);
       assert.equal(result.verdict, "fail-retryable");
       assert.equal(
         result.report,
@@ -318,7 +303,7 @@ describe("ci-green", () => {
       return [{ context: "Vercel", state: reads < 3 ? "pending" : "success" }];
     });
     try {
-      assert.equal((await judge(onFeatureBranch(), github.base)).verdict, "pass");
+      assert.equal((await judge(onTicketBranch(), github.base)).verdict, "pass");
       assert.ok(reads >= 3, `read ${reads} times`);
     } finally {
       github.close();
@@ -335,7 +320,7 @@ describe("ci-green", () => {
     try {
       // Nothing here kills it: if it did not stop on its own, this test would wait out
       // its own 20 s timeout instead.
-      const result = await judge(onFeatureBranch(), github.base, ["--timeout-ms", "3000"]);
+      const result = await judge(onTicketBranch(), github.base, ["--timeout-ms", "3000"]);
       assert.equal(result.verdict, "fail-blocking");
       assert.match(result.report, /stopped waiting after \d+ s: no check has appeared on abc/);
       assert.match(result.report, /pull request #7/);
@@ -352,7 +337,7 @@ describe("ci-green", () => {
       { context: "Vercel", state: "pending" },
     ]);
     try {
-      const result = await judge(onFeatureBranch(), github.base, ["--timeout-ms", "3000"]);
+      const result = await judge(onTicketBranch(), github.base, ["--timeout-ms", "3000"]);
       assert.equal(result.verdict, "fail-blocking");
       assert.match(result.report, /2 checks were still running on abc/);
     } finally {
@@ -367,7 +352,7 @@ describe("ci-green", () => {
       { context: "Vercel", state: "failure", description: "Build failed" },
     ]);
     try {
-      const result = await judge(onFeatureBranch(), github.base, ["--timeout-ms", "3000"]);
+      const result = await judge(onTicketBranch(), github.base, ["--timeout-ms", "3000"]);
       assert.equal(result.verdict, "fail-retryable");
       assert.match(result.report, /^Vercel: failure\nBuild failed/);
     } finally {
@@ -383,7 +368,7 @@ describe("ci-green", () => {
       () => undefined,
     );
     try {
-      const result = await judge(onFeatureBranch(), server.base);
+      const result = await judge(onTicketBranch(), server.base);
       assert.equal(result.verdict, "fail-retryable");
       assert.match(result.report, /^test: failure/);
     } finally {
@@ -497,8 +482,8 @@ describe("sensitive-path", () => {
 describe("gitignore-leak", () => {
   const assembly = (...own: string[]) => [...own, "--stage", "assembly"];
 
-  /** A work line on `main` that ignores node_modules/ and dist/, and a feature branch off it. */
-  function featureOff(baseFiles: Record<string, string> = {}): string {
+  /** A work line on `main` that ignores node_modules/ and dist/, and a ticket branch off it. */
+  function ticketOff(baseFiles: Record<string, string> = {}): string {
     const cwd = sandbox();
     gitInit(cwd);
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\ndist/\n");
@@ -509,7 +494,7 @@ describe("gitignore-leak", () => {
     }
     execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
     execFileSync("git", ["-C", cwd, "commit", "-qm", "work line"]);
-    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "feature"]);
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "ticket"]);
     return cwd;
   }
 
@@ -517,9 +502,9 @@ describe("gitignore-leak", () => {
   function commitVendored(cwd: string): void {
     mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
     writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
-    writeFileSync(join(cwd, "src.txt"), "feature\n");
+    writeFileSync(join(cwd, "src.txt"), "ticket\n");
     execFileSync("git", ["-C", cwd, "add", "-A", "-f"]);
-    execFileSync("git", ["-C", cwd, "commit", "-qm", "feature, with its install"]);
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "ticket, with its install"]);
   }
 
   it("refuses a workspace that is not git", () => {
@@ -531,14 +516,14 @@ describe("gitignore-leak", () => {
   });
 
   it("refuses an option it does not read", () => {
-    const cwd = featureOff();
+    const cwd = ticketOff();
     const result = verdictOf(run(gitignoreLeak, cwd, assembly("--since", "HEAD")));
     assert.equal(result.verdict, "fail-blocking");
     assert.match(result.report, /--since/);
   });
 
   it("refuses to judge without the work line it is measured against", () => {
-    const cwd = featureOff();
+    const cwd = ticketOff();
     const missing = verdictOf(run(gitignoreLeak, cwd, assembly()));
     assert.equal(missing.verdict, "fail-blocking");
     assert.match(missing.report, /--base/);
@@ -548,7 +533,7 @@ describe("gitignore-leak", () => {
   });
 
   it("says nothing about a unit, whose work no commit holds yet", () => {
-    const cwd = featureOff();
+    const cwd = ticketOff();
     commitVendored(cwd);
     assert.equal(verdictOf(run(gitignoreLeak, cwd, ["--base", "main"])).verdict, "pass");
     assert.equal(
@@ -557,24 +542,24 @@ describe("gitignore-leak", () => {
     );
   });
 
-  it("passes a feature that adds only what .gitignore lets in", () => {
-    const cwd = featureOff();
+  it("passes a ticket that adds only what .gitignore lets in", () => {
+    const cwd = ticketOff();
     writeFileSync(join(cwd, "added.txt"), "new\n");
     mkdirSync(join(cwd, "node_modules", "left-pad"), { recursive: true });
     writeFileSync(join(cwd, "node_modules", "left-pad", "index.js"), "on disk only\n");
-    gitCommit(cwd, "feature");
+    gitCommit(cwd, "ticket");
     assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
   });
 
-  it("does not blame a feature for a path the work line tracked on purpose", () => {
-    const cwd = featureOff({ "dist/.gitkeep": "" });
-    writeFileSync(join(cwd, "src.txt"), "feature\n");
-    gitCommit(cwd, "feature");
+  it("does not blame a ticket for a path the work line tracked on purpose", () => {
+    const cwd = ticketOff({ "dist/.gitkeep": "" });
+    writeFileSync(join(cwd, "src.txt"), "ticket\n");
+    gitCommit(cwd, "ticket");
     assert.equal(verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main"))).verdict, "pass");
   });
 
-  it("fail-retryable when the feature's commits add an ignored path", () => {
-    const cwd = featureOff();
+  it("fail-retryable when the ticket's commits add an ignored path", () => {
+    const cwd = ticketOff();
     commitVendored(cwd);
     const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
     assert.equal(result.verdict, "fail-retryable");
@@ -584,7 +569,7 @@ describe("gitignore-leak", () => {
   });
 
   it("judges what is committed, not a removal only staged", () => {
-    const cwd = featureOff();
+    const cwd = ticketOff();
     commitVendored(cwd);
     execFileSync("git", ["-C", cwd, "rm", "-r", "-q", "--cached", "node_modules"]);
     const result = verdictOf(run(gitignoreLeak, cwd, assembly("--base", "main")));
@@ -592,7 +577,7 @@ describe("gitignore-leak", () => {
   });
 
   it("passes once a later commit took the path out again", () => {
-    const cwd = featureOff();
+    const cwd = ticketOff();
     commitVendored(cwd);
     execFileSync("git", ["-C", cwd, "rm", "-r", "-q", "--cached", "node_modules"]);
     execFileSync("git", ["-C", cwd, "commit", "-qm", "untrack node_modules"]);
@@ -600,7 +585,7 @@ describe("gitignore-leak", () => {
   });
 
   it("sees a tracked file moved under an ignored directory", () => {
-    const cwd = featureOff({ "lib/out.js": "built\n" });
+    const cwd = ticketOff({ "lib/out.js": "built\n" });
     mkdirSync(join(cwd, "dist"), { recursive: true });
     execFileSync("git", ["-C", cwd, "mv", "-f", "lib/out.js", "dist/out.js"]);
     execFileSync("git", ["-C", cwd, "commit", "-qm", "move the build output"]);
@@ -610,7 +595,7 @@ describe("gitignore-leak", () => {
   });
 
   it("lists fifty paths and counts the rest", () => {
-    const cwd = featureOff();
+    const cwd = ticketOff();
     mkdirSync(join(cwd, "dist"), { recursive: true });
     for (let i = 0; i < 55; i++) {
       writeFileSync(join(cwd, "dist", `f${String(i).padStart(2, "0")}.js`), `${i}\n`);

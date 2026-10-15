@@ -1,6 +1,6 @@
 # WorkLedger
 
-Kernel package: the durable store of FeatureStandards, Subtasks, states,
+Kernel package: the durable store of TicketStandards, states,
 Attempts, and Traces. Glue writes here before it acts.
 
 Behavioural contract: [SPECS.md](./SPECS.md). Persistence adapters live under

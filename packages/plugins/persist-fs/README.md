@@ -1,6 +1,6 @@
 # persist-fs
 
-Persistence Port for WorkLedger: one JSON file per FeatureStandard key, atomic
+Persistence Port for WorkLedger: one JSON file per TicketStandard key, atomic
 rename on save. The ledger never imports this package. Glue does.
 
 ```ts

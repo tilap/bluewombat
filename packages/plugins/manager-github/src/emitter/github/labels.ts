@@ -1,13 +1,9 @@
 import { callSignal, type GithubClient, readFailure } from "../../github/client.js";
+import { isStateLabel, type StateLabels, stateLabelOf } from "../../state-labels.js";
 import type { Invocation } from "../types.js";
 import type { CallContext, TargetResult } from "./result.js";
 
 const PER_PAGE = 100;
-
-/** The label this Event stands for, e.g. `mason:escalated`. */
-export function labelFor(prefix: string, event: string): string {
-  return `${prefix}${event}`;
-}
 
 export type LabelSync = { added?: string; removed: string[] };
 
@@ -21,7 +17,7 @@ function failed<T>(error: unknown, context: CallContext): TargetResult<T> {
 /**
  * Move the Thread's state label to this Event.
  *
- * Only labels carrying the prefix are touched: a `project:` or a `bug` label is
+ * Only the state labels are touched: a `project:` or a `bug` label is
  * somebody else's, and a report that rewrites the issue's whole label set is a
  * report that destroys data.
  */
@@ -29,9 +25,12 @@ export async function syncStateLabel(
   invocation: Invocation,
   github: GithubClient,
   context: CallContext,
-  prefix: string,
+  labels: StateLabels,
 ): Promise<TargetResult<LabelSync>> {
-  const target = labelFor(prefix, invocation.event);
+  const target = stateLabelOf(labels, invocation.event);
+  if (target === undefined) {
+    return { kind: "ok", value: { removed: [] } };
+  }
   const issue = {
     owner: invocation.repo.owner,
     repo: invocation.repo.name,
@@ -57,7 +56,7 @@ export async function syncStateLabel(
   }
 
   const stale = present.filter(
-    (name) => name.toLowerCase().startsWith(prefix.toLowerCase()) && name !== target,
+    (name) => isStateLabel(labels, name) && name.toLowerCase() !== target.toLowerCase(),
   );
 
   const removed: string[] = [];
@@ -77,7 +76,7 @@ export async function syncStateLabel(
     }
   }
 
-  if (present.includes(target)) {
+  if (present.some((name) => name.toLowerCase() === target.toLowerCase())) {
     return { kind: "ok", value: { removed } };
   }
 

@@ -3,14 +3,14 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import type { FeatureAggregate } from "@bluewombat/work-ledger";
+import type { FeatureAggregate, TicketAggregate } from "@bluewombat/work-ledger";
 import { openFilesystemPersist } from "./open-filesystem-persist.js";
 
 function tempRoot(): string {
   return mkdtempSync(join(tmpdir(), "persist-fs-"));
 }
 
-function sample(key: string): FeatureAggregate {
+function sample(key: string): TicketAggregate {
   return {
     intention: {
       key,
@@ -23,6 +23,7 @@ function sample(key: string): FeatureAggregate {
     received_at: 1_000,
     attempts: [],
     attempts_used: 0,
+    resumes: 0,
   };
 }
 
@@ -62,11 +63,11 @@ describe("openFilesystemPersist", () => {
     const persist = await openFilesystemPersist({ root: tempRoot() });
     await persist.save("fake:42", sample("fake:42"));
     const next = sample("fake:42");
-    next.state = "planning";
+    next.state = "running";
     next.bail = { expires_at: 9_000 };
     await persist.save("fake:42", next);
     const loaded = await persist.load("fake:42");
-    assert.equal(loaded?.state, "planning");
+    assert.equal(loaded?.state, "running");
     assert.equal(loaded?.bail?.expires_at, 9_000);
   });
 
@@ -106,6 +107,38 @@ describe("openFilesystemPersist", () => {
     assert.deepEqual(
       summaries.map((row) => row.key),
       ["fake:42"],
+    );
+  });
+
+  it("stores a Feature beside Tickets and lists it apart", async () => {
+    const persist = await openFilesystemPersist({ root: tempRoot() });
+    await persist.save("fake:42", sample("fake:42"));
+    const feature: FeatureAggregate = {
+      kind: "feature",
+      intention: {
+        key: "fake:F1",
+        project: "proj",
+        fingerprint: "ffp",
+        priority: 7,
+        intention: "a feature",
+        blocked_by: [],
+        merge_when_ready: true,
+      },
+      state: "open",
+      received_at: 2_000,
+      line: "feature/1",
+      tickets: ["fake:42"],
+      resumes: 0,
+    };
+    assert.deepEqual(await persist.save("fake:F1", feature), { ok: true });
+    assert.deepEqual(await persist.load("fake:F1"), feature);
+    const summaries = await persist.listSummaries();
+    assert.deepEqual(
+      summaries.map((row) => [row.key, "kind" in row ? row.kind : "ticket"]).sort(),
+      [
+        ["fake:42", "ticket"],
+        ["fake:F1", "feature"],
+      ],
     );
   });
 });

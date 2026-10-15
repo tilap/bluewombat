@@ -39,7 +39,6 @@ function makeTransformers(
 ) {
   const cmd = [node, join(fixtures, "builder-ok.mjs")];
   return createTransformers({
-    planner: { cmd: [node, "-e", ""], timeoutMs: 20_000, gates: [] },
     builder: {
       producer: { cmd, timeoutMs: 20_000, gates: opts.builderProducerGates ?? [] },
       repair: { cmd, timeoutMs: 20_000, gates: opts.builderRepairGates ?? [] },
@@ -59,12 +58,9 @@ function makeTransformers(
       gates: opts.assemblyGates ?? [],
       maxAttempts: opts.assemblyMaxAttempts ?? 1,
     },
-    workLineStable: workspace(),
     isolation: copyStrategy.isolation,
     fold: copyStrategy.fold,
     timeoutMs: 20_000,
-    maxUnits: 10,
-    maxFeatureBytes: 100_000,
     ...over,
   });
 }
@@ -79,7 +75,6 @@ describe("createTransformers", () => {
     const result = await transformers.implement({
       id: "t",
       intention: "i",
-      definitionOfDone: "d",
       workspace: workspace(),
     });
     assert.equal(result.outcome, "escalated");
@@ -102,7 +97,6 @@ describe("createTransformers", () => {
     const result = await transformers.implement({
       id: "t",
       intention: "i",
-      definitionOfDone: "d",
       workspace: workspace(),
     });
     assert.equal(result.outcome, "validated");
@@ -127,7 +121,6 @@ describe("createTransformers", () => {
       stage: "assembly",
       produce: true,
       intention: "i",
-      definitionOfDone: "d",
       workspace: workspace(),
       report: "the check went red",
     });
@@ -148,7 +141,6 @@ describe("createTransformers", () => {
       stage: "assembly",
       produce: false,
       intention: "i",
-      definitionOfDone: "d",
       workspace: workspace(),
     });
     assert.equal(result.outcome, "escalated");
@@ -168,60 +160,12 @@ describe("createTransformers", () => {
     const result = await transformers.implement({
       id: "t",
       intention: "i",
-      definitionOfDone: "d",
       workspace: workspace(),
     });
     assert.equal(result.outcome, "validated");
     const events = filmed.map((line) => line.event);
     assert.equal(events.includes("status"), true);
     assert.equal(events.includes("gate-finished"), true);
-  });
-
-  it("prints why a Planner that wrote no plan is unavailable", async () => {
-    const said: string[] = [];
-    const slots = join(dirname(fileURLToPath(import.meta.url)), "../../../../plugins/slots");
-    const transformers = createTransformers({
-      planner: {
-        cmd: [
-          node,
-          join(slots, "planners/producer.mjs"),
-          "--",
-          node,
-          join(slots, "agents/cursor.mjs"),
-          "--bin",
-          join(slots, "fixtures/planner-agent-silent.mjs"),
-        ],
-        timeoutMs: 20_000,
-        gates: [],
-      },
-      builder: {
-        producer: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
-        repair: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
-        maxAttempts: 1,
-      },
-      assembly: {
-        fix: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
-        gates: [],
-        maxAttempts: 1,
-      },
-      workLineStable: workspace(),
-      isolation: copyStrategy.isolation,
-      fold: copyStrategy.fold,
-      timeoutMs: 20_000,
-      maxUnits: 10,
-      maxFeatureBytes: 100_000,
-      trace: (line) => said.push(line),
-    });
-    const result = await transformers.breakDown({
-      featureJson: JSON.stringify({
-        key: "github:tilap/web-emojis#3",
-        intention: "Add a light/dark theme",
-      }),
-    });
-    assert.equal(result.outcome, "unavailable");
-    const text = said.join("\n");
-    assert.match(text, /unavailable:github:tilap\/web-emojis#3/);
-    assert.match(text, /no usable plan/);
   });
 
   it("runs assembly.validate with no gates and one attempt, and carries its report", async () => {
@@ -320,7 +264,6 @@ describe("createTransformers", () => {
     const first = await producerOnly.implement({
       id: "t:producer-only",
       intention: "i",
-      definitionOfDone: "d",
       workspace: workspace(),
     });
     // Attempt 1 (producer) is refused by its own Gate; Attempt 2 (repair) has
@@ -341,7 +284,6 @@ describe("createTransformers", () => {
     const second = await repairOnly.implement({
       id: "t:repair-only",
       intention: "i",
-      definitionOfDone: "d",
       workspace: workspace(),
       report: "something refused it",
     });
@@ -351,55 +293,20 @@ describe("createTransformers", () => {
     assert.equal(second.traces[0]?.refusedBy, "repair-red");
   });
 
-  it("wires a planner's workspace and gates from workLineStable and planner.gates", async () => {
-    const stable = workspace();
-    const transformers = createTransformers({
-      planner: {
-        cmd: [node, join(fixtures, "../../feature-breakdown/fixtures", "planner-ok.mjs")],
-        timeoutMs: 20_000,
-        gates: [],
-      },
-      builder: {
-        producer: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
-        repair: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
-        maxAttempts: 1,
-      },
-      assembly: {
-        fix: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
-        gates: [],
-        maxAttempts: 1,
-      },
-      workLineStable: stable,
-      isolation: copyStrategy.isolation,
-      fold: copyStrategy.fold,
-      timeoutMs: 20_000,
-      maxUnits: 10,
-      maxFeatureBytes: 100_000,
-    });
-    const result = await transformers.breakDown({
-      featureJson: JSON.stringify({ key: "fake:1", intention: "do it" }),
-    });
-    assert.equal(result.outcome, "planned");
-  });
-
   it("stops an assembly fix on Host's interrupt instead of waiting for the agent", async () => {
     const interruptFlag = { interrupted: false };
     const sleeper = [node, join(fixtures, "sleep.mjs"), "60000"];
     const transformers = createTransformers({
-      planner: { cmd: [node, "-e", ""], timeoutMs: 20_000, gates: [] },
       builder: {
         producer: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
         repair: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
         maxAttempts: 1,
       },
       assembly: { fix: { cmd: sleeper, timeoutMs: 60_000, gates: [] }, gates: [], maxAttempts: 1 },
-      workLineStable: workspace(),
       isolation: copyStrategy.isolation,
       fold: copyStrategy.fold,
       timeoutMs: 20_000,
       interruptFlag,
-      maxUnits: 10,
-      maxFeatureBytes: 100_000,
     });
     const started = Date.now();
     const pending = transformers.implement({

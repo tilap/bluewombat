@@ -1,4 +1,4 @@
-/** Domain types owned by FeatureEmitter. Names match the Block perimeter only. */
+/** Domain types owned by Emitter. Names match the Block perimeter only. */
 
 export type RunOutcome =
   | "reported"
@@ -11,7 +11,6 @@ export type RunOutcome =
 export type EventName =
   | "invalid"
   | "accepted"
-  | "planned"
   | "progress"
   | "escalated"
   | "escalation_reminder"
@@ -21,9 +20,9 @@ export type EventName =
   | "cancelled"
   | "reject_late";
 
-export type Stage = "plan" | "unit" | "integrating" | "submitting" | "merging";
+export type Stage = "unit" | "integrating" | "submitting" | "merging";
 
-export type ResumePoint = "planning" | "running" | "integrating";
+export type ResumePoint = "running" | "integrating";
 
 /** The Target: one repository. */
 export type Repository = { owner: string; name: string };
@@ -36,9 +35,7 @@ export type EventFields = {
   stage?: Stage;
   trace?: string;
   counters?: Record<string, string>;
-  plan?: string;
   priority?: number;
-  unit?: string;
   remaining?: number;
   state?: string;
   resume_point?: ResumePoint;
@@ -63,10 +60,10 @@ export type Invocation = {
   maxReportChars: number;
   /** What `priority` is when nobody chose one, so the comment can say so. */
   defaultPriority?: number;
-  /** When set, the Event also lands as `<prefix><event>` on the issue. */
-  labelPrefix?: string;
-  /** The label that signals `ready`, so an `escalated` comment can name it. */
-  readyLabel?: string;
+  /** When set, the Event also lands on the issue as its label. */
+  stateLabels?: Readonly<Record<EventName, string>>;
+  /** The label that signals a resume, so an `escalated` comment can name it. */
+  resumeLabel?: string;
   durationMs: number;
   /** Extra attempts after the first, on a transport failure, a 5xx, or a rate limit. */
   requestRetries: number;

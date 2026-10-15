@@ -2,17 +2,17 @@
 
 Kernel package, not a Transformer. It has many operations, not one IN and one
 OUT. Its code, identifiers, comments, and messages name only what it owns:
-Feature records, Plans, Attempts, Traces, states, bails, and the Persistence
+Ticket records, Attempts, Traces, states, bails, and the Persistence
 Port. No Transformer is named inside that perimeter, because none of them exist
 there.
 
-WorkLedger is the durable store of FeatureStandards, Subtasks, states, Attempts,
-and Traces. It is the system's source of truth. Glue writes here **before** it
+WorkLedger is the durable store of TicketStandards, states, Attempts, and
+Traces. It is the system's source of truth. Glue writes here **before** it
 acts. Isolated workspaces are a consequence of that state, never the source of
 it.
 
 WorkLedger does not isolate a directory, run a Builder, fold a Child, or report
-to a FeatureManager. It accepts an already-normalized FeatureStandard (or an
+to a TicketTracker. It accepts an already-normalized TicketStandard (or an
 `invalid` verdict). It does not convert raw intentions.
 
 Callers inject a persistence adapter. Adapters are their own packages under
@@ -54,7 +54,7 @@ Transformers do not import this package. Conductor does. Host chooses the adapte
 ## 3. Two layers
 
 ```
-  commands / queries          src/ledger/          FeatureStandard states, Plan freeze,
+  commands / queries          src/ledger/          TicketStandard states,
                                                    bail, Attempt, Trace, refusals
            │
            │  Persistence Port (plain records)
@@ -65,7 +65,7 @@ Transformers do not import this package. Conductor does. Host chooses the adapte
 | Layer   | Owns                                                                                       | Does not own                                   |
 | ------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------- |
 | Ledger  | Legal transitions, idempotence, bound counters, bail                                       | `node:fs`, `sqlite`, `pg`, paths               |
-| Port    | The record shapes that cross the boundary, and the verbs `load` / `save` / `listSummaries` | FeatureStandard state names as a state machine |
+| Port    | The record shapes that cross the boundary, and the verbs `load` / `save` / `listSummaries` | TicketStandard state names as a state machine |
 | Adapter | How those records are stored and listed                                                    | Whether `merging` may be cancelled             |
 
 A caller never talks to an adapter. It talks to the ledger. The ledger never
@@ -92,7 +92,7 @@ Hard rules. Breaking one is a spec bug, not a refactor.
    honest. Its package does not exist until someone implements it.
 7. **Domain tests inject a Port.** They use a test double, or an adapter package
    on a temp path. They do not reach into adapter internals. Adapter tests do
-   not run FeatureStandard transitions.
+   not run TicketStandard transitions.
 
 ## 5. Persistence Port
 
@@ -101,15 +101,15 @@ does not care.
 
 | Operation       | In                        | Out                                  |
 | --------------- | ------------------------- | ------------------------------------ |
-| `load`          | Feature `key`             | Aggregate, or missing                |
-| `save`          | Feature `key` + aggregate | Durable replace of that key. Atomic. |
+| `load`          | Ticket `key`             | Aggregate, or missing                |
+| `save`          | Ticket `key` + aggregate | Durable replace of that key. Atomic. |
 | `listSummaries` | none                      | One summary per known key            |
 
 `save` replaces the whole aggregate for that key. The ledger read-modify-writes.
 The adapter does not merge. If `save` cannot complete, it fails; it does not
 leave a half-written key that `load` could return.
 
-`listSummaries` exists so `claim` can pick the next `received` FeatureStandard
+`listSummaries` exists so `claim` can pick the next `received` TicketStandard
 without loading every Trace. A summary carries at least: `key`, `project`,
 `state`, `priority`, `received_at`, bail expiry if any.
 
@@ -135,7 +135,7 @@ segment (`fake%3A42.json`). The adapter never uses the raw key as a filename.
 file or the new file, never a truncated JSON document that parses as a
 different aggregate.
 
-This adapter knows directories and JSON. It does not know `merging`, `ready`,
+This adapter knows directories and JSON. It does not know `merging`, `resume`,
 or Isolator.
 
 ## 7. Adapter packages
@@ -154,52 +154,45 @@ through the Port.
 
 ## 8. Aggregate
 
-One aggregate per FeatureStandard `key` (`<manager>:<external_id>`). The Adapter
+One aggregate per TicketStandard `key` (`<manager>:<external_id>`). The Adapter
 produced `key` and `fingerprint`; WorkLedger owns everything else.
 
 | Part                | Content                                                                                                               |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Identity            | `key`, `project`, `fingerprint`                                                                                       |
-| Intention           | FeatureStandard fields this package stores (intention, title, priority, source, …)                                     |
-| Feature state       | Exactly one of §9                                                                                                     |
+| Intention           | TicketStandard fields this package stores (intention, title, priority, source, …) and its place in a Feature: `feature`, `blocked_by` (Tickets that must be `done` first), `line` (the line it lands on) |
+| Ticket state       | Exactly one of §9                                                                                                     |
 | Invalid             | `code` + `reason` when state is `invalid`                                                                             |
-| Pending fingerprint | Set when an update arrives during `planning` / `running` / `integrating`; applied only after the in-flight work stops |
-| Plan                | Absent until freeze. Then frozen: Subtasks, dependencies, `planned_at`. No automatic rewrite                          |
-| Subtask states      | Per Subtask, exactly one of §9                                                                                        |
-| Attempts            | Numbered, each with a Trace when an Attempt ran, and stamped with the round (`resumes` at the time) it belongs to      |
+| Pending fingerprint | Set when an update arrives during `running` / `integrating`; applied only after the in-flight work stops              |
+| Attempts            | Numbered from 1, each with a Trace when an Attempt ran, and stamped with the round (`resumes` at the time) it belongs to |
 | Bound counters      | Attempts used, as this package tracks them                                                                            |
-| Resumes             | How many `resumeReady` were taken. A round tells two escalations of one kind apart; absent reads as 0                  |
+| Resumes             | How many `resumeTicket` were taken. A round tells two escalations of one kind apart                                    |
 | Parked refusal      | A report `assembly.validate` sent back, held on the aggregate because there may be no Submission yet. Present only while `integrating`; cleared once validate accepts |
 | Parked refusals     | How many times `assembly.validate` sent the work back with no Submission's own counter to hold it. Shares the `maxRefusals` budget with `submission.refusals` |
-| Bail                | Optional. `expires_at` when a feature or Subtask is claimed                                                                       |
-| Declared workspaces | Optional absolute paths glue wrote **before** creating those directories                                              |
+| Bail                | Optional. `expires_at` while a unit is held (from `startUnit`) and while the work is assembled and judged            |
+| Declared workspace  | Optional absolute path glue wrote **before** creating that directory                                                  |
 
-Unknown fields from a FeatureStandard that FeatureAdapter would drop are not
+Unknown fields from a TicketStandard that Adapter would drop are not
 invented here either. WorkLedger does not reopen the Adapter's closed shape.
 
-`integrated` Subtasks are never removed from the Plan. An Attempt is never
-rewritten; a new Attempt is appended.
+An Attempt is never rewritten; a new Attempt is appended.
 
 ## 9. States
 
-FeatureStandard states, copied from the product glossary. WorkLedger is the
+TicketStandard states, copied from the product glossary. WorkLedger is the
 component that actually holds them.
 
 | State         | Meaning                                            |
 | ------------- | -------------------------------------------------- |
 | `received`    | Admitted, not yet claimed                          |
 | `invalid`     | Stored as unusable, with a code; not silent        |
-| `planning`    | Breakdown in progress (bail held)                  |
-| `running`     | Subtask loop (bail held)                           |
+| `running`     | The unit is made (bail held once it starts)        |
 | `escalated`   | Frozen for a human                                 |
-| `integrating` | All Subtasks `integrated`; assembly Gates          |
+| `integrating` | The unit passed its Gates; assembly Gates          |
 | `submitted`   | Offered to an Authority; waiting on its judgement  |
 | `merging`     | Final fold into WorkLineStable. Point of no return |
 | `done`        | Terminal. In WorkLineStable                        |
 | `cancelled`   | Terminal. Abandoned before final integration       |
-
-Subtask states: `pending`, `runnable`, `running`, `escalated`, `integrated`,
-`cancelled`.
 
 A command that would require a transition not in this section is `refused`.
 The aggregate is unchanged.
@@ -214,43 +207,39 @@ Idempotence is on `key` unless a row says otherwise.
 
 | Command                 | Meaning                                                                                                                                                                                                       | Refused when                                                                                                                                                        |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `admit`                 | Store a FeatureStandard in `received`. Same `key` already `received` with the same fingerprint → success, no rewrite. Same `key`, different fingerprint, not in-flight → update the stored intention. Same `key` in-flight (`planning` / `running` / `integrating` / `submitted`) with the same fingerprint (or the fingerprint already pending) → success, no rewrite. A different fingerprint while in-flight is recorded as pending; the live work is not rewritten. | `key` in `merging` or `done`; `key` in `cancelled` |
+| `admit`                 | Store a TicketStandard in `received`. Same `key` already `received` with the same fingerprint → success, no rewrite. Same `key`, different fingerprint, not in-flight → update the stored intention. Same `key` in-flight (`running` / `integrating` / `submitted`) with the same fingerprint (or the fingerprint already pending) → success, no rewrite. A different fingerprint while in-flight is recorded as pending; the live work is not rewritten. | `key` in `merging` or `done`; `key` in `cancelled` |
 | `recordInvalid`         | Store `invalid` with code, reason and the fingerprint of what was received                                                                                                                                                                       | `key` already in `merging` or `done`                                                                                                                                |
-| `claim`                 | Take the next `received` FeatureStandard for a Project (priority then `received_at`). Hold bail. State → `planning`. No-op with `empty` when none, or when that Project already has an active FeatureStandard | That Project already has `planning`, `running`, `escalated`, `integrating`, `submitted`, or `merging`                                                               |
-| `recordPlan`            | Freeze the Plan. Subtasks start `pending` / `runnable`. State → `running`                                                                                                                                     | Not `planning`; Plan already frozen; Plan fails the same structural checks FeatureBreakdown already applied (empty, cycle, missing definition of done, …)           |
-| `refusePlan`            | Breakdown refused. State → `escalated` with the Breakdown code                                                                                                                                                | Not `planning`                                                                                                                                                      |
-| `startSubtask`          | Named Subtask → `running`. Feature stays `running`. Bail renewed or held                                                                                                                                      | Feature not `running`; Subtask not `runnable`; another Subtask already `running`                                                                                    |
-| `recordAttempt`         | Append an Attempt + Trace (`ended`, optional `report` and `refusedBy`)                                                                                                | That Subtask is not `running`; Attempt number not the next integer                                                                                                  |
-| `markSubtaskIntegrated` | Subtask → `integrated`. If no Subtask remains non-terminal → Feature → `integrating`                                                                                                                          | Subtask not `running`; Feature not `running`                                                                                                                        |
-| `markSubmitted`         | Feature → `submitted`. Records the Authority's opaque `reference`. A second call keeps the first reference and any `last_report`                                      | Not `integrating` or `submitted`                                                                                                                                    |
-| `recordRefusal`         | Authority / assembly Gates sent the work back. Increment `refusals`, store `last_report`, Feature → `integrating`. Clears a stale parked refusal, if one is held                                                     | Not `submitted`                                                                                                                                                     |
-| `recordParkedRefusal`   | `assembly.validate` sent the work back before any Submission exists. Store the parked report, increment `parked_refusals`                                                                                    | Not `integrating`                                                                                                                                                   |
+| `claim`                 | Take the next `received` TicketStandard for a Project (priority then `received_at`). State → `running`, with no bail yet. No-op with `empty` when none                                                                                      | That Project already has `running`, `escalated`, `integrating`, `submitted`, or `merging`                                                                           |
+| `startUnit`             | The unit starts: take the bail                                                                                                                                                                                | Not `running`; a bail is already held (`another-running`)                                                                                                            |
+| `recordAttempt`         | Append an Attempt + Trace (`ended`, optional `report` and `refusedBy`)                                                                                                                                        | Not `running`; Attempt number not the next integer                                                                                                                  |
+| `markIntegrating`       | The unit passed its Gates. State → `integrating`, bail renewed                                                                                                                                                | Not `running`                                                                                                                                                       |
+| `markSubmitted`         | Ticket → `submitted`. Records the Authority's opaque `reference`. A second call keeps the first reference and any `last_report`                                                                              | Not `integrating` or `submitted`                                                                                                                                    |
+| `recordRefusal`         | Authority / assembly Gates sent the work back. Increment `refusals`, store `last_report`, Ticket → `integrating`. Clears a stale parked refusal, if one is held                                              | Not `submitted`                                                                                                                                                     |
+| `recordParkedRefusal`   | `assembly.validate` sent the work back before any Submission exists. Store the parked report, increment `parked_refusals`                                                                                     | Not `integrating`                                                                                                                                                   |
 | `clearParkedRefusal`    | `assembly.validate` accepted. Drop the parked report; the counter stays — it is the budget already spent                                                                                                      | —                                                                                                                                                                   |
-| `markMerging`           | Feature → `merging`                                                                                                                                                                                           | Not `integrating` or `submitted`                                                                                                                                    |
-| `markDone`              | Feature → `done`. Records the fold's `reference` when given (the work line's own name for it, opaque). Clear bail. Clear declared Subtask workspace                                                                                                                                                | Not `merging`                                                                                                                                                       |
-| `escalate`              | Feature → `escalated` (whole feature frozen). Trace required if an Attempt exists for the named Subtask. Consumes `pending_fingerprint`. | Feature already `done` or `cancelled`; escalation without Trace when an Attempt existed                                                                             |
-| `resumeReady`           | Human `ready`. Plan escalation → `planning` (Plan unfrozen, Breakdown replayed). Subtask escalation → that Subtask `runnable` from zero, Feature `running`. Escalation from `merging`, `submitted`, or `assembly` → `integrating`         | Not `escalated` or `invalid`; `invalid` without a new admissible FeatureStandard                                                                                    |
-| `cancel`                | Feature → `cancelled`. Remaining Subtasks `cancelled`. `integrated` Subtasks stay `integrated`                                                                                                                | `merging` or `done`; an escalation that was born in `merging`                                                                                                       |
-| `declareWorkspace`      | Record a WorkSpaceFeature and/or WorkSpaceSubtask path **before** glue creates it                                                                                                                             | Feature `done` or `cancelled`                                                                                                                                       |
-| `clearWorkspace`        | Drop a declared path after glue deleted that directory                                                                                                                                                        | —                                                                                                                                                                   |
-| `expireBail`            | Bail past expiry: Subtask `running` → `runnable` (from zero, consume an Attempt); Feature `planning` → `received`                                                                                             | No bail, or bail not expired                                                                                                                                        |
-| `releaseBail`           | Same ledger outcome as an expired bail in `planning` / `running`, without waiting for the clock. A `running` Feature with no Subtask held is success with no rewrite                                           | Feature not `planning` or `running`                                                                                                                                 |
+| `markMerging`           | Ticket → `merging`                                                                                                                                                                                           | Not `integrating` or `submitted`                                                                                                                                    |
+| `markDone`              | Ticket → `done`. Records the fold's `reference` when given (the work line's own name for it, opaque). Clear bail                                                                                              | Not `merging`                                                                                                                                                       |
+| `escalate`              | Ticket → `escalated`. For kind `unit`, a Trace is required if an Attempt exists. Consumes `pending_fingerprint`                                                                                              | Ticket already `done` or `cancelled`; a `unit` escalation when the last Attempt has no Trace                                                                       |
+| `resumeTicket`           | Human `resume`. Escalation `unit` → `running` from zero, no bail. Escalation from `merging`, `submitted`, or `assembly` → `integrating`. Counts a round                                                          | Not `escalated` or `invalid`; `invalid` without a new admissible TicketStandard                                                                                    |
+| `cancel`                | Ticket → `cancelled`                                                                                                                                                                                         | `merging` or `done`; an escalation that was born in `merging`                                                                                                       |
+| `declareWorkspace`      | Record the workspace path **before** glue creates it                                                                                                                                                          | Ticket `done` or `cancelled`                                                                                                                                       |
+| `clearWorkspace`        | Drop the declared path after glue deleted that directory                                                                                                                                                      | —                                                                                                                                                                   |
+| `expireBail`            | Bail past expiry: a `running` Ticket starts the unit over (consume an Attempt, forget the workspace); any other state only loses its bail                                                                    | No bail, or bail not expired                                                                                                                                        |
+| `releaseBail`           | Same ledger outcome as an expired bail on a `running` Ticket, without waiting for the clock. A `running` Ticket with no bail is success with no rewrite                                                    | Ticket not `running`                                                                                                                                               |
 | `renewBail`             | Push bail expiry forward by the configured duration. Allowed while a bail is held                                                                                                                             | No bail                                                                                                                                                             |
 
-`resumeReady` from `invalid` requires `admit` of a corrected FeatureStandard
+`resumeTicket` from `invalid` requires `admit` of a corrected TicketStandard
 first (`invalid` → `received` is `admit` after correction, then claim).
 
-In-flight update (`admit` while `planning` / `running` / `integrating` /
-`submitted`): same fingerprint as the live intention, or as the fingerprint
-already pending → success, no rewrite (an echo of a report). A different
-fingerprint is stored as pending; do not change the frozen Plan; do not
-rewrite the live intention. `escalate` consumes `pending_fingerprint`.
-Conductor calls `escalate({ kind: "plan" })` after a Subtask is marked
-integrated, and when entering `integrating`, if the field is set. WorkLedger
+In-flight update (`admit` while `running` / `integrating` / `submitted`): same
+fingerprint as the live intention, or as the fingerprint already pending →
+success, no rewrite (an echo of a report). A different fingerprint is stored as
+pending; do not rewrite the live intention. `escalate` consumes
+`pending_fingerprint`. Conductor calls `escalate({ kind: "unit" })` after the
+unit ends, and when entering `integrating`, if the field is set. WorkLedger
 does not watch a Transformer's clock.
 
-Escalation `kind` is one of `plan`, `subtask`, `assembly`, `submitted`,
-`merging`.
+Escalation `kind` is one of `unit`, `assembly`, `submitted`, `merging`.
 
 ## 11. Queries
 
@@ -258,34 +247,68 @@ Escalation `kind` is one of `plan`, `subtask`, `assembly`, `submitted`,
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `get`                    | Aggregate for a `key`, or missing                                                                                                      |
 | `list`                   | One summary per known key, every state. No persist, no bail, no transition                                                             |
-| `listInFlight`           | The `list` subset that is mid-flight (`planning` / `running` / `integrating` / `submitted`)                                            |
-| `activeOn`               | The active FeatureStandard on a Project (`planning` / `running` / `escalated` / `integrating` / `submitted` / `merging`), or none |
+| `listInFlight`           | The `list` subset that is mid-flight (`running` / `integrating` / `submitted`)                                                         |
+| `activeOn`               | The active TicketStandard on a Project (`running` / `escalated` / `integrating` / `submitted` / `merging`), or none |
 | `nextReceived`           | What `claim` would take, without taking it                                                                                             |
-| `nextRunnable`           | A `runnable` Subtask of a Feature (ties: the one that unblocks the most others). Glue still serializes                                 |
 | `listDeclaredWorkspaces` | Keys and paths the ledger believes exist. Glue reconciles disk to this list. Orphans on disk that are not listed are glue's to destroy |
 
 Queries do not persist. They do not take a bail.
 
+### Features
+
+A Feature is stored through the same Port, beside the Tickets, with
+`kind: "feature"`. Ticket queries (`list`, `listInFlight`, `activeOn`,
+`nextReceived`, `listDeclaredWorkspaces`) never return it; its own queries do.
+
+| Feature state | Meaning                                                 |
+| ------------- | ------------------------------------------------------- |
+| `waiting`     | Admitted, not yet opened                                |
+| `open`        | Its line exists and its Tickets are made, one at a time |
+| `submitted`   | Its line is with the Authority                          |
+| `escalated`   | Frozen for a human                                      |
+| `done`        | Terminal. Its line is folded                            |
+| `cancelled`   | Terminal                                                |
+
+| Command                | Meaning                                                                                                                                                                          | Refused when                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `admitFeature`         | Store as `waiting`. While waiting, an edit replaces the intention; once held (`open` / `submitted` / `escalated`), it is recorded as pending and the echo of an edit is a success | `done` (`too-late`); `cancelled` (`illegal-transition`)             |
+| `openFeature`          | `waiting` → `open`, recording the line and the keys of its Tickets                                                                                                               | Not `waiting`; the Project already holds a Feature (`project-busy`) |
+| `markFeatureSubmitted` | `open` → `submitted`, recording the Authority's opaque `reference`                                                                                                               | Not `open`                                                          |
+| `markFeatureDone`      | `submitted` → `done`, recording the fold's reference when given                                                                                                                  | Not `submitted`                                                     |
+| `escalateFeature`      | `open` or `submitted` → `escalated` with the report; consumes a pending edit                                                                                                     | Any other state                                                     |
+| `resumeFeature`        | `escalated` → `open`, counting a round. The Submission, if there is one, stays                                                                                                   | Not `escalated`                                                     |
+| `cancelFeature`        | Any state but `done` → `cancelled`                                                                                                                                               | `done` (`point-of-no-return`)                                       |
+
+| Query             | Out                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getFeature`      | The aggregate, or missing                                                                                                                   |
+| `listFeatures`    | One summary per Feature                                                                                                                     |
+| `activeFeatureOn` | The Feature that holds a Project: `open`, `submitted` or `escalated`                                                                        |
+| `nextFeature`     | What would open next: `waiting`, every Feature it waits on `done`, highest priority then oldest. Nothing while a Feature holds the Project |
+
+A Ticket that waits on others is not claimed until each is `done`; a blocker the
+ledger does not know blocks. `claim` and `nextReceived` skip a received Ticket
+that may not start and take the next one that may.
+
 ## 12. Bail and reconcile
 
-While a FeatureStandard is `planning`, `running`, `integrating`, `submitted`,
-or `merging`, it holds a bail (`expires_at`). There is no holder id in this
-implementation. Glue renews by calling `startSubtask` / `claim`-family
-commands; `renewBail` exists if expiry would otherwise pass during a long
-Attempt.
+While a unit is held (`startUnit`) and while a TicketStandard is `integrating`,
+`submitted`, or `merging`, it holds a bail (`expires_at`). There is no holder id
+in this implementation. Glue renews with `startUnit` / `markIntegrating` /
+`markSubmitted`; `renewBail` exists if expiry would otherwise pass during a
+long Attempt.
 
-Expired bail: `expireBail`. The Subtask becomes `runnable` from zero and
-consumes an Attempt. Declared Subtask workspace is cleared (glue deletes the
+Expired bail: `expireBail`. A `running` Ticket starts the unit over from zero
+and consumes an Attempt. The declared workspace is forgotten (glue deletes the
 directory). The ledger decides; glue acts.
 
 A clean stop (or an operator) that knows the holder is gone calls
-`releaseBail`: the same `planning` / `running` outcome, without the clock.
-It refuses `integrating`, `submitted`, `merging`, and every terminal state —
-those are not a held Subtask. A `running` Feature that already has no Subtask
-`running` is success with no rewrite.
+`releaseBail`: the same `running` outcome, without the clock. It refuses
+`integrating`, `submitted`, `merging`, and every terminal state — those do not
+hold a unit. A `running` Ticket that holds no bail is success with no rewrite.
 
 After a process start, glue calls `listDeclaredWorkspaces` and destroys
-directories that are not on that list. It does not invent Feature state from
+directories that are not on that list. It does not invent Ticket state from
 disk.
 
 ## 13. Refusals
@@ -297,11 +320,8 @@ A refused command leaves the store as it was. `code` is one token.
 | `not-found`            | `key` is unknown                                                                                   |
 | `duplicate`            | Reserved; `admit` of an identical fingerprint is success, not this                                 |
 | `illegal-transition`   | State does not allow this command                                                                  |
-| `project-busy`         | `claim` while that Project already has an active FeatureStandard                                   |
-| `plan-frozen`          | `recordPlan` when a Plan already exists                                                            |
-| `plan-not-frozen`      | A Subtask command before `recordPlan`                                                              |
-| `subtask-not-runnable` | `startSubtask` on a Subtask whose dependencies are not `integrated`                                |
-| `another-running`      | `startSubtask` while one Subtask is already `running`                                              |
+| `project-busy`         | `claim` while that Project already has an active TicketStandard; `openFeature` while it holds a Feature |
+| `another-running`      | `startUnit` while a unit is already held                                                           |
 | `missing-trace`        | `escalate` after an Attempt with no Trace                                                          |
 | `point-of-no-return`   | `cancel` in `merging` or `done`, or abandon after merging-born escalation                          |
 | `too-late`             | `admit` / `recordInvalid` / intention edit in `done`                                               |
@@ -345,22 +365,21 @@ directories here.
 
 ## 16. Acceptance
 
-1. `admit` of a new FeatureStandard → `get` returns it in `received` with that
+1. `admit` of a new TicketStandard → `get` returns it in `received` with that
    `key` and `fingerprint`.
 2. `admit` of the same `key` and fingerprint again → success, aggregate
    unchanged (byte-for-byte on the stored fingerprint and intention).
 3. `admit` of the same `key` with a new fingerprint while `received` → stored
    intention updates.
 4. `admit` while `running` with a new fingerprint → pending fingerprint set;
-   frozen Plan unchanged; Feature state still `running`. Same fingerprint
+   Ticket state still `running`. Same fingerprint
    while `running` or `submitted` → success, no pending field.
-5. `claim` on a Project with one `received` → that Feature is `planning` and
-   holds a bail. A second `claim` on the same Project → `project-busy`.
-6. `recordPlan` with two Subtasks, B depending on A → A `runnable`, B
-   `pending`. `startSubtask(B)` → `subtask-not-runnable`.
-7. `startSubtask(A)` then `startSubtask` on any other → `another-running`.
-8. `markSubtaskIntegrated` on the last non-terminal Subtask → Feature
-   `integrating`.
+5. `claim` on a Project with one `received` → that Ticket is `running`, with
+   no bail. A second `claim` on the same Project → `project-busy`.
+6. `startUnit` takes the bail once; a second call → `another-running`.
+7. `recordAttempt` numbers the Attempts from 1; a gap → `illegal-transition`.
+8. `markIntegrating` on a `running` Ticket → `integrating`; on any other
+   state → `illegal-transition`.
 9. `cancel` in `merging` → `point-of-no-return`; state still `merging`.
 10. `escalate` after `recordAttempt` without a Trace → `missing-trace`; state
     unchanged.
@@ -382,8 +401,8 @@ consequence: another answer was possible.
 
 1. **Not a Transformer.** A store with many verbs is not IN/OUT-shaped. One IN
    and one OUT would force a toolbox CLI and hide the transition table.
-2. **Commands, not `set(state)`.** The product rules (plan freeze, one active
-   FeatureStandard per Project, no abandon in `merging`) live here or they live
+2. **Commands, not `set(state)`.** The product rules (one active
+   TicketStandard per Project, no abandon in `merging`) live here or they live
    nowhere.
 3. **Injected Persistence Port.** Sniffing env or a path to pick SQLite later
    would couple the ledger to ops. Glue chooses; the ledger stays portable.
@@ -394,12 +413,12 @@ consequence: another answer was possible.
    verbs would leak SQL into the ledger. Adapters may split storage internally.
 6. **Filesystem and SQLite both ship.** Enough to be truth on disk or in one
    file. Postgres is an adapter, not a prerequisite.
-7. **Keys encoded for filenames.** FeatureAdapter keys contain `:`. Using them
+7. **Keys encoded for filenames.** Adapter keys contain `:`. Using them
    raw would create extra directories or illegal paths.
 8. **Refused commands do not persist.** A failed transition must not look like
    history.
 9. **`persist-failed` is not `invalid`.** Disk or database blips must not brand
-   a FeatureStandard unusable.
+   a TicketStandard unusable.
 10. **Declared workspaces are ledger facts, not discoveries.** Glue writes the
     path before creating the directory, so crash reconcile has a list that
     disk cannot lie about.

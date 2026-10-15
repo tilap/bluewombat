@@ -1,7 +1,7 @@
 # Manager: fake
 
 A plugin, not a Transformer. Directory Source in, directory Thread out, as
-one `ManagerPort`. Listen / adapt / report live in this package.
+one `Manager` (`features` and `tickets`; no Authority). Listen / adapt / report live in this package.
 
 ## 1. Job
 
@@ -11,10 +11,10 @@ one `ManagerPort`. Listen / adapt / report live in this package.
   managerOptions                read source / target
   a Cursor                      drain the directory
   one semantic Event            append to the Thread
-                            ←   ManagerPort
+                            ←   Manager
 ```
 
-**In:** a `ManagerContext`. **Out:** a `ManagerPort`, or a reason.
+**In:** a `ManagerContext`. **Out:** a `Manager`, or a reason.
 
 ## 2. Options
 
@@ -34,11 +34,21 @@ An unknown option key is refused by name.
 `fake:<id>` from the raw intention's `id`, or `fake:unconvertible` when it has
 none. The project is the payload's `project`, or `unknown`.
 
-## 4. Ready
+## 3b. Features and Tickets
 
-This manager has no ready signal: a directory Source delivers a `ready` file as
-its own intention, so `signalsReady` is absent and Host uses the
-FeatureStandard's `intent`.
+Each JSON file is a Feature. It may carry `blocked_by` (ids of other Features,
+read as `fake:<id>`) and `merge_when_ready`. Its Tickets are the `tickets`
+array of the newest file that carries its `id`: each has `id`, `intention` (or
+`title`), and optionally `blocked_by` (ticket ids), `priority`, `task_ready`
+(default `true`), `resume`, `open`. A ticket with neither `intention` nor
+`title` is dropped. With no Authority, no line exists and a Ticket is folded
+into WorkLineStable directly.
+
+## 4. Resume
+
+This manager has no resume signal: a directory Source delivers a `resume` file as
+its own intention, so `signalsResume` is absent and Host uses the
+TicketStandard's `intent`.
 
 ## 5. Doctor
 

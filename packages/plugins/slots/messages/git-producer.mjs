@@ -16,9 +16,9 @@ import {
   writeDiagnostic,
 } from "@bluewombat/slot-kit";
 
-// The feature's commit message — and the pull request's description with it
+// The ticket's commit message — and the pull request's description with it
 // — written by an agent that read the diff, under the Project's own rules.
-// Asked once per feature. A role slot like the builders: it fills a template
+// Asked once per ticket. A role slot like the builders: it fills a template
 // and hands it to the agent after `--`; the agent answers in a file this slot
 // reads back. `--prompt-file` replaces the template, `--rules-file` the rules
 // — that is where a team's commit guideline goes.

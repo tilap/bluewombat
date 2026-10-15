@@ -2,7 +2,7 @@
 
 Host: the process you run, `@bluewombat/runtime`, binary `mason`. It listens,
 admits, calls Conductor, and reports. It does not know a tracker: it loads one
-FeatureManager package and hands it the options it never reads. Contract:
+TicketTracker package and hands it the options it never reads. Contract:
 [SPECS.md](./SPECS.md).
 
 ## Install
@@ -24,12 +24,11 @@ npx mason run
 npx mason watch
 ```
 
-A script gets the same result with no questions — `--manager` turns them off:
+A script gets the same result with no questions — `--manager` turns them off (it names the one package that answers both sides):
 
 ```bash
 mason init --manager @bluewombat/manager-github \
   --manager-option repo=owner/name \
-  --manager-option labels=mason \
   --work-line-stable ./work-line-stable \
   --clone git@github.com:owner/name.git --branch dev
 mason setup --apply
@@ -52,15 +51,43 @@ package's README — Host does not grow a `--repo` flag for it.
 
 | Command         | Job                                                                                    |
 | --------------- | -------------------------------------------------------------------------------------- |
-| `mason run`     | Drain the FeatureManager, run Conductor, report                                        |
+| `mason run`     | Drain the TicketTracker, run Conductor, report                                        |
 | `mason watch`   | Snapshot the ledger and follow the journal. Ctrl-C leaves the worker running           |
 | `mason status`  | Snapshot the ledger, then exit. `--json` for scripts                                   |
 | `mason log`     | Replay the journal, with the reason a phase stopped. `--problems` for just those       |
 | `mason init`    | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
 | `mason setup`   | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
 | `mason doctor`  | Check the config, the slots, and the manager. Exit 1 on any failure                    |
-| `mason cancel`  | Abandon a Feature by key, when the tracker cannot say it is gone                       |
-| `mason release` | Drop a held Subtask without waiting for the bail clock                                 |
+| `mason explain` | Say what an agent role starts with: prompt, plugins, skills, the project's profile. Read-only, offline. Exit 1 on a setup every attempt would fail on |
+| `mason cancel`  | Abandon a Ticket by key, when the tracker cannot say it is gone                       |
+| `mason release` | Drop a held unit without waiting for the bail clock                                    |
+
+### What an agent role starts with
+
+```bash
+mason explain builder.producer      # one role; no role names all of them
+mason explain --json                # the same facts for a script
+```
+
+It reads the config, the role's prompt file, the plugin folders of the home, and — for the
+project's side — the deck requests and locks of the work line as it was last refreshed. It runs
+no agent and fetches nothing. Each line says where it comes from: `[home]` for the role you wrote
+in the Mason home, `[base]` and `[profile]` for the project's deck setup, read from the
+`ai-plugin.lock.json` the project committed (which lists the skills, agents, hooks and MCP servers
+of each plugin, so the plugin does not have to be fetched to be described).
+
+What cannot be known is said, not guessed:
+
+- before the work line exists, the project's side is "not known yet";
+- a request no committed lock pins, a prompt that does not place a required `{{placeholder}}` or
+  uses one the role does not fill, an unreadable prompt file, a missing plugin folder: `FAIL`
+  (exit 1), because every attempt of that role would fail the same way;
+- a lock of a version it does not read, a missing profile, two plugins bringing a skill of the
+  same name: `warn`;
+- the key of the agent is never printed, only whether its variable is set;
+- a role written as a plain command is said to be one;
+- the final prompt of a ticket, and what the agent's own tool reads from the checkout, are listed
+  as not covered.
 
 One `run` per ledger: `run` writes `<ledger>/lock` with its pid and a second
 `run` on the same home refuses to start while that process lives (two runs
@@ -74,15 +101,33 @@ steps it is handed. A manager without `setupManager` says it has nothing to do.
 `init` takes `--manager NAME` (which turns the questions off), `--manager-option KEY=VALUE`,
 `--work-line-stable DIR`, `--clone REMOTE`, `--branch NAME`, `--force` and `--interactive`.
 
+`mason run` speaks before it does anything, so a terminal is never blank: it says that it
+is starting, then the config, the trackers, the ledger and the poll interval, then that it is
+opening the host and that it has started. A tick with work prints one line per step; a loop
+with nothing to do says once a minute that it is polling; a tracker that cannot be read is
+named on every poll. The last line says that it stopped and with which exit code, after the
+error message on stderr when there was one.
+
+```
+10:28:50 run        starting
+10:28:50 config     /path/to/home
+10:28:50 trackers   features @bluewombat/manager-github, tickets @bluewombat/manager-github
+10:28:50 ledger     /path/to/home/.mason/ledger
+10:28:50 poll       every 10s
+10:28:50 opening    ledger, lock, work line and trackers
+10:28:51 started    pid 4242, Ctrl-C to stop
+10:29:51 waiting    nothing to do: 6 poll(s) in 60s
+```
+
 Leave `mason run` going in one terminal. In another:
 
 ```bash
 mason watch
 ```
 
-That is the operator surface: the durable state of every Feature, then the film
+That is the operator surface: the durable state of every Ticket, then the film
 of the current step (`submitted` included). It does not talk to the tracker, and
-it cannot `ready` or claim. `status` is the same snapshot without the
+it cannot `resume` or claim. `status` is the same snapshot without the
 follow. `--json` prints that snapshot as JSON.
 
 When a run only printed `unavailable:<key>`, the reason is already in the
@@ -95,19 +140,18 @@ mason log --problems
 `--all` keeps the idle polls. `--tail N` limits the text film (`0` shows every
 kept line). `--json` prints every kept line; with `--tail`, a truncated reply
 names how many were kept and how many are shown. The closing tally counts each
-distinct failure. A pause with no planner exit code is counted apart from a
-non-zero exit. If a slot was started with `--transcript-dir`, the newest
+distinct failure. If a slot was started with `--transcript-dir`, the newest
 transcript files are named underneath, with the agent exit and duration read
 from the start of each file.
 
-To abandon a Feature the tracker can no longer mention (a deleted issue, a
+To abandon a Ticket the tracker can no longer mention (a deleted issue, a
 manager with no `probe`), stop `run` if it holds the ledger lock, then:
 
 ```bash
 mason cancel github:owner/name#19
 ```
 
-After a crash left a Subtask `running` with nobody on it, stop `run` if it
+After a crash left a unit `running` with nobody on it, stop `run` if it
 holds the lock, then:
 
 ```bash
@@ -122,7 +166,7 @@ crash — the ledger is. The file can grow; there is no rotation yet.
 `mason.config.yaml`, found by walking up from the working directory. `--config
 FILE` names another one. Relative paths resolve against the file; relative
 flag paths resolve against the working directory. Flags override the file, and
-`--manager-option` overrides one manager option without dropping the others.
+`--feature-tracker-option` and `--ticket-tracker-option` override one option of that side without dropping the others.
 Parsed with the `yaml` package (YAML 1.2 core schema), so a repeated key is
 refused rather than silently keeping the last one, and `no` / `on` / `off`
 stay plain strings — never coerced to a boolean the way YAML 1.1 would. A
@@ -130,22 +174,22 @@ value that starts with `@`, like every `@bluewombat/...` package name, needs
 quotes: `@` is a reserved YAML indicator at the start of a plain scalar.
 
 ```yaml
-manager: "@bluewombat/manager-fake"
-managerOptions:
-  source: ./.mason/source
-  target: ./.mason/threads
+featureTracker:
+  package: "@bluewombat/manager-fake"
+  options:
+    source: ./.mason/source
+    target: ./.mason/threads
+ticketTracker:
+  package: "@bluewombat/manager-fake"
+  options:
+    source: ./.mason/source
+    target: ./.mason/threads
 workLine:
   stable: ./work-line-stable
   isolation: "@bluewombat/isolation-copy"
   warm:
     cmd: [pnpm, install, --frozen-lockfile]
     timeoutMs: 600000
-planner:
-  cmd:
-    - node
-    - ./node_modules/@bluewombat/slots/planners/one-subtask.mjs
-  timeoutMs: 600000
-  gates: { defaultTimeoutMs: 120000, gates: [] }
 builder:
   producer:
     cmd: [node, ./mason-builder.mjs]
@@ -166,35 +210,34 @@ pollIntervalMs: 10000
 
 | Field                       | Meaning                                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `manager`                   | Package name or path that exports `createManager`                                                                                                                                                                                                                                                                                                                            |
-| `managerOptions`            | Opaque to Host. What it holds is the manager's own documentation                                                                                                                                                                                                                                                                                                             |
+| `featureTracker`            | `package` (a name or path that exports `createManager`) and `options`: where Features are written and signalled                                                                                                                                                                                                                                                                                                                            |
+| `ticketTracker`             | Same shape: where the Tickets of a Feature are, and the Authority that holds the lines. May name the same package as `featureTracker`, or another                                                                                                                                                                                                                                                                                                             |
 | `workLine.stable`           | Existing directory the work folds into. Optional when the manager names a reference work line: Host then keeps its own copy at `<home>/work-line`                                                                                                                                                                                                                            |
 | `workLine.isolation`        | Package name or path exporting `strategy` — required. Host loads it like a manager; Isolator/Integrator do not sniff                                                                                                                                                                                                                                                         |
-| `workLine.isolationOptions` | What that strategy is told, unread by Host — like `managerOptions`. `isolation-git` reads `exclude`, the paths a Child never gets (default `.env`, `.env.*`). A strategy without `createStrategy` refuses any                                                                                                                                                                |
-| `workLine.warm`             | Optional `cmd` / `timeoutMs`. Runs once in the Feature workspace after Isolation, before any Subtask is copied from it — typically `pnpm install --frozen-lockfile`. Absent: Subtasks inherit a cold Feature                                                                                                                                                                 |
+| `workLine.isolationOptions` | What that strategy is told, unread by Host — like a manager's `options`. `isolation-git` reads `exclude`, the paths a Child never gets (default `.env`, `.env.*`). A strategy without `createStrategy` refuses any                                                                                                                                                                |
+| `workLine.warm`             | Optional `cmd` / `timeoutMs`. Runs in the workspace after Isolation, before the Builder — typically `pnpm install --frozen-lockfile`. Absent: the Builder gets a cold tree                                                                                                                                                                 |
 | `workLine.branch`           | The work line a fold lands on. Without it, what the reference names, or else whatever is checked out                                                                                                                                                                                                                                                                         |
 | `authority`                 | `enabled`, the `publish` / `refresh` slots, and the optional `describe` slot (§ Describer). Absent: the fold is local                                                                                                                                                                                                                                                        |
 | `home`                      | Where Host keeps what is its own — default `./.mason`                                                                                                                                                                                                                                                                                                                        |
-| `workspaceRoot`             | Isolated feature / Subtask directories (created). Default `<home>/workspaces`                                                                                                                                                                                                                                                                                                |
+| `workspaceRoot`             | Isolated directories (created). Default `<home>/workspaces`                                                                                                                                                                                                                                                                                                |
 | `ledger`                    | WorkLedger root (created). The Cursor is a file inside it. Default `<home>/ledger`                                                                                                                                                                                                                                                                                           |
 | `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
 | `agents`                    | Agents a pass names instead of writing `cmd` (§ Agent passes written short)                                                                                                                                                                                                                                                                                                 |
-| `planner`                   | `cmd` / `timeoutMs` / `gates`. FeatureStandard in, a Plan out. Its own `gates` judges `workLineStable` once a Plan is otherwise accepted — not where the Planner agent itself reads from                                                                                                                                                                                   |
-| `builder.producer`          | `cmd` / `timeoutMs` / `gates`. Spawned in the Subtask workspace. Exit 0 runs its own `gates`                                                                                                                                                                                                                                                                                 |
+| `builder.producer`          | `cmd` / `timeoutMs` / `gates`. Spawned in the workspace. Exit 0 runs its own `gates`                                                                                                                                                                                                                                                                                 |
 | `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited — including its `gates`: a repair with none of its own runs ungated, even when `builder.producer.gates` is not empty                                                                                                                                                                               |
 | `builder.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                                                                                                                                                                       |
 | `assembly.fix`              | `cmd` / `timeoutMs` / `gates`. Spawned when a judgement of the whole refused it — by an Authority, by `assembly.validate`, or by both. Judged by its own `gates`                                                                                                                                                                                                            |
-| `assembly.validate`         | `cmd` / `timeoutMs` / `gates`. Optional. A local, read-only judge of the assembled feature, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's. Judged by its own `gates`, never `builder`'s or `assembly.fix`'s                                                                                            |
+| `assembly.validate`         | `cmd` / `timeoutMs` / `gates`. Optional. A local, read-only judge of the assembled ticket, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's. Judged by its own `gates`, never `builder`'s or `assembly.fix`'s                                                                                            |
 | `assembly.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                                                                                                                                                                                   |
-| `assembly.gates`            | `defaultTimeoutMs` and `gates`: the produce:false judgement-only pass — no producer of its own, re-checking the assembled feature. Empty: the Authority judges alone. Independent of `assembly.fix.gates` / `assembly.validate.gates` — never shared with either                                                                                                          |
+| `assembly.gates`            | `defaultTimeoutMs` and `gates`: the produce:false judgement-only pass — no producer of its own, re-checking the assembled ticket. Empty: the Authority judges alone. Independent of `assembly.fix.gates` / `assembly.validate.gates` — never shared with either                                                                                                          |
 | `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                                                                                                                                                                             |
 | `maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `assembly.validate`, or by both — one shared budget. Default 3                                                                                                                                                                                                                                      |
 | `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick. Pick it with § Choosing `pollIntervalMs` — 10000 is the floor worth having                                                                                                                                                                                                                             |
-| `observability.streams`     | `enabled`, `dir`, `keep`. Films what every child says, as it says it — one file per child under `<dir>/<feature>/`, named in the journal by a `stream-opened` line. `dir` resolves against the config file; default `<home>/streams`. `keep` is `stdout` / `stderr`, default both. Off unless `enabled` is true: a stream is the Project's own code and prompts in the clear |
+| `observability.streams`     | `enabled`, `dir`, `keep`. Films what every child says, as it says it — one file per child under `<dir>/<ticket>/`, named in the journal by a `stream-opened` line. `dir` resolves against the config file; default `<home>/streams`. `keep` is `stdout` / `stderr`, default both. Off unless `enabled` is true: a stream is the Project's own code and prompts in the clear |
 
 Every `cmd` is named where it is used, and nothing falls back to a neighbour: a
 `repair` with no command of its own is refused rather than quietly running the
-first-pass agent again. `builder` makes a Subtask. `assembly` judges the whole
+first-pass agent again. `builder` makes the unit of work. `assembly` judges the whole
 and, when that judgement refuses it, runs `assembly.fix` — not a second first-pass.
 `assembly.validate`, when declared, is a second, local judge of the whole: it
 runs after align, before the Authority sees the work (or before the final
@@ -223,20 +266,13 @@ agents:
     denyShell: []                   # commands refused to the agent, e.g. [gh, vercel]; ssh and scp always are
     transcripts: ./.mason/transcripts
     pluginsOut: ./.mason/plugins    # where deck profiles are built
-planner:
-  agent: cursor
-  prompt: ./prompts/planner.md
-  read: ./.mason/work-line          # planner only
-  plugins: [./ai-plugins/core/planner]
-  profile: planner
-  args: [--plan]                    # the vendor CLI's own flags
-  timeoutMs: 600000
 builder:
   producer:
     agent: cursor
     prompt: ./prompts/builder.md
     plugins: [./ai-plugins/core/builder]
     profile: builder
+    args: [--mode, agent]           # the vendor CLI's own flags
     timeoutMs: 1200000
     gates: { defaultTimeoutMs: 120000, gates: [] }
 ```
@@ -245,16 +281,15 @@ Host writes the `cmd` it stands for — `node <slots>/<role>.mjs --prompt-file �
 -- node <slots>/agents/cursor.mjs --transcript-dir … --plugin-dir … --profile
 … --plugins-out … --agent-arg …` — with `<slots>` the
 `node_modules/@bluewombat/slots` next to the config. Nothing past the config
-knows a pass was written short. The roles: `planner`, `builder.producer`,
+knows a pass was written short. The roles: `builder.producer`,
 `builder.repair`, `assembly.fix`, `assembly.validate`, and `authority.describe`
-(an argv as before, or `{ agent, prompt?, plugins?, profile?, args? }`).
+(an argv, or `{ agent, prompt?, plugins?, profile?, args? }`).
 
 | Key       | Meaning                                                                                                   |
 | --------- | --------------------------------------------------------------------------------------------------------- |
 | `agent`   | A name `agents` declares. With `cmd` beside it, the pass is refused                                       |
 | `prompt`  | `--prompt-file` of the role slot. Absent: the role's built-in template                                    |
 | `rules`   | `--rules-file` of the role slot                                                                           |
-| `read`    | Planner only: the directory the Planner agent reads (`--read`)                                            |
 | `plugins` | Plugin folders of the Mason home, each a `--plugin-dir`                                                   |
 | `profile` | The project's deck profile for this role. Needs the agent's `pluginsOut`. See the slots' § Agents/Plugins |
 | `args`    | Appended to the agent's own `args`, each an `--agent-arg`                                                 |
@@ -263,12 +298,12 @@ A `profile` is read in the project, not in the Mason home: the role gets the
 base plugins and that profile, as the project's committed deck locks pin them.
 `mason doctor` checks those locks in the work line without the network.
 
-Every tracker field lives in `managerOptions`. Host does not read them.
+Every tracker field lives in the `options` of its side. Host does not read them.
 
 ### Choosing `pollIntervalMs`
 
 The sleep between two ticks, and nothing else. While a tick drives work — a
-Planner, a Builder, a validate — it runs to the end; the interval does not
+Builder, a validate — it runs to the end; the interval does not
 touch it. It only sets how long `mason run` takes to notice:
 
 - a new issue, or an edit to one;
@@ -276,7 +311,7 @@ touch it. It only sets how long `mason run` takes to notice:
   that submitted (`docs/DECISIONS.md`, the Authority re-drive row), so on a
   work line without CI the whole interval is waited for a Gate that answers in
   two seconds;
-- a `ready`, or an issue closed to cancel.
+- a `resume`, or an issue closed to cancel.
 
 **What one tick costs**, with `@bluewombat/manager-github` (read in
 `src/loop/tick.ts` `runOnce`, `src/loop/probe.ts` `abandonGone`, the manager's
@@ -287,8 +322,8 @@ against the token's budget.
 | The tick              | GitHub REST calls                                                                                | Counted when nothing moved                                 | Besides                                        |
 | --------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ---------------------------------------------- |
 | Nothing to do         | 1: the issues updated since the Cursor, 100 per page                                             | 0 (304)                                                    | none: no fetch                                 |
-| A Feature in flight   | + 1 per Feature that can still be abandoned: is its issue still there                            | 0 (304)                                                    | a `git fetch` of the work line copy (not REST) |
-| A Feature `submitted` | + the judgement: `ci-green` asks for the pull request, its check runs and its statuses (about 3) | about 3: `ci-green` is its own process and keeps no `etag` |                                                |
+| A Ticket in flight   | + 1 per Ticket that can still be abandoned: is its issue still there                            | 0 (304)                                                    | a `git fetch` of the work line copy (not REST) |
+| A Ticket `submitted` | + the judgement: `ci-green` asks for the pull request, its check runs and its statuses (about 3) | about 3: `ci-green` is its own process and keeps no `etag` |                                                |
 
 Reports to the tracker (a comment, a label move: 2 to 4 calls each) happen
 when the work moves, not per tick, and each changes the listing: the read
@@ -298,7 +333,7 @@ after a report is a full one.
 (GitHub's primary rate limit). It is shared by every caller using that token:
 the reports, `ci-green`, `gh`, and every other Mason home pointed at it.
 
-| `pollIntervalMs` | Idle, nothing moved | A Feature `submitted` (about 3 counted a tick) | Worst case, every read changed (about 5) |
+| `pollIntervalMs` | Idle, nothing moved | A Ticket `submitted` (about 3 counted a tick) | Worst case, every read changed (about 5) |
 | ---------------- | ------------------- | ---------------------------------------------- | ---------------------------------------- |
 | 30000            | ~0 /h               | 360 /h (7 %)                                   | 600 /h (12 %)                            |
 | 15000            | ~0 /h               | 720 /h (14 %)                                  | 1,200 /h (24 %)                          |
@@ -312,14 +347,14 @@ listing. Without conditional reads an idle tick counted one call (360 /h at
 **The floor.** An idle tick takes 1 to 1.5 s, almost all of it the `listen`
 call (measured on `tilap/orangemonkey-site`, October 2026). Below 2 to 3 s
 the loop never sleeps. Below 10 s nothing a person notices is gained: a
-Feature takes minutes, and 10 s against 30 s saves about 20 s per Feature,
+Ticket takes minutes, and 10 s against 30 s saves about 20 s per Ticket,
 mostly the post-Submission wait (30 s of a 5 min 40 s run, measured). Going
-lower spends the token while a Feature is submitted, for seconds nobody
+lower spends the token while a Ticket is submitted, for seconds nobody
 notices.
 
-**So:** 10000 for one Mason home on a token. Idle no longer spends the
+**So:** 10000 for one Mason home on a token. Idle does not spend the
 budget, so the quota is not what holds the floor: usefulness is, and a
-submitted Feature still is (its judgement counts). Several homes on the same
+submitted Ticket still is (its judgement counts). Several homes on the same
 token add up: multiply the `submitted` and worst-case columns by their count
 and stay under half the budget. The journal is not a reason either way: quiet
 ticks are folded into one `idle` line a minute (`src/loop/journal.ts`).
@@ -330,7 +365,7 @@ settle or its timeout ends the attempt.
 
 ## Slots
 
-Commands mason spawns and never imports: the Planner, the Builder, each Gate,
+Commands mason spawns and never imports: the Builder, each Gate,
 and — when an Authority is enabled — the Publisher and the Refresher. Every one
 reads argv and answers with **one JSON object on stdout**; an exit code alone is
 not the contract. mason does not pick a producer, and a slot may be written in
@@ -341,10 +376,6 @@ the shipped roles and agents (Cursor CLI, Claude Code), the shipped Gates, and
 their options. What follows is what Host guarantees them.
 
 ```json
-"planner": {
-  "cmd": ["node", "./node_modules/@bluewombat/slots/planners/one-subtask.mjs"],
-  "timeoutMs": 600000
-},
 "builder": {
   "producer": {
     "cmd": [
@@ -362,8 +393,8 @@ composition with `--` is the same.
 
 ### Builder
 
-Spawned in the Subtask workspace with `--intention`, `--definition-of-done`,
-`--id`, `--attempt`, and `--context`. On a retry it also gets `--report` and
+Spawned in the workspace with `--intention`, `--id`, `--attempt`, and
+`--context`. On a retry it also gets `--report` and
 `--report-from`: what refused the last pass, and which Gate said it. Exit 0
 means the Gates may run.
 
@@ -373,11 +404,11 @@ hides the change from them.
 
 The config always names a producer (and a repair). Implementer can still run a
 Task as its Gate sequence alone — that is the first judgement of the assembled
-feature, which makes nothing.
+ticket, which makes nothing.
 
 ### Assembly fix
 
-Spawned in the feature workspace when a judgement of the whole refused it
+Spawned in the ticket workspace when a judgement of the whole refused it
 (`--report`, `--report-from`). Same argv as a Builder otherwise. Host hands
 Implementer `assembly.fix` as that pass's only agent: there is no first-pass
 producer at this moment. The refusal it repairs may have come from an
@@ -385,7 +416,7 @@ Authority or from `assembly.validate`.
 
 ### Assembly validate
 
-Spawned in the feature workspace after align, with or without an Authority —
+Spawned in the ticket workspace after align, with or without an Authority —
 `--intention`, `--id`, `--attempt`, `--context`. No `--report`: it is a
 read-only review, not a repair, and takes nothing a producer would. Optional.
 Its verdict is not the exit code alone: the slot reads what the agent itself
@@ -394,10 +425,10 @@ that completes cleanly but finds a problem is still a refusal.
 
 ### Gates
 
-Five independent sequences, one per role — `planner`, `builder.producer`,
+Four independent sequences, one per role — `builder.producer`,
 `builder.repair`, `assembly.fix`, `assembly.validate` — plus `assembly.gates`
 for the one judgement-only pass with no producer of its own (re-checking the
-assembled feature; `ci-green` reads the checks the work line ran on what the
+assembled ticket; `ci-green` reads the checks the work line ran on what the
 Publisher placed, so it belongs there). No sharing, no dispatch choosing
 between two buckets: a check right for one pass is not necessarily right for
 another, even within the same stage. `builder.repair` is the sharpest edge —
@@ -405,13 +436,10 @@ it does not inherit `builder.producer.gates`, so a repair Attempt with no
 Gate of its own runs ungated.
 
 Implementer's Gates are told `--stage unit` or `--stage assembly` alongside
-`--id`, `--attempt`, `--gate-id`, `--intention` and `--definition-of-done`.
+`--id`, `--attempt`, `--gate-id` and `--intention`.
 Most have no use for it. `workspace-changed` does: "nothing changed" means
 nothing was done in a unit, and is the correct outcome for an assembly that
-needed nothing. FeatureBreakdown's Gates (`planner.gates`) are told only
-`--key` and `--gate-id` — no Attempt counter, no `--stage`, no
-`--definition-of-done` — so a Gate written for Implementer's shape is not a
-drop-in for `planner.gates`.
+needed nothing.
 
 `init` writes an empty list on `builder.producer` and `builder.repair`; add a
 Gate when the Project has a check.
@@ -419,10 +447,10 @@ Gate when the Project has a check.
 Every child carries its own ceiling and no other. A Gate entry may name a
 `timeoutMs`; without one it takes its sequence's `defaultTimeoutMs`, and a Gate
 that ends up with neither is refused when the config loads. Nothing is derived
-from what another child left behind, so a slow producer can no longer leave its
+from what another child left behind, so a slow producer cannot leave its
 Gates a millisecond to answer in.
 
-What bounds a Subtask is therefore what you wrote:
+What bounds the unit is therefore what you wrote:
 `builder.maxAttempts × (builder.producer.timeoutMs + Σ builder.producer.gates timeouts)`
 for a first pass, and the same shape with `repair` in place of `producer` once
 a Gate has refused one.
@@ -443,16 +471,9 @@ is bounded the same way from `assembly.maxAttempts` and `assembly.fix`.
 }
 ```
 
-### Planner
-
-FeatureStandard in, a Plan out. It is given `--key`, `--intention`,
-`--title` and `--max-units`. `init` writes the
-bootstrap Planner — one Subtask that is the intention — from
-`@bluewombat/slots/planners/one-subtask.mjs`.
-
 ### Describer
 
-How a delivered feature describes itself — the words the manager puts on the
+How a delivered ticket describes itself — the words the manager puts on the
 Submission and on the fold — is the Project's, not Host's. Three levels, one
 key, `authority.describe`:
 
@@ -460,10 +481,10 @@ key, `authority.describe`:
 | -------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------- |
 | not set                                | the manager's own default: the issue's title, its body as the human wrote it            | none                      |
 | `messages/conventional.mjs`            | `<type>: <title>` (`--scope`, `--type`), the body as written                            | none                      |
-| `messages/git-producer.mjs -- <agent>` | an agent reads the git diff and writes both under `--rules-file` — the team's guideline | one agent run per feature |
+| `messages/git-producer.mjs -- <agent>` | an agent reads the git diff and writes both under `--rules-file` — the team's guideline | one agent run per ticket |
 
 It is an argv like `publish` and `refresh`, bounded by the global `timeoutMs`.
-Host spawns it once per feature, in the feature workspace, when the work is
+Host spawns it once per ticket, in the ticket workspace, when the work is
 offered — with `--id`, `--title`, `--intention` and `--target` (the work line
 it lands on) — and takes one line back: `{ "subject": "…", "body": "…" }`.
 Host hands that description to the manager as is; what it becomes is the
@@ -471,12 +492,9 @@ manager's business (for GitHub: the squash's title and message, the pull
 request's first paragraph). A slot that fails is skipped and the journal says
 so.
 
-Subtasks are never described: their folds are folded again into the
-feature's, so their message is the Subtask's intention — its headline when
-the Planner wrote one (a line, a blank line, the rest: the shape of a commit),
-else its first sentence cut at a word, no markdown. That headline is also what
-the tracker's Plan, the progress comments and the Submission's change list
-show, so a Planner is asked to write one.
+The commit that takes up what the Builder made is worded from the title of the
+issue (or the headline of its intention: a line, a blank line, the rest — the
+shape of a commit), else its first sentence cut at a word, no markdown.
 
 ### Write another slot
 
@@ -486,8 +504,8 @@ otherwise repeat is [`@bluewombat/slot-kit`](../slot-kit/README.md).
 
 ## Submissions
 
-Without an Authority, a finished feature is folded straight into WorkLineStable
-and that is the end of it. With one, the assembled feature is **offered** to an
+Without an Authority, a finished ticket is folded straight into WorkLineStable
+and that is the end of it. With one, the assembled ticket is **offered** to an
 outside judge first, and only an `accepted` verdict lets it into the work line.
 
 It is **declared**, never inferred:
@@ -522,7 +540,7 @@ strategy does not know, a branch the remote does not have, a `workLine.branch`
 that disagrees with the reference, or a `workLine.stable` that is not a copy of
 it each stop `mason run` at boot, and `mason doctor` reports the same offline
 (`reference`, `work line`). Without a reference, `workLine.stable` is required
-and is the operator's directory, as before.
+and is the operator's directory.
 
 ```
 assembled → align → assembly.validate (optional, local)
@@ -544,12 +562,12 @@ Isolation must start from that version, not from a copy left behind.
 
 A refusal is not a second failure path: its report reaches `assembly.fix`
 exactly as a Gate's report reaches `builder.repair`. After `maxRefusals`
-refusals the feature escalates with that report as its Trace, and `done` names
+refusals the ticket escalates with that report as its Trace, and `done` names
 the Submission rather than a directory on the machine that ran.
 
 ## Write another manager
 
-Host loads whatever `manager` names, as long as it exports `createManager`. The
+Host loads whatever `featureTracker.package` and `ticketTracker.package` name, as long as it exports `createManager`. The
 contract and a worked example are in
 [`@bluewombat/manager-kit`](../manager-kit/README.md). Nothing in Host changes.
 
@@ -559,14 +577,20 @@ contract and a worked example are in
 import { openHost } from "@bluewombat/runtime";
 
 const host = await openHost({
-  manager: "@bluewombat/manager-fake",
-  managerOptions: { source: "./.mason/source", target: "./.mason/threads" },
+  featureTracker: {
+    package: "@bluewombat/manager-fake",
+    options: { source: "./.mason/source", target: "./.mason/threads" },
+  },
+  ticketTracker: {
+    package: "@bluewombat/manager-fake",
+    options: { source: "./.mason/source", target: "./.mason/threads" },
+  },
   // …paths and slots
 });
 await host.runOnce();
 ```
 
-`manager` also takes an already-loaded module, which is how a test drives Host
+Each `package` also takes an already-loaded module, which is how a test drives Host
 without resolving a package.
 
 ## Stack
@@ -618,7 +642,7 @@ change that breaks it does not merge.
 Host's code names no plugin. A manager, an isolation strategy, a persistence
 backend, the shipped slots: each is loaded by the name a config gives, through
 `plugins/`, never imported. The names Host falls back to — the two isolation
-strategies `init` writes, the default `persist`, the bootstrap Planner — are
+strategies `init` writes, the default `persist` — are
 strings in `config/defaults.ts` and nowhere else; `check-host.mjs` refuses an
 import of any of them and a spelled-out name anywhere else. Host's
 `package.json` declares exactly those defaults, so a config `init` wrote runs
@@ -667,6 +691,6 @@ src/
   config/                argv, JSON config, config discovery → HostOptions; defaults: the plugin names Host ships with
   plugins/               load: the one loader; manager, isolation, persist: one shape each; discover
   loop/                  open-host (composition), tick (the loop), deliveries, drive, probe, report, authority, work-line, cursor, lock, journal (the film), streams (what a child said), trace, transformers
-  operator/              init, setup, doctor, live (watch / status), log, film, cancel, release, board, prompt, git-remote
+  operator/              run, init, setup, doctor, explain, live (watch / status), log, film, cancel, release, board, prompt, git-remote
 fixtures/                stand-in slots for the loop's tests
 ```

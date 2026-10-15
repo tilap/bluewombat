@@ -3,10 +3,10 @@ import type { EventFields, EventRecord, Invocation } from "../types.js";
 import { truncateText } from "./truncate.js";
 
 /** Free-text fields the report ceiling applies to. */
-const BOUNDED_FIELDS: FieldName[] = ["reason", "plan", "trace"];
+const BOUNDED_FIELDS: FieldName[] = ["reason", "trace"];
 
 /** Fields rendered as a fenced block rather than a bullet. */
-const BLOCK_FIELDS: FieldName[] = ["trace", "plan"];
+const BLOCK_FIELDS: FieldName[] = ["trace"];
 
 export type Rendered = {
   record: EventRecord;
@@ -125,8 +125,8 @@ function label(field: FieldName): string {
   return field.replace(/_/g, " ");
 }
 
-function title(field: FieldName): string {
-  return field === "trace" ? "Trace" : "Plan";
+function title(_field: FieldName): string {
+  return "Trace";
 }
 
 function bullet(value: unknown): string {

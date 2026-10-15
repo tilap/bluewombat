@@ -1,9 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { EVENT_NAMES } from "@bluewombat/manager-kit";
 import { type ClientOptions, createClient, type GithubClient } from "../../github/client.js";
+import { resolveStateLabels } from "../../state-labels.js";
 import { renderMarker } from "../thread/marker.js";
 import type { Invocation } from "../types.js";
 import { runEmitter } from "./run-emitter.js";
+
+function labelsOf(over: Record<string, string> = {}) {
+  const resolved = resolveStateLabels({
+    ...Object.fromEntries(EVENT_NAMES.map((event) => [event, `mason:${event}`])),
+    ...over,
+  });
+  if (!resolved.ok || resolved.labels === undefined) {
+    throw new Error("state labels expected");
+  }
+  return resolved.labels;
+}
+
+const MASON = labelsOf();
 
 function invocation(overrides: Partial<Invocation> = {}): Invocation {
   return {
@@ -101,7 +116,7 @@ describe("runEmitter", () => {
     assert.equal(calls[0]?.url, "https://api.github.com/repos/tilap/mason/issues/42/comments");
     const body = commentBodyOf(calls[0]);
     assert.equal(body.includes("## Accepted"), true);
-    assert.equal(body.includes("feature-event"), true);
+    assert.equal(body.includes("ticket-event"), true);
     assert.equal(
       lines.at(-1)?.comment_url,
       "https://github.com/tilap/mason/issues/42#issuecomment-1",
@@ -163,7 +178,7 @@ describe("runEmitter", () => {
         event: "cancelled",
         fields: { state: "planning" },
         eventId: "github:tilap/mason#42:cancelled",
-        labelPrefix: "mason:",
+        stateLabels: MASON,
       }),
       github,
       write,
@@ -242,7 +257,7 @@ describe("runEmitter", () => {
       invocation: invocation({
         event: "done",
         fields: { reference: "r1" },
-        labelPrefix: "mason:",
+        stateLabels: MASON,
       }),
       github,
       write,
@@ -252,11 +267,34 @@ describe("runEmitter", () => {
     const deleted = calls.filter((call) => call.method === "DELETE").map((call) => call.url);
     assert.deepEqual(deleted, [
       "https://api.github.com/repos/tilap/mason/issues/42/labels/mason%3Aaccepted",
-      "https://api.github.com/repos/tilap/mason/issues/42/labels/mason%3Aplanned",
     ]);
     const added = calls.find((call) => call.method === "POST" && call.url.endsWith("/labels"));
     assert.deepEqual(added?.body, { labels: ["mason:done"] });
     assert.equal(lines.find((line) => line.event === "labels-finished")?.result, "moved");
+  });
+
+  it("moves the state label to the name the configuration chose", async () => {
+    const own = labelsOf({ done: "termine", accepted: "en-cours" });
+    const { github, calls } = targetOf((call) =>
+      call.method === "GET" && call.url.includes("/labels")
+        ? { status: 200, body: [{ name: "en-cours" }, { name: "project:reporting" }] }
+        : undefined,
+    );
+    const { write } = collect();
+
+    const result = await runEmitter({
+      invocation: invocation({ event: "done", fields: { reference: "r1" }, stateLabels: own }),
+      github,
+      write,
+    });
+
+    assert.equal(result.outcome, "reported");
+    const deleted = calls.filter((call) => call.method === "DELETE").map((call) => call.url);
+    assert.deepEqual(deleted, [
+      "https://api.github.com/repos/tilap/mason/issues/42/labels/en-cours",
+    ]);
+    const added = calls.find((call) => call.method === "POST" && call.url.endsWith("/labels"));
+    assert.deepEqual(added?.body, { labels: ["termine"] });
   });
 
   it("stays reported when the label cannot be moved", async () => {
@@ -266,7 +304,7 @@ describe("runEmitter", () => {
     const { write, lines } = collect();
 
     const result = await runEmitter({
-      invocation: invocation({ labelPrefix: "mason:" }),
+      invocation: invocation({ stateLabels: MASON }),
       github,
       write,
     });

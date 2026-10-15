@@ -5,12 +5,11 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { stringify as stringifyYaml } from "yaml";
-import { CONFIG_FILENAME } from "../config/find-config.js";
+import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
 import { runSetup } from "./setup.js";
 
 const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
-const planner = join(here, "../../fixtures/planner-one-subtask.mjs");
 const builder = join(here, "../../fixtures/builder-write-marker.mjs");
 const gate = join(here, "../../fixtures/gate-pass.mjs");
 
@@ -19,12 +18,11 @@ function sandbox(config: Record<string, unknown>): string {
   mkdirSync(join(root, "stable"));
   mkdirSync(join(root, "source"));
   writeFileSync(
-    join(root, CONFIG_FILENAME),
+    join(root, DEFAULT_CONFIG_FILENAME),
     stringifyYaml({
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
-      planner: { cmd: [node, planner], timeoutMs: 600_000 },
       builder: {
         producer: {
           cmd: [node, builder],
@@ -49,8 +47,14 @@ async function setupIn(cwd: string, argv: string[] = [], env: Record<string, str
 describe("runSetup", () => {
   it("says so when the manager has nothing to set up", async () => {
     const cwd = sandbox({
-      manager: "@bluewombat/manager-fake",
-      managerOptions: { source: "./source", target: "./threads" },
+      featureTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
+      ticketTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
     });
     const { code, output } = await setupIn(cwd);
     assert.equal(code, 0);
@@ -59,8 +63,8 @@ describe("runSetup", () => {
 
   it("reports the manager's blocked step and exits 1", async () => {
     const cwd = sandbox({
-      manager: "@bluewombat/manager-github",
-      managerOptions: { repo: "tilap/mason" },
+      featureTracker: { package: "@bluewombat/manager-github", options: { repo: "tilap/mason" } },
+      ticketTracker: { package: "@bluewombat/manager-github", options: { repo: "tilap/mason" } },
     });
     const { code, output } = await setupIn(cwd);
     assert.equal(code, 1);
@@ -69,16 +73,16 @@ describe("runSetup", () => {
   });
 
   it("stops at the invocation when a required field is missing", async () => {
-    const cwd = sandbox({ managerOptions: {} });
+    const cwd = sandbox({ timeoutMs: 1000 });
     const { code, output } = await setupIn(cwd);
     assert.equal(code, 2);
-    assert.match(output, /Missing required "manager"/);
+    assert.match(output, /Missing required "featureTracker.package"/);
   });
 
   it("prints a plan, then points at --apply", async () => {
     const cwd = sandbox({
-      manager: join(here, "../../fixtures/manager-setup-stub.mjs"),
-      managerOptions: {},
+      featureTracker: { package: join(here, "../../fixtures/manager-setup-stub.mjs"), options: {} },
+      ticketTracker: { package: join(here, "../../fixtures/manager-setup-stub.mjs"), options: {} },
     });
     const plan = await setupIn(cwd);
     assert.equal(plan.code, 0);

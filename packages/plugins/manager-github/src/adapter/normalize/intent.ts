@@ -2,7 +2,7 @@ import type { Intent, Invalid } from "../types.js";
 import { hasLabel } from "./labels.js";
 
 /** What a repository can say about an issue, in this Block's five words. */
-export type Kind = "create" | "update" | "ready" | "cancel" | "delete";
+export type Kind = "create" | "update" | "resume" | "cancel" | "delete";
 
 const ACTION_TO_KIND: Record<string, Kind> = {
   opened: "create",
@@ -28,7 +28,7 @@ const ACTION_TO_KIND: Record<string, Kind> = {
 const KIND_TO_INTENT: Record<Kind, Intent> = {
   create: "upsert",
   update: "upsert",
-  ready: "ready",
+  resume: "resume",
   cancel: "cancel",
   delete: "cancel",
 };
@@ -37,7 +37,7 @@ export type IntentInput = {
   action: string | undefined;
   state: string | undefined;
   labels: string[];
-  readyLabel: string;
+  resumeLabel: string;
 };
 
 export type IntentResult = { ok: true; intent: Intent } | { ok: false; invalid: Invalid };
@@ -47,7 +47,7 @@ export type IntentResult = { ok: true; intent: Intent } | { ok: false; invalid: 
  *
  * With an action, the repository said what changed. Without one — a snapshot a
  * subscription listed — only the state is known: open means the intention
- * itself, closed means drop it. `ready` needs the edge, not the state: it is the
+ * itself, closed means drop it. `resume` needs the edge, not the state: it is the
  * moment the label arrived, and a snapshot cannot tell that from a label that
  * has been there for a week.
  */
@@ -66,8 +66,8 @@ export function readIntent(input: IntentInput): IntentResult {
       },
     };
   }
-  if (input.action === "labeled" && hasLabel(input.labels, input.readyLabel)) {
-    return { ok: true, intent: KIND_TO_INTENT.ready };
+  if (input.action === "labeled" && hasLabel(input.labels, input.resumeLabel)) {
+    return { ok: true, intent: KIND_TO_INTENT.resume };
   }
   return { ok: true, intent: KIND_TO_INTENT[kind] };
 }

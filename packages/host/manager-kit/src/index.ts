@@ -2,10 +2,12 @@ export type {
   CreateManagerResult,
   Finding,
   FindingLevel,
+  Manager,
   ManagerContext,
   ManagerModule,
   ManagerQuestion,
   ManagerScaffold,
+  ManagerSide,
   SetupResult,
   SetupStep,
 } from "./module.js";
@@ -25,14 +27,21 @@ export type {
   Delivery,
   EventFields,
   EventName,
+  FeatureRef,
   FeatureStandard,
+  FeatureTrackerPort,
   FoldResult,
+  LineResult,
   ListenResult,
-  ManagerPort,
   ProbeResult,
   ReportInput,
+  SettledResult,
   SubmissionRequest,
   SubmissionResult,
+  TicketEntry,
+  TicketStandard,
+  TicketsResult,
+  TicketTrackerPort,
 } from "./port.js";
 export { EVENT_NAMES } from "./port.js";
-export { PRODUCT } from "./product.js";
+export { CLI_NAME, DEFAULT_CONFIG_FILENAME, HOME_DIR, PRODUCT } from "./product.js";

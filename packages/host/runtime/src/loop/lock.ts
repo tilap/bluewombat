@@ -6,7 +6,7 @@ import { PRODUCT } from "@bluewombat/manager-kit";
  * One `run` or `cancel` per ledger.
  *
  * Two processes on the same ledger both listen, both drive, and both report: the
- * tracker hears everything twice and the feature is folded by whichever got
+ * tracker hears everything twice and the ticket is folded by whichever got
  * there first. A lock file names the process that holds the ledger; a second
  * command refuses to start, unless that process is gone.
  */

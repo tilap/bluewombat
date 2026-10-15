@@ -1,8 +1,8 @@
 {
   "name": "@bluewombat/runtime",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
-  "description": "The mason process: listen, admit, run Conductor, report. Loads one FeatureManager plugin.",
+  "description": "The mason process: listen, admit, run Conductor, report. Loads one TicketTracker plugin.",
   "keywords": [
     "mason",
     "bluewombat",
@@ -46,22 +46,21 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/conductor": "^0.8.0",
-    "@bluewombat/feature-breakdown": "^0.8.0",
-    "@bluewombat/manager-kit": "^0.8.0",
-    "@bluewombat/implementer": "^0.8.0",
-    "@bluewombat/integrator": "^0.8.0",
-    "@bluewombat/isolation-copy": "^0.8.0",
-    "@bluewombat/isolation-git": "^0.8.0",
-    "@bluewombat/isolator": "^0.8.0",
-    "@bluewombat/slots": "^0.8.0",
-    "@bluewombat/work-ledger": "^0.8.0",
-    "@bluewombat/persist-fs": "^0.8.0",
+    "@bluewombat/conductor": "^0.9.0",
+    "@bluewombat/manager-kit": "^0.9.0",
+    "@bluewombat/implementer": "^0.9.0",
+    "@bluewombat/integrator": "^0.9.0",
+    "@bluewombat/isolation-copy": "^0.9.0",
+    "@bluewombat/isolation-git": "^0.9.0",
+    "@bluewombat/isolator": "^0.9.0",
+    "@bluewombat/slots": "^0.9.0",
+    "@bluewombat/work-ledger": "^0.9.0",
+    "@bluewombat/persist-fs": "^0.9.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@bluewombat/manager-fake": "^0.8.0",
-    "@bluewombat/manager-github": "^0.8.0",
-    "@bluewombat/persist-sqlite": "^0.8.0"
+    "@bluewombat/manager-fake": "^0.9.0",
+    "@bluewombat/manager-github": "^0.9.0",
+    "@bluewombat/persist-sqlite": "^0.9.0"
   }
 }

@@ -8,7 +8,7 @@ import {
   statSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { PRODUCT } from "@bluewombat/manager-kit";
+import { CLI_NAME } from "@bluewombat/manager-kit";
 import { parseArgs } from "../config/parse-args.js";
 import type { HostInvocation } from "../config/types.js";
 import { journalPath, parseJournalChunk } from "../loop/journal.js";
@@ -58,7 +58,7 @@ export async function runLog(input: LogInput): Promise<number> {
   const path = journalPath(parsed.invocation.ledgerRoot);
   if (!existsSync(path)) {
     input.write(`No journal at ${path}.\n`);
-    input.write(`${PRODUCT} run has not written one yet.\n`);
+    input.write(`${CLI_NAME} run has not written one yet.\n`);
     return 0;
   }
   let body: string;
@@ -85,7 +85,7 @@ export async function runLog(input: LogInput): Promise<number> {
   input.write(`journal  ${path}\n`);
   if (shown.length < kept.length) {
     input.write(
-      `showing last ${shown.length} of ${kept.length}  (${PRODUCT} log --tail 0 shows every kept line)\n`,
+      `showing last ${shown.length} of ${kept.length}  (${CLI_NAME} log --tail 0 shows every kept line)\n`,
     );
   } else if (!flags.problems && kept.length < parsedLines.length) {
     input.write(`${kept.length} lines  (${parsedLines.length - kept.length} quiet lines hidden)\n`);
@@ -146,7 +146,6 @@ function writeTranscripts(write: (line: string) => void, invocation: HostInvocat
 
 function transcriptDir(invocation: HostInvocation): string | undefined {
   const commands = [
-    invocation.planner.cmd,
     invocation.builder.producer.cmd,
     invocation.builder.repair.cmd,
     ...(invocation.assembly.fix === undefined ? [] : [invocation.assembly.fix.cmd]),

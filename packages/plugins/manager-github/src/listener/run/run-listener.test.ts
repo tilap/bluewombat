@@ -277,7 +277,7 @@ describe("runListener", () => {
   });
 
   it("runs --on-intention once per Delivery, and a failing hook changes nothing", async () => {
-    const logDir = mkdtempSync(join(tmpdir(), "feature-listener-github-"));
+    const logDir = mkdtempSync(join(tmpdir(), "ticket-listener-github-"));
     const log = join(logDir, "hook.log");
     try {
       const { github } = sourceOf([[issue(1, "2026-09-05T10:00:00Z")]]);

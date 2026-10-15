@@ -1,11 +1,9 @@
 # Slots
 
-The Planner, Builder, and Gate commands that ship with mason. A Project points
+The Builder, Gate, and publishing commands that ship with mason. A Project points
 its config at one of these paths; nothing here is imported.
 
 ```yaml
-planner:
-  cmd: [node, ./node_modules/@bluewombat/slots/planners/one-subtask.mjs]
 builder:
   producer:
     cmd:
@@ -52,7 +50,6 @@ these all use it. How Host wires a slot into a run:
   - [The rules](#the-rules)
   - [Transcripts](#transcripts)
 - [Gates](#gates)
-- [Planners](#planners)
 
 ## Catalogue
 
@@ -60,21 +57,19 @@ these all use it. How Host wires a slot into a run:
 | ----------------------------- | --------- | ------------------------------------------------------------------------------------------ |
 | `agents/cursor.mjs`           | Agent     | Runs Cursor CLI with a filled prompt                                                       |
 | `agents/claude.mjs`           | Agent     | Runs Claude Code with a filled prompt                                                      |
-| `builders/producer.mjs`       | Builder   | First pass of a Subtask: fill `{{task}}`, then spawn the agent                             |
-| `builders/repair.mjs`         | Builder   | A Gate refused the Subtask: fill `{{task}}` and `{{report}}`                               |
-| `assembly/fix.mjs`            | Builder   | A judgement refused the assembled feature: fill `{{task}}` and `{{report}}`                |
-| `assembly/validate.mjs`       | Builder   | Read-only review of the assembled feature: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …` |
+| `builders/producer.mjs`       | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                             |
+| `builders/repair.mjs`         | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                               |
+| `assembly/fix.mjs`            | Builder   | A judgement refused the assembled work: fill `{{task}}` and `{{report}}`                |
+| `assembly/validate.mjs`       | Builder   | Read-only review of the assembled work: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …` |
 | `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
 | `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
 | `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
-| `gates/gitignore-leak.mjs`    | Gate      | The feature's commits add nothing its own `.gitignore` excludes                            |
+| `gates/gitignore-leak.mjs`    | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                            |
 | `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
-| `planners/one-subtask.mjs`    | Planner   | Bootstrap: one Subtask that is the FeatureStandard itself                                  |
-| `publishers/git.mjs`          | Publisher | Pushes the feature's branch to the work line's own remote                                  |
+| `publishers/git.mjs`          | Publisher | Pushes the ticket's branch to the work line's own remote                                  |
 | `refreshers/git.mjs`          | Refresher | Fast-forwards the work line copy onto what the Authority holds                             |
-| `planners/producer.mjs`       | Planner   | An agent CLI splits the FeatureStandard                                                    |
-| `messages/conventional.mjs`   | Message   | `<type>: <title>` for the feature's fold, no agent; `--scope`, `--type`                    |
-| `messages/git-producer.mjs`   | Describer | An agent reads the git diff and writes the feature's subject and body under `--rules-file` |
+| `messages/conventional.mjs`   | Message   | `<type>: <title>` for the ticket's fold, no agent; `--scope`, `--type`                    |
+| `messages/git-producer.mjs`   | Describer | An agent reads the git diff and writes the ticket's subject and body under `--rules-file` |
 
 ## Agents
 
@@ -237,18 +232,16 @@ builder:
 ```
 
 A path that names a file next to the config resolves against the config; any
-other relative path resolves inside the Subtask workspace, so a template
+other relative path resolves inside the workspace, so a template
 committed in the Project travels with it.
 
 Each role owns a closed set. An unknown name, or a required name the template
-never places, is `fail-blocking`. `{{done_when}}` is `Done when:` plus the
-definition of done, and vanishes whole when there is none — which is every
-assembly, so `assembly/fix` does not fill it at all.
+never places, is `fail-blocking`.
 
 | Role                | Required                              | Also fills                                                 |
 | ------------------- | ------------------------------------- | ---------------------------------------------------------- |
-| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}`    |
-| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{done_when}}`, `{{id}}`, `{{attempt}}` |
+| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{id}}`, `{{attempt}}`                     |
+| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`    |
 | `assembly/fix`      | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
 | `assembly/validate` | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
 
@@ -258,7 +251,7 @@ belongs to the repair command. A repair or fix command without `--report` is the
 `{{history}}` is what the Task went through before this Attempt, oldest first (the
 refusal it came with, each Attempt, each Gate's answer; see Implementer's SPECS §
 History). It is empty on a first Attempt and vanishes whole then, so a template
-that does not place it works as before.
+that does not place it simply omits it.
 
 ### The way out
 
@@ -285,10 +278,9 @@ a run spent on nothing. A command that arrives with a report and no
 
 ### The fix prompt
 
-A judgement of the assembled feature that refused it is not a Subtask retry.
-The units already passed. `assembly/fix.mjs` tells the agent to change what the
-refusal names and leave the rest. Same placeholders as repair except
-`{{done_when}}`, which an assembly has nothing to fill.
+A judgement of the assembled work that refused it is not a retry of the unit.
+The unit already passed. `assembly/fix.mjs` tells the agent to change what the
+refusal names and leave the rest. Same placeholders as repair.
 
 ### The validate prompt
 
@@ -319,7 +311,7 @@ nothing pushed. A producing template must place it — one that leaves it out is
 Gates are what says no, which is slower, reaches the tracker, and spends a run.
 
 `--rules-file` replaces them with the Project's own. The last three are not a
-matter of taste: the Gates read the working tree of the Subtask directory, so an
+matter of taste: the Gates read the working tree of the workspace, so an
 agent that commits, stashes or writes elsewhere leaves them nothing to see and
 the pass is refused for having done nothing. Replacing the rules does not lift
 that; it only stops saying it out loud.
@@ -335,7 +327,7 @@ loop that misbehaves cannot be read back, only guessed at.
 as sent, stdout, stderr, how long it took, and — when the agent wrapper passed
 them — `skills`, `usage` and what the tools did (`unknown`, `(none)`, or the
 values). Files are
-filed under the Feature the Task belongs to, named for the Subtask and the
+filed under the Ticket the Task belongs to, named for the Subtask and the
 Attempt. It belongs on the **agent** command, after `--`.
 
 ```yaml
@@ -404,15 +396,15 @@ the workspace — tracked paths, and new ones `.gitignore` does not exclude — 
 what an install left under an ignored directory (a dependency's own `.github/`)
 is not a change to guard.
 
-`gitignore-leak --base REF` fail-retries if the feature's commits add a path the
+`gitignore-leak --base REF` fail-retries if the ticket's commits add a path the
 workspace's own `.gitignore` excludes — a Builder's `node_modules/`, a build's
-`dist/`, a generated file. `REF` is the work line the feature is offered to
-(`main`): only what the feature adds since it left that line is judged, and
-only what is committed, so a path tracked on purpose before the feature began
+`dist/`, a generated file. `REF` is the work line the ticket is offered to
+(`main`): only what the ticket adds since it left that line is judged, and
+only what is committed, so a path tracked on purpose before the ticket began
 is not blamed on it, and a removal staged but not committed does not pass. The
 report is written for `assembly.fix`: untrack the paths, or change `.gitignore`
 if tracking one is the point. It passes at `--stage unit`, where no commit
-holds a Subtask's work yet.
+holds a the unit's work yet.
 
 It is a second line, not the first: the `isolation-git` fold already keeps an
 ignored path out of the commits it makes. It catches a leak that came some
@@ -464,47 +456,11 @@ without the other.
 is what Isolator makes when WorkLineStable is a git tree. They fail-block on a
 workspace Isolator had to copy.
 
-## Planners
-
-`one-subtask.mjs` is the bootstrap Planner: one Subtask that is the
-FeatureStandard itself. It is what `mason init` writes into a fresh config, and
-it takes no option.
-
-`planners/producer.mjs` hands the split to an agent CLI. It reads the project
-before answering and writes nothing into it. `--prompt-file` and `--read` belong
-on the role; the vendor is named after `--`, the same way a Builder names it.
-
-```yaml
-planner:
-  cmd:
-    - node
-    - ./node_modules/@bluewombat/slots/planners/producer.mjs
-    - --read
-    - ./work-line-stable
-    - --
-    - node
-    - ./node_modules/@bluewombat/slots/agents/cursor.mjs
-  timeoutMs: 600000
-```
-
-| Option               | Meaning                                                       |
-| -------------------- | ------------------------------------------------------------- |
-| `--read PATH`        | The project the agent may read before splitting. Default: cwd |
-| `--prompt-file PATH` | Prompt template. Must place `{{intention}}` and `{{out}}`     |
-
-`--bin`, `--model`, `--transcript-dir` and `--agent-arg` are the agent's, after
-`--`. Optional placeholder: `{{max_units}}`.
-
-A Plan it cannot use — a cycle, a dangling dependency, more Subtasks than
-`--max-units` — is this slot's own failure: it exits non-zero so the Breakdown is
-retried. A FeatureStandard that cannot be split is a refusal on stdout, which
-is a verdict on the intention instead.
-
 ## Publishers
 
-The slot that puts an assembled feature where the Authority can read it. It runs
+The slot that puts an assembled ticket where the Authority can read it. It runs
 **in the work line**, and mason appends `--id`, `--ref` — the name Isolator gave
-the feature — and `--target`, the work line it is offered to.
+the ticket — and `--target`, the work line it is offered to.
 
 `git.mjs` pushes that name to the work line's own remote. A plain push, no force
 of any kind: Integrator only ever adds history, so republishing after a refusal
@@ -519,12 +475,12 @@ read another. It comes back when that half is a slot too.
 The answer is one JSON object on stdout, like every slot:
 
 ```json
-{ "ref": "issue/feature-42" }
+{ "ref": "issue/ticket-42" }
 { "outcome": "refused", "reason": "the remote rejected the push" }
 ```
 
 The reference is opaque above this line — a branch, a directory, a URL. Whatever
-the Publisher answers is what the FeatureManager is told to judge, so a Project
+the Publisher answers is what the TicketTracker is told to judge, so a Project
 that places its work some other way writes its own Publisher and changes nothing
 else. A refusal stops the Submission and travels back to the tracker; a slot that
 could not run at all exits non-zero and says why on stderr.
@@ -582,12 +538,11 @@ type in JSDoc.
 ```
 README.md      this file
 agents/        vendor CLIs: filled prompt in, serialized run out
-builders/      first-pass and repair roles for a Subtask
-assembly/      the same two roles for the assembled feature
+builders/      first-pass and repair roles for the unit of work
+assembly/      the same two roles for the assembled work
 lib/           what the shipped templates say, shared by the roles
 gates/         checks on the workspace, and on the work line
-planners/      FeatureStandard in, a Plan out
 messages/      what a commit says: a rule, or an agent under the team's guideline
 test/          one suite per kind; each spawns the real command
-fixtures/      fake agent CLIs the Builder and Planner suites run against
+fixtures/      fake agent CLIs the Builder suites run against
 ```

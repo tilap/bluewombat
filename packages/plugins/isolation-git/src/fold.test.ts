@@ -187,7 +187,7 @@ describe("isolation-git fold", () => {
         child,
         durationMs: 30_000,
         subject: "Add the slugify helper",
-        mergeSubject: "Merge s1 into the feature",
+        mergeSubject: "Merge s1 into the ticket",
       },
       write: () => {},
     });
@@ -324,18 +324,18 @@ describe("isolation-git fold", () => {
         child,
         durationMs: 30_000,
         subject: "Child work",
-        mergeSubject: "Merge main into the feature",
+        mergeSubject: "Merge main into the ticket",
       },
       write: () => {},
     });
     assert.equal(result.outcome, "integrated");
     assert.deepEqual(gitLog(parent).sort(), [
       "Child work",
-      "Merge main into the feature",
+      "Merge main into the ticket",
       "init",
       "parent work",
     ]);
-    assert.equal(gitLog(parent)[0], "Merge main into the feature");
+    assert.equal(gitLog(parent)[0], "Merge main into the ticket");
     assert.ok(existsSync(join(parent, "b.txt")) && existsSync(join(parent, "c.txt")));
   });
 });

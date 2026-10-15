@@ -77,7 +77,7 @@ async function waitPoll(input: {
 }
 
 /**
- * Run one FeatureListener invocation to a run outcome.
+ * Run one Listener invocation to a run outcome.
  */
 export async function runListener(options: RunOptions): Promise<RunResult> {
   const { invocation } = options;

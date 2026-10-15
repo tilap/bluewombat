@@ -5,12 +5,11 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { stringify as stringifyYaml } from "yaml";
-import { CONFIG_FILENAME } from "./find-config.js";
+import { DEFAULT_CONFIG_FILENAME } from "./find-config.js";
 import { parseArgs } from "./parse-args.js";
 
 const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
-const planner = join(here, "../../fixtures/planner-one-subtask.mjs");
 const builder = join(here, "../../fixtures/builder-write-marker.mjs");
 const gate = join(here, "../../fixtures/gate-pass.mjs");
 
@@ -35,12 +34,6 @@ function dirs() {
 
 function slots() {
   return [
-    "--planner",
-    "--",
-    node,
-    planner,
-    "--planner-timeout-ms",
-    "600000",
     "--builder",
     "--",
     node,
@@ -79,13 +72,16 @@ function paths(dir: ReturnType<typeof dirs>) {
 }
 
 function configOf(dir: ReturnType<typeof dirs>, over: Record<string, unknown> = {}) {
+  const spec = {
+    package: "@bluewombat/manager-github",
+    options: { repo: "tilap/mason", defaultProject: "from-config" },
+  };
   return {
-    manager: "@bluewombat/manager-github",
+    featureTracker: spec,
+    ticketTracker: spec,
     workLine: { stable: dir.workLineStable, isolation: "@bluewombat/isolation-copy" },
     workspaceRoot: dir.workspaceRoot,
     ledger: dir.ledgerRoot,
-    managerOptions: { repo: "tilap/mason", defaultProject: "from-config" },
-    planner: { cmd: [node, planner], timeoutMs: 600_000 },
     builder: {
       producer: {
         cmd: [node, builder],
@@ -100,15 +96,17 @@ function configOf(dir: ReturnType<typeof dirs>, over: Record<string, unknown> = 
 }
 
 describe("parseArgs", () => {
-  it("takes the manager and its options from flags alone", () => {
+  it("takes both managers and their options from flags alone", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
-        "--manager",
+        "--feature-tracker",
         "@bluewombat/manager-fake",
-        "--manager-option",
+        "--ticket-tracker",
+        "@bluewombat/manager-fake",
+        "--feature-tracker-option",
         `source=${dir.source}`,
-        "--manager-option",
+        "--feature-tracker-option",
         `target=${dir.target}`,
         ...paths(dir),
         ...slots(),
@@ -117,23 +115,67 @@ describe("parseArgs", () => {
     );
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      assert.equal(parsed.invocation.manager, "@bluewombat/manager-fake");
-      assert.deepEqual(parsed.invocation.managerOptions, {
+      assert.equal(parsed.invocation.featureTracker.package, "@bluewombat/manager-fake");
+      assert.deepEqual(parsed.invocation.featureTracker.options, {
         source: dir.source,
         target: dir.target,
       });
     }
   });
 
-  it("collects a repeated --manager-option into an array", () => {
+  it("lets each side name its own package and options", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
-        "--manager",
+        "--feature-tracker",
+        "@acme/manager-linear",
+        "--feature-tracker-option",
+        "team=APP",
+        "--ticket-tracker",
         "@bluewombat/manager-github",
-        "--manager-option",
+        "--ticket-tracker-option",
+        "repo=owner/repo",
+        ...paths(dir),
+        ...slots(),
+      ],
+      { cwd: dir.root },
+    );
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      assert.deepEqual(parsed.invocation.featureTracker, {
+        package: "@acme/manager-linear",
+        options: { team: "APP" },
+      });
+      assert.deepEqual(parsed.invocation.ticketTracker, {
+        package: "@bluewombat/manager-github",
+        options: { repo: "owner/repo" },
+      });
+    }
+  });
+
+  it("refuses a run that names no ticket tracker", () => {
+    const dir = dirs();
+    const parsed = parseArgs(
+      ["--feature-tracker", "@bluewombat/manager-fake", ...paths(dir), ...slots()],
+      { cwd: dir.root },
+    );
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok) {
+      assert.match(parsed.reason, /ticketTracker\.package/);
+    }
+  });
+
+  it("collects a repeated --feature-tracker-option into an array", () => {
+    const dir = dirs();
+    const parsed = parseArgs(
+      [
+        "--feature-tracker",
+        "@bluewombat/manager-github",
+        "--ticket-tracker",
+        "@bluewombat/manager-github",
+        "--feature-tracker-option",
         "labels=mason",
-        "--manager-option",
+        "--feature-tracker-option",
         "labels=urgent",
         ...paths(dir),
         ...slots(),
@@ -142,13 +184,13 @@ describe("parseArgs", () => {
     );
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      assert.deepEqual(parsed.invocation.managerOptions.labels, ["mason", "urgent"]);
+      assert.deepEqual(parsed.invocation.featureTracker.options.labels, ["mason", "urgent"]);
     }
   });
 
-  it("refuses a --manager-option that is not key=value", () => {
+  it("refuses a --feature-tracker-option that is not key=value", () => {
     const dir = dirs();
-    const parsed = parseArgs(["--manager-option", "labels", ...paths(dir), ...slots()], {
+    const parsed = parseArgs(["--feature-tracker-option", "labels", ...paths(dir), ...slots()], {
       cwd: dir.root,
     });
     assert.equal(parsed.ok, false);
@@ -165,7 +207,7 @@ describe("parseArgs", () => {
       [
         "--config",
         configPath,
-        "--manager-option",
+        "--feature-tracker-option",
         "defaultProject=from-flag",
         "--timeout-ms",
         "9000",
@@ -174,9 +216,9 @@ describe("parseArgs", () => {
     );
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      assert.equal(parsed.invocation.manager, "@bluewombat/manager-github");
+      assert.equal(parsed.invocation.featureTracker.package, "@bluewombat/manager-github");
       assert.equal(parsed.invocation.timeoutMs, 9000);
-      assert.deepEqual(parsed.invocation.managerOptions, {
+      assert.deepEqual(parsed.invocation.featureTracker.options, {
         repo: "tilap/mason",
         defaultProject: "from-flag",
       });
@@ -186,13 +228,13 @@ describe("parseArgs", () => {
 
   it("finds the nearest mason.config.yaml without --config", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(configOf(dir)));
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), stringifyYaml(configOf(dir)));
     const nested = join(dir.root, "nested");
     mkdirSync(nested);
     const parsed = parseArgs([], { cwd: nested });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      assert.equal(parsed.invocation.manager, "@bluewombat/manager-github");
+      assert.equal(parsed.invocation.featureTracker.package, "@bluewombat/manager-github");
       assert.equal(parsed.invocation.configDir, dir.root);
     }
   });
@@ -220,7 +262,9 @@ describe("parseArgs", () => {
       [
         ...paths(dir),
         ...slots(),
-        "--manager",
+        "--feature-tracker",
+        "@bluewombat/manager-fake",
+        "--ticket-tracker",
         "@bluewombat/manager-fake",
         "--streams-dir",
         "films",
@@ -284,12 +328,12 @@ describe("parseArgs", () => {
     }
   });
 
-  it("requires a manager", () => {
+  it("requires a feature tracker", () => {
     const dir = dirs();
     const parsed = parseArgs([...paths(dir), ...slots()], { cwd: dir.root });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
-      assert.match(parsed.reason, /Missing required "manager"/);
+      assert.match(parsed.reason, /Missing required "featureTracker.package"/);
     }
   });
 
@@ -323,7 +367,9 @@ describe("parseArgs", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
-        "--manager",
+        "--feature-tracker",
+        "@bluewombat/manager-fake",
+        "--ticket-tracker",
         "@bluewombat/manager-fake",
         "--work-line-stable",
         "stable",
@@ -347,7 +393,7 @@ describe("parseArgs", () => {
   it("resolves a directory the slot writes to, even before it exists", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml(
         configOf(dir, {
           builder: {
@@ -375,7 +421,7 @@ describe("parseArgs", () => {
   it("resolves --agent-home against the config directory before it exists", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml(
         configOf(dir, {
           builder: {
@@ -403,7 +449,7 @@ describe("parseArgs", () => {
   it("carries workLine.branch from the config to the invocation", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
         workLine: {
@@ -413,7 +459,9 @@ describe("parseArgs", () => {
         },
       }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -433,8 +481,10 @@ describe("parseArgs", () => {
         isolationOptions: { exclude: [".env", "**/*.log"] },
       },
     };
-    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(withOptions));
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), stringifyYaml(withOptions));
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -444,13 +494,15 @@ describe("parseArgs", () => {
     });
 
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...withOptions,
         workLine: { ...withOptions.workLine, isolationOptions: [] },
       }),
     );
-    const refused = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const refused = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(refused.ok, false);
     assert.match(refused.ok ? "" : refused.reason, /isolationOptions.*YAML mapping/);
   });
@@ -465,8 +517,10 @@ describe("parseArgs", () => {
         warm: { cmd: ["pnpm", "install", "--frozen-lockfile"], timeoutMs: 600_000 },
       },
     };
-    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(withWarm));
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), stringifyYaml(withWarm));
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -477,7 +531,7 @@ describe("parseArgs", () => {
     });
 
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...withWarm,
         workLine: {
@@ -486,16 +540,18 @@ describe("parseArgs", () => {
         },
       }),
     );
-    const refused = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const refused = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(refused.ok, false);
     assert.match(refused.ok ? "" : refused.reason, /workLine\.warm.*timeoutMs/);
   });
 
   it("takes the work line to fold onto from a flag too", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(configOf(dir)));
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), stringifyYaml(configOf(dir)));
     const parsed = parseArgs(
-      ["--config", join(dir.root, CONFIG_FILENAME), "--work-line-branch", "trunk"],
+      ["--config", join(dir.root, DEFAULT_CONFIG_FILENAME), "--work-line-branch", "trunk"],
       { cwd: dir.root },
     );
     assert.equal(parsed.ok, true);
@@ -507,8 +563,8 @@ describe("parseArgs", () => {
 
   it("names the persistence backend from the config, a flag, or the default", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(configOf(dir)));
-    const config = join(dir.root, CONFIG_FILENAME);
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), stringifyYaml(configOf(dir)));
+    const config = join(dir.root, DEFAULT_CONFIG_FILENAME);
 
     const defaulted = parseArgs(["--config", config], { cwd: dir.root });
     assert.ok(defaulted.ok);
@@ -533,7 +589,7 @@ describe("parseArgs", () => {
   it("carries the budgets from the config", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
         builder: {
@@ -544,7 +600,9 @@ describe("parseArgs", () => {
         maxRefusals: 2,
       }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -554,10 +612,10 @@ describe("parseArgs", () => {
     assert.equal(parsed.invocation.maxRefusals, 2);
   });
 
-  it("reads a separate Gate sequence for the assembled feature", () => {
+  it("reads a separate Gate sequence for the assembled ticket", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
         builder: {
@@ -579,7 +637,9 @@ describe("parseArgs", () => {
         },
       }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -593,7 +653,7 @@ describe("parseArgs", () => {
     // A relative token becomes a path only when it is one: same rule as a Gate.
     writeFileSync(join(dir.root, "publish.mjs"), "");
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
         authority: {
@@ -603,7 +663,9 @@ describe("parseArgs", () => {
         },
       }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -617,7 +679,7 @@ describe("parseArgs", () => {
     const dir = dirs();
     writeFileSync(join(dir.root, "publish.mjs"), "");
     writeFileSync(join(dir.root, "describe.mjs"), "");
-    const config = join(dir.root, CONFIG_FILENAME);
+    const config = join(dir.root, DEFAULT_CONFIG_FILENAME);
     const authority = {
       enabled: true,
       publish: ["node", "./publish.mjs"],
@@ -650,14 +712,16 @@ describe("parseArgs", () => {
 
   it("refuses an Authority that is enabled and names neither slot", () => {
     // Enabled with no Publisher is a Project that cannot submit anything, and
-    // with no Refresher it builds every next feature on a version the Authority
+    // with no Refresher it builds every next ticket on a version the Authority
     // has already moved past. Say so here, not hours later.
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({ ...configOf(dir), authority: { enabled: true } }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, false);
     assert.match(parsed.ok === false ? parsed.reason : "", /authority\.publish/);
   });
@@ -665,10 +729,12 @@ describe("parseArgs", () => {
   it("takes an Authority turned off with no Publisher named", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({ ...configOf(dir), authority: { enabled: false } }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -679,7 +745,7 @@ describe("parseArgs", () => {
   it("reads assembly.fix, and says why assembly has no producer or repair", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
         assembly: {
@@ -688,7 +754,9 @@ describe("parseArgs", () => {
         },
       }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -698,7 +766,7 @@ describe("parseArgs", () => {
     assert.equal(parsed.invocation.assembly.maxAttempts, 2);
 
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
         assembly: {
@@ -707,7 +775,9 @@ describe("parseArgs", () => {
         },
       }),
     );
-    const refused = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const refused = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(refused.ok, false);
     assert.match(refused.ok === false ? refused.reason : "", /assembly\.fix/);
   });
@@ -715,7 +785,7 @@ describe("parseArgs", () => {
   it("reads assembly.validate from the config, beside assembly.fix", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
         assembly: {
@@ -724,7 +794,9 @@ describe("parseArgs", () => {
         },
       }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
@@ -738,7 +810,9 @@ describe("parseArgs", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
-        "--manager",
+        "--feature-tracker",
+        "@bluewombat/manager-github",
+        "--ticket-tracker",
         "@bluewombat/manager-github",
         ...paths(dir),
         ...slots(),
@@ -767,21 +841,16 @@ describe("parseArgs", () => {
     assert.deepEqual(parsed.invocation.assembly.fix?.cmd, [node, builder]);
   });
 
-  it("gives planner, builder.repair, assembly.fix and assembly.validate each their own Gate, via the CLI", () => {
+  it("gives builder.repair, assembly.fix and assembly.validate each their own Gate, via the CLI", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
-        "--manager",
+        "--feature-tracker",
+        "@bluewombat/manager-github",
+        "--ticket-tracker",
         "@bluewombat/manager-github",
         ...paths(dir),
         ...slots(),
-        "--planner-gate-timeout-ms",
-        "1000",
-        "--planner-gate",
-        "plan-check",
-        "--",
-        node,
-        gate,
         "--builder-repair-gate-timeout-ms",
         "1000",
         "--builder-repair-gate",
@@ -823,10 +892,6 @@ describe("parseArgs", () => {
       return;
     }
     assert.deepEqual(
-      parsed.invocation.planner.gates.map((g) => g.id),
-      ["plan-check"],
-    );
-    assert.deepEqual(
       parsed.invocation.builder.repair.gates.map((g) => g.id),
       ["repair-check"],
     );
@@ -848,7 +913,7 @@ describe("parseArgs", () => {
   it("rejects the old shared builder.gates shape as an unknown key", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir, {
           builder: {
@@ -859,7 +924,9 @@ describe("parseArgs", () => {
         }),
       }),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
       assert.match(parsed.reason, /unknown key "gates"/);
@@ -869,8 +936,10 @@ describe("parseArgs", () => {
   it("puts the ledger, the workspaces and home under .mason by the config unless told otherwise", () => {
     const dir = dirs();
     const { workspaceRoot: _w, ledger: _l, ...config } = configOf(dir);
-    writeFileSync(join(dir.root, CONFIG_FILENAME), stringifyYaml(config));
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), stringifyYaml(config));
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
       assert.equal(parsed.invocation.home, join(dir.root, ".mason"));
@@ -883,11 +952,11 @@ describe("parseArgs", () => {
     const dir = dirs();
     const { workspaceRoot: _w, ledger: _l, ...config } = configOf(dir);
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({ ...config, home: "./var", ledger: "./elsewhere/ledger" }),
     );
     const parsed = parseArgs(
-      ["--config", join(dir.root, CONFIG_FILENAME), "--workspace-root", "./scratch"],
+      ["--config", join(dir.root, DEFAULT_CONFIG_FILENAME), "--workspace-root", "./scratch"],
       { cwd: dir.root },
     );
     assert.equal(parsed.ok, true);
@@ -900,8 +969,10 @@ describe("parseArgs", () => {
 
   it("refuses a config file that is not valid YAML", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), "manager: [unterminated\n");
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), "manager: [unterminated\n");
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
       assert.match(parsed.reason, /not valid YAML/);
@@ -911,10 +982,12 @@ describe("parseArgs", () => {
   it("refuses a config with a repeated key rather than keeping the last one", () => {
     const dir = dirs();
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       "manager: @bluewombat/manager-fake\nmanager: @bluewombat/manager-github\n",
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
       assert.match(parsed.reason, /not valid YAML/);
@@ -923,8 +996,10 @@ describe("parseArgs", () => {
 
   it("refuses an unquoted npm-scoped value: @ is a reserved YAML indicator", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), "manager: @bluewombat/manager-github\n");
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    writeFileSync(join(dir.root, DEFAULT_CONFIG_FILENAME), "manager: @bluewombat/manager-github\n");
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
       assert.match(parsed.reason, /not valid YAML/);
@@ -933,8 +1008,13 @@ describe("parseArgs", () => {
 
   it("refuses a config that is a YAML scalar or sequence, not a mapping", () => {
     const dir = dirs();
-    writeFileSync(join(dir.root, CONFIG_FILENAME), '- manager\n- "@bluewombat/manager-fake"\n');
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    writeFileSync(
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
+      '- manager\n- "@bluewombat/manager-fake"\n',
+    );
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
       assert.match(parsed.reason, /YAML mapping/);
@@ -949,30 +1029,34 @@ describe("parseArgs", () => {
     // yes/no/on/off booleans. The `@bluewombat/...` values stay quoted: `@`
     // is a reserved indicator at the start of a plain YAML scalar.
     writeFileSync(
-      join(dir.root, CONFIG_FILENAME),
+      join(dir.root, DEFAULT_CONFIG_FILENAME),
       [
-        'manager: "@bluewombat/manager-github"',
+        "featureTracker:",
+        '  package: "@bluewombat/manager-github"',
+        "  options:",
+        "    repo: tilap/mason",
+        "    defaultProject: no",
+        "    resumeLabel: on",
+        "ticketTracker:",
+        '  package: "@bluewombat/manager-github"',
         "workLine:",
         `  stable: ${dir.workLineStable}`,
         '  isolation: "@bluewombat/isolation-copy"',
-        "managerOptions:",
-        "  repo: tilap/mason",
-        "  defaultProject: no",
-        "  readyLabel: on",
-        `planner: { cmd: [${node}, ${planner}], timeoutMs: 600000 }`,
         `builder:`,
         `  producer: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         `  repair: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         "timeoutMs: 1000",
       ].join("\n"),
     );
-    const parsed = parseArgs(["--config", join(dir.root, CONFIG_FILENAME)], { cwd: dir.root });
+    const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+      cwd: dir.root,
+    });
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      assert.deepEqual(parsed.invocation.managerOptions, {
+      assert.deepEqual(parsed.invocation.featureTracker.options, {
         repo: "tilap/mason",
         defaultProject: "no",
-        readyLabel: "on",
+        resumeLabel: "on",
       });
     }
   });

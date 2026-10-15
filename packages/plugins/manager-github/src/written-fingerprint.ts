@@ -1,4 +1,5 @@
 import { fingerprintOf } from "./adapter/normalize/fingerprint.js";
+import { isStateLabel, type StateLabels } from "./state-labels.js";
 
 /**
  * What a human wrote on the issue: title, body, state, and the labels that are
@@ -7,14 +8,10 @@ import { fingerprintOf } from "./adapter/normalize/fingerprint.js";
  */
 export function writtenFingerprint(
   payload: Record<string, unknown>,
-  stateLabelPrefix: string | undefined,
+  stateLabels: StateLabels | undefined,
 ): string {
   const labels = labelNames(payload)
-    .filter(
-      (name) =>
-        stateLabelPrefix === undefined ||
-        !name.toLowerCase().startsWith(stateLabelPrefix.toLowerCase()),
-    )
+    .filter((name) => stateLabels === undefined || !isStateLabel(stateLabels, name))
     .sort();
   return fingerprintOf({
     title: payload.title,

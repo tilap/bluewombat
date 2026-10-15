@@ -13,7 +13,7 @@ import {
   textOption,
   transcriptArgs,
 } from "@bluewombat/slot-kit";
-import { attemptOf, doneWhen } from "../lib/fill.mjs";
+import { attemptOf } from "../lib/fill.mjs";
 
 const NAME = "builder producer";
 
@@ -22,11 +22,8 @@ const DEFAULT_TEMPLATE = `You are a coding agent working unattended in a checkou
 Task:
 {{task}}
 
-{{done_when}}
-
-This checkout already includes any earlier subtasks that were folded into the
-feature. Do not rewrite that work. Add or change only what this task names, and
-leave the project's own checks green on the whole tree.
+This checkout is the project as it stands. Add or change only what this task
+names, and leave the project's own checks green on the whole tree.
 
 {{history}}
 
@@ -82,7 +79,6 @@ const rendered = fillPrompt(
   {
     task: intention,
     history: (take(process.argv, "--history") ?? "").trim(),
-    done_when: doneWhen(take(process.argv, "--definition-of-done")),
     rules: rules.value.trim(),
     id: take(process.argv, "--id") ?? "",
     attempt: String(attemptOf(process.argv)),

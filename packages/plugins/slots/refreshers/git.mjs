@@ -16,6 +16,9 @@ import {
 // would make the next Isolation start from a version that no longer exists, so
 // this runs before anything else in a pass.
 //
+// The copy moves onto the target line first: a Feature's Tickets are cut from
+// and folded into that Feature's line, not the final branch.
+//
 // Fast-forward only: this system never rewrites that line. A copy that cannot
 // fast-forward has been written to by somebody else, and that is a person's
 // problem, not a merge to attempt.
@@ -41,12 +44,25 @@ if (!existsSync(join(cwd, ".git"))) {
   process.exit(0);
 }
 
-const fetched = git(["fetch", "origin", target]);
+// An explicit refspec: a single-branch clone only knows its own branch.
+const fetched = git(["fetch", "origin", `+refs/heads/${target}:refs/remotes/origin/${target}`]);
 if (fetched.status !== 0) {
   emitRefreshRefusal(
     `Cannot fetch origin/${target} from ${cwd}: ${fetched.stderr.trim().slice(-500)}`,
   );
   process.exit(0);
+}
+
+const current = git(["symbolic-ref", "--short", "HEAD"]);
+if (current.status !== 0 || current.stdout.trim() !== target) {
+  const exists = git(["rev-parse", "--verify", "--quiet", `refs/heads/${target}`]).status === 0;
+  const switched = git(
+    exists ? ["checkout", target] : ["checkout", "-b", target, `origin/${target}`],
+  );
+  if (switched.status !== 0) {
+    emitRefreshRefusal(`Cannot move ${cwd} onto ${target}: ${switched.stderr.trim().slice(-500)}`);
+    process.exit(0);
+  }
 }
 
 const merged = git(["merge", "--ff-only", `origin/${target}`]);

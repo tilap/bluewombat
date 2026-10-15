@@ -1,6 +1,6 @@
 # Manager kit
 
-The FeatureManager plugin contract. Types only — no runtime, no dependency, no
+The FeatureTracker and TicketTracker plugin contract. Types only — no runtime, no dependency, no
 Transformer. A package that wants mason to drive its tracker imports this and
 nothing else. Contract: [SPECS.md](./SPECS.md).
 
@@ -29,8 +29,8 @@ npm install
 
 ## Write a manager
 
-One export is required: `createManager`. Host calls it once at boot and drives
-the `ManagerPort` it returns.
+One export is required: `createManager`. Host calls it once at boot per distinct side (a package named with the same options on both sides is built once) and drives
+the `Manager` it returns: `features` (a `FeatureTrackerPort`) and `tickets` (a `TicketTrackerPort`).
 
 ```ts
 import {
@@ -61,7 +61,10 @@ export function createManager(context: ManagerContext): CreateManagerResult {
 Then point a config at it:
 
 ```json
-{ "manager": "@acme/manager-jira", "managerOptions": { "board": "APP" } }
+{
+  "featureTracker": { "package": "@acme/manager-jira", "options": { "board": "APP" } },
+  "ticketTracker": { "package": "@acme/manager-jira", "options": { "board": "APP" } }
+}
 ```
 
 `checkManager` is optional. Export it and `mason doctor` prints your findings
@@ -72,7 +75,7 @@ and write to it — `mason setup` plans, `mason setup --apply` performs. Keep it
 idempotent.
 
 `questionsManager` is optional as well. Return the questions `mason init`
-should ask, and Host fills `managerOptions` from the answers:
+should ask, and Host fills `options` from the answers:
 
 ```ts
 export function questionsManager(): ManagerQuestion[] {
@@ -98,7 +101,7 @@ Host already holds is still there — a poll cannot see a deletion. `gone` is
 abandon; `unavailable` is not.
 
 `scaffoldManager` is optional. Export it and `mason init --manager this-package`
-fills `managerOptions` from it. A tracker field (`repo`, a board id) belongs
+fills `options` from it (for both sides). A tracker field (`repo`, a board id) belongs
 there, not as a Host flag.
 
 `referenceManager` is optional, and only for a manager whose Authority holds
@@ -114,7 +117,7 @@ work line and Host keeps its own copy at `<home>/work-line` (`.mason` by default
 SPECS.md   the contract a manager package implements
 README.md  how to build it, and how to write a manager
 src/
-  port.ts     ManagerPort and the values it exchanges
+  port.ts     FeatureTrackerPort, TicketTrackerPort, Manager and the values they exchange
   module.ts   ManagerContext, ManagerModule, Finding
-  options.ts  readers for one managerOptions object
+  options.ts  readers for one `options` object
 ```

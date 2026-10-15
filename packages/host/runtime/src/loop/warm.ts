@@ -5,10 +5,10 @@ import { runSlot } from "./run-slot.js";
 import type { Trace } from "./trace.js";
 
 /**
- * Run the Project's Feature warm command in a Feature workspace.
+ * Run the Project's Ticket warm command in a Ticket workspace.
  *
- * Isolation leaves a cold tree (no `node_modules`); Subtasks copy that tree.
- * Warming the Feature once means every Subtask inherits the install.
+ * Isolation leaves a cold tree (no `node_modules`). Warming the workspace
+ * once Isolation made it means the Builder starts with the install done.
  */
 export function openWarm(input: {
   pass: PassSpec;

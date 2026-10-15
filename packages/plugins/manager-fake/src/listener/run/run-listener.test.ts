@@ -10,7 +10,7 @@ import { runListener } from "./run-listener.js";
 const fixturesDir = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
 
 function sourceDir(): string {
-  return mkdtempSync(join(tmpdir(), "feature-listener-run-"));
+  return mkdtempSync(join(tmpdir(), "ticket-listener-run-"));
 }
 
 function publish(source: string, name: string, content: unknown): void {

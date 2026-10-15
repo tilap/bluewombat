@@ -58,18 +58,6 @@ describe("renderEvent", () => {
     assert.match(words(50), /Taken in at normal priority \(50\/100\)\./);
   });
 
-  it("renders the plan as the text it is, not a fenced block", () => {
-    const rendered = renderEvent(
-      invocation({ event: "planned", fields: { plan: "1. Add slugify\n2. Add truncate" } }),
-    );
-    assert.match(
-      rendered.section,
-      /^## Planned\n\nI have planned this work this issue\.\n\n1\. Add slugify\n2\. Add truncate\n/,
-    );
-    assert.doesNotMatch(rendered.section, /```/);
-    assert.doesNotMatch(rendered.section, /### Plan/);
-  });
-
   it("says where the work is under review once submitted", () => {
     const rendered = renderEvent(
       invocation({
@@ -150,13 +138,12 @@ describe("renderEvent", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
-        readyLabel: "ready",
+        resumeLabel: "to-resume",
         fields: {
           reason: "a forbidden path is required",
           stage: "unit",
           trace: "line one",
           counters: { attempts: "3/3" },
-          unit: "u-2",
         },
       }),
     );
@@ -170,9 +157,9 @@ describe("renderEvent", () => {
         "",
         "a forbidden path is required",
         "",
-        "After 3 of 3 attempts on `u-2`.",
+        "After 3 of 3 attempts.",
         "",
-        "No further work starts until a human answers. To resume, add the `ready` label; to abandon, close the issue.",
+        "No further work starts until a human answers. To resume, add the `to-resume` label; to abandon, close the issue.",
         "",
         "### Trace",
         "",
@@ -188,7 +175,7 @@ describe("renderEvent", () => {
     assert.doesNotMatch(rendered.section, /counters:/);
   });
 
-  it("says nothing about resuming when the manager carries no ready label", () => {
+  it("says nothing about resuming when the manager carries no resume label", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
@@ -203,7 +190,7 @@ describe("renderEvent", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
-        readyLabel: "ready",
+        resumeLabel: "to-resume",
         fields: { reason: "Integration into WorkLineStable escalated.", stage: "merging" },
       }),
     );
@@ -211,7 +198,7 @@ describe("renderEvent", () => {
     assert.doesNotMatch(rendered.section, /close the issue/);
     assert.match(
       rendered.section,
-      /To resume, add the `ready` label\. It can no longer be abandoned: the fold had started\./,
+      /To resume, add the `to-resume` label\. It can no longer be abandoned: the fold had started\./,
     );
   });
 
@@ -219,21 +206,20 @@ describe("renderEvent", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
-        readyLabel: "mason:go",
-        fields: { reason: "r", stage: "plan" },
+        resumeLabel: "mason:go",
+        fields: { reason: "r", stage: "integrating" },
       }),
     );
     assert.match(rendered.section, /To resume, add the `mason:go` label/);
   });
 
-  it("locates a thin Subtask escalation by its unit, not by field labels", () => {
+  it("locates a thin escalation by its stage, not by field labels", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
         fields: {
-          reason: "A Subtask escalated.",
+          reason: "The unit escalated.",
           stage: "unit",
-          unit: "s1",
           trace: "gate output",
         },
       }),
@@ -245,9 +231,9 @@ describe("renderEvent", () => {
         "",
         "🙋 A human action is required to continue.",
         "",
-        "A Subtask escalated.",
+        "The unit escalated.",
         "",
-        "On `s1`.",
+        "This happened while the work was being made.",
         "",
         "No further work starts until a human answers.",
         "",
@@ -267,7 +253,7 @@ describe("renderEvent", () => {
     const reminder = renderEvent(
       invocation({
         event: "escalation_reminder",
-        fields: { reason: "still stuck", stage: "plan" },
+        fields: { reason: "still stuck", stage: "integrating" },
       }),
     );
     assert.equal(reminder.section.includes("this is a repeat"), true);
@@ -284,16 +270,16 @@ describe("renderEvent", () => {
       counters: { attempts: "3/3" },
       trace: "Sensitive paths changed:\n.github/workflows/hello.yml",
     };
-    const first = renderEvent(invocation({ event: "escalated", readyLabel: "ready", fields }));
+    const first = renderEvent(invocation({ event: "escalated", resumeLabel: "to-resume", fields }));
     const again = renderEvent(
-      invocation({ event: "escalation_reminder", readyLabel: "ready", fields }),
+      invocation({ event: "escalation_reminder", resumeLabel: "to-resume", fields }),
     );
     assert.match(again.section, /^## Still escalated\n/);
     // Everything under the lead line is the same comment: a reader who only
     // sees the reminder must not learn less than one who saw the first.
     const body = (section: string) => section.split("\n").slice(3).join("\n");
     assert.equal(body(again.section), body(first.section));
-    assert.match(again.section, /To resume, add the `ready` label/);
+    assert.match(again.section, /To resume, add the `to-resume` label/);
     assert.doesNotMatch(again.section, /^- /m);
   });
 
@@ -327,7 +313,7 @@ describe("renderEvent", () => {
     const rendered = renderEvent(
       invocation({
         event: "escalated",
-        fields: { reason: "r", stage: "plan", trace: "x".repeat(50) },
+        fields: { reason: "r", stage: "integrating", trace: "x".repeat(50) },
         maxReportChars: 10,
       }),
     );
@@ -374,11 +360,10 @@ describe("renderEvent", () => {
   });
 
   it("leaves no blank line under the heading of an Event with no bullet", () => {
-    const rendered = renderEvent(invocation({ event: "planned", fields: { plan: "A: do it" } }));
-    assert.match(
-      rendered.section,
-      /^## Planned\n\nI have planned this work this issue\.\n\nA: do it\n/,
+    const rendered = renderEvent(
+      invocation({ event: "progress", fields: { summary: "Refused; a repair is on its way." } }),
     );
+    assert.match(rendered.section, /^## In progress\n\nRefused; a repair is on its way\.\n/);
   });
 
   it("folds a one-line Trace so the fence is several lines", () => {
@@ -388,7 +373,7 @@ describe("renderEvent", () => {
       invocation({
         event: "progress",
         fields: {
-          summary: "assembly.validate refused the assembled feature.",
+          summary: "assembly.validate refused the assembled ticket.",
           stage: "integrating",
           trace: sentence,
         },

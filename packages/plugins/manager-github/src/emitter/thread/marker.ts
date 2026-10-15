@@ -7,7 +7,7 @@ import type { EventRecord } from "../types.js";
  * machine reads the record. The record travels inside an HTML comment, which
  * GitHub renders as nothing at all, so neither audience pays for the other.
  */
-export const MARKER_TAG = "feature-event";
+export const MARKER_TAG = "ticket-event";
 
 export function renderMarker(record: EventRecord): string {
   return `<!-- ${MARKER_TAG} ${JSON.stringify(record)} -->`;

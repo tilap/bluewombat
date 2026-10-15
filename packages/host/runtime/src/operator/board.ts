@@ -1,7 +1,7 @@
-import type { FeatureAggregate, FeatureSummary, WorkLedger } from "@bluewombat/work-ledger";
-import { describeFeature } from "../loop/trace.js";
+import type { TicketAggregate, TicketSummary, WorkLedger } from "@bluewombat/work-ledger";
+import { describeTicket } from "../loop/trace.js";
 
-export type BoardFeature = {
+export type BoardTicket = {
   key: string;
   project: string;
   state: string;
@@ -9,17 +9,16 @@ export type BoardFeature = {
   received_at: number;
   bail_expires_at?: number;
   attempts_used?: number;
-  subtasks?: { id: string; state: string }[];
-  escalation?: { kind: string; subtask_id?: string };
+  escalation?: { kind: string };
   invalid?: { code: string; reason: string };
   submission?: { reference: string; refusals: number; last_report?: string };
   parked_refusal?: { report: string; refused_by?: string };
   line: string;
 };
 
-export async function boardOf(ledger: WorkLedger): Promise<BoardFeature[]> {
+export async function boardOf(ledger: WorkLedger): Promise<BoardTicket[]> {
   const summaries = await ledger.list();
-  const rows: BoardFeature[] = [];
+  const rows: BoardTicket[] = [];
   for (const summary of summaries) {
     const got = await ledger.get(summary.key);
     rows.push(got.ok ? rowOf(got.aggregate) : rowFromSummary(summary));
@@ -27,8 +26,8 @@ export async function boardOf(ledger: WorkLedger): Promise<BoardFeature[]> {
   return rows;
 }
 
-function rowFromSummary(summary: FeatureSummary): BoardFeature {
-  const row: BoardFeature = {
+function rowFromSummary(summary: TicketSummary): BoardTicket {
+  const row: BoardTicket = {
     key: summary.key,
     project: summary.project,
     state: summary.state,
@@ -42,30 +41,21 @@ function rowFromSummary(summary: FeatureSummary): BoardFeature {
   return row;
 }
 
-function rowOf(aggregate: FeatureAggregate): BoardFeature {
-  const row: BoardFeature = {
+function rowOf(aggregate: TicketAggregate): BoardTicket {
+  const row: BoardTicket = {
     key: aggregate.intention.key,
     project: aggregate.intention.project,
     state: aggregate.state,
     priority: aggregate.intention.priority,
     received_at: aggregate.received_at,
     attempts_used: aggregate.attempts_used,
-    line: describeFeature(aggregate),
+    line: describeTicket(aggregate),
   };
   if (aggregate.bail !== undefined) {
     row.bail_expires_at = aggregate.bail.expires_at;
   }
-  if (aggregate.plan !== undefined) {
-    row.subtasks = aggregate.plan.subtasks.map((subtask) => ({
-      id: subtask.id,
-      state: subtask.state,
-    }));
-  }
   if (aggregate.escalation !== undefined) {
     row.escalation = { kind: aggregate.escalation.kind };
-    if (aggregate.escalation.subtask_id !== undefined) {
-      row.escalation.subtask_id = aggregate.escalation.subtask_id;
-    }
   }
   if (aggregate.invalid !== undefined) {
     row.invalid = { code: aggregate.invalid.code, reason: aggregate.invalid.reason };
@@ -88,6 +78,6 @@ function rowOf(aggregate: FeatureAggregate): BoardFeature {
   return row;
 }
 
-export function jsonOf(rows: BoardFeature[]): unknown {
+export function jsonOf(rows: BoardTicket[]): unknown {
   return rows.map(({ line, ...rest }) => rest);
 }

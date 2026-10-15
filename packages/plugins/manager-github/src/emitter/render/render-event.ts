@@ -4,13 +4,10 @@ import type { EventFields, EventName, EventRecord, Invocation, Stage } from "../
 import { truncateText } from "./truncate.js";
 
 /** Free-text fields the report ceiling applies to. */
-const BOUNDED_FIELDS: FieldName[] = ["reason", "plan", "trace"];
+const BOUNDED_FIELDS: FieldName[] = ["reason", "trace"];
 
 /** Fields rendered as a fenced block rather than a bullet. */
 const BLOCK_FIELDS: FieldName[] = ["trace"];
-
-/** Fields that are already text a reader can read, rendered as they are. */
-const PROSE_FIELDS: FieldName[] = ["plan"];
 
 /** Said first, as a sentence: no label, no bullet. */
 const LEAD_FIELDS: FieldName[] = ["summary"];
@@ -24,7 +21,6 @@ const LEAD_FIELDS: FieldName[] = ["summary"];
 const TITLES: Record<EventName, string> = {
   invalid: "Not accepted",
   accepted: "Accepted",
-  planned: "Planned",
   progress: "In progress",
   escalated: "Escalated",
   escalation_reminder: "Still escalated",
@@ -37,7 +33,6 @@ const TITLES: Record<EventName, string> = {
 
 const SECTION_TITLES: Partial<Record<FieldName, string>> = {
   trace: "Trace",
-  plan: "Plan",
 };
 
 /** A field whose generic name says nothing useful under a given Event. */
@@ -95,12 +90,9 @@ export function renderEvent(invocation: Invocation): Rendered {
     case "accepted":
       section = renderAccepted(invocation, bounded.fields);
       break;
-    case "planned":
-      section = renderPlanned(bounded.fields);
-      break;
     case "escalated":
     case "escalation_reminder":
-      section = renderEscalated(invocation.event, bounded.fields, invocation.readyLabel);
+      section = renderEscalated(invocation.event, bounded.fields, invocation.resumeLabel);
       break;
     case "resumed":
       section = renderResumed(bounded.fields);
@@ -159,15 +151,6 @@ Taken in at ${priorityPhrase(priority, invocation.defaultPriority)}.
 `;
 }
 
-function renderPlanned(fields: EventFields): string {
-  return `## Planned
-
-I have planned this work this issue.
-
-${fields.plan ?? ""}
-`;
-}
-
 /**
  * An escalation and its reminder say the same thing: the reminder is the same
  * diagnosis, still waiting, so a reader who only sees the later comment still
@@ -176,7 +159,7 @@ ${fields.plan ?? ""}
 function renderEscalated(
   event: "escalated" | "escalation_reminder",
   fields: EventFields,
-  readyLabel: string | undefined,
+  resumeLabel: string | undefined,
 ): string {
   const lead =
     event === "escalated"
@@ -192,7 +175,7 @@ ${lead}
 
 ${fields.reason ?? ""}${escalatedWhere(fields)}
 
-No further work starts until a human answers.${answers(fields.stage, readyLabel)}${trace}
+No further work starts until a human answers.${answers(fields.stage, resumeLabel)}${trace}
 `;
 }
 
@@ -201,14 +184,14 @@ No further work starts until a human answers.${answers(fields.stage, readyLabel)
  * escalation born while folding is past the point of no return: closing the
  * issue would be refused, so it is not offered.
  */
-function answers(stage: Stage | undefined, readyLabel: string | undefined): string {
-  if (readyLabel === undefined) {
+function answers(stage: Stage | undefined, resumeLabel: string | undefined): string {
+  if (resumeLabel === undefined) {
     return "";
   }
   if (stage === "merging") {
-    return ` To resume, add the \`${readyLabel}\` label. It can no longer be abandoned: the fold had started.`;
+    return ` To resume, add the \`${resumeLabel}\` label. It can no longer be abandoned: the fold had started.`;
   }
-  return ` To resume, add the \`${readyLabel}\` label; to abandon, close the issue.`;
+  return ` To resume, add the \`${resumeLabel}\` label; to abandon, close the issue.`;
 }
 
 /**
@@ -241,22 +224,17 @@ Work continues from ${fields.resume_point ?? ""}.${reason}
 }
 
 const STAGE_PHRASE: Record<Stage, string> = {
-  plan: "while planning",
-  unit: "on a Subtask",
-  integrating: "while assembling the feature",
+  unit: "while the work was being made",
+  integrating: "while assembling the work",
   // A refused offer stops here too, before any Submission exists to review.
   submitting: "while submitting the work",
   merging: "while folding into the work line",
 };
 
 function escalatedWhere(fields: EventFields): string {
-  const unit = fields.unit;
   const attempts = fields.counters?.attempts;
-  if (unit !== undefined && unit.length > 0 && attempts !== undefined) {
-    return `\n\nAfter ${attemptsShown(attempts)} attempts on \`${unit}\`.`;
-  }
-  if (unit !== undefined && unit.length > 0) {
-    return `\n\nOn \`${unit}\`.`;
+  if (attempts !== undefined) {
+    return `\n\nAfter ${attemptsShown(attempts)} attempts.`;
   }
   if (fields.stage !== undefined) {
     return `\n\nThis happened ${STAGE_PHRASE[fields.stage]}.`;
@@ -293,11 +271,7 @@ function renderSection(invocation: Invocation, fields: EventFields): string {
   // not leave a blank line standing under its heading.
   const bullets: string[] = [];
   for (const field of FIELD_ORDER) {
-    if (
-      BLOCK_FIELDS.includes(field) ||
-      PROSE_FIELDS.includes(field) ||
-      LEAD_FIELDS.includes(field)
-    ) {
+    if (BLOCK_FIELDS.includes(field) || LEAD_FIELDS.includes(field)) {
       continue;
     }
     const value = fields[field];
@@ -318,14 +292,6 @@ function renderSection(invocation: Invocation, fields: EventFields): string {
 
   if (bullets.length > 0) {
     lines.push("", ...bullets);
-  }
-
-  for (const field of PROSE_FIELDS) {
-    const value = fields[field];
-    if (typeof value !== "string") {
-      continue;
-    }
-    lines.push("", `### ${title(field)}`, "", value);
   }
 
   for (const field of BLOCK_FIELDS) {

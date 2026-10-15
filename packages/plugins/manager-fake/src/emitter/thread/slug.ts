@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 const NAME_LIMIT = 48;
 
 /**
- * Thread file name for a Feature key. The hash suffix is always appended:
+ * Thread file name for a Ticket key. The hash suffix is always appended:
  * slugging alone collides ("fake:42" and "fake/42"), and a collision silently
- * merges two Features' history.
+ * merges two Tickets' history.
  */
 export function slugOf(key: string): string {
   const readable = key

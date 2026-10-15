@@ -3,10 +3,10 @@ import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import type { FeatureAggregate } from "@bluewombat/work-ledger";
+import type { TicketAggregate } from "@bluewombat/work-ledger";
 import { openPersist } from "./open-persist.js";
 
-function sample(key: string): FeatureAggregate {
+function sample(key: string): TicketAggregate {
   return {
     intention: {
       key,
@@ -19,6 +19,7 @@ function sample(key: string): FeatureAggregate {
     received_at: 1_000,
     attempts: [],
     attempts_used: 0,
+    resumes: 0,
   };
 }
 

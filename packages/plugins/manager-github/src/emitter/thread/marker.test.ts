@@ -14,8 +14,8 @@ describe("renderMarker / readMarkers", () => {
   });
 
   it("ignores a marker whose payload is not an object", () => {
-    assert.deepEqual(readMarkers("<!-- feature-event not json -->"), []);
-    assert.deepEqual(readMarkers("<!-- feature-event [1,2] -->"), []);
+    assert.deepEqual(readMarkers("<!-- ticket-event not json -->"), []);
+    assert.deepEqual(readMarkers("<!-- ticket-event [1,2] -->"), []);
   });
 });
 

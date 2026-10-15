@@ -45,7 +45,7 @@ not read configuration from the Parent or the Child.
 | Argument                 | Content                                                                                                 |
 | ------------------------ | ------------------------------------------------------------------------------------------------------- |
 | `--id`                   | Integration id. Copied onto every Status and progress line. Non-empty.                                  |
-| `--context`              | Optional. The Feature this integration serves. Named as `key` on every Status and progress line. |
+| `--context`              | Optional. The Ticket this integration serves. Named as `key` on every Status and progress line. |
 | `--parent`               | Absolute path. Must already exist as a directory. Destination of the fold.                              |
 | `--child`                | Absolute path. Must already exist as a directory. Source of the fold. Integrator does not create this.  |
 | `--duration-ms`          | Positive integer. Wall clock of the Integration, from the moment Integrator starts folding into Parent. |
@@ -392,7 +392,7 @@ either what they were at invocation start, or the complete `integrated` result.
 18. `@bluewombat/isolation-git` and git cannot complete for a reason that is not a merge conflict → `failed`, not a copy, not `conflict`.
 19. The CLI requires `--strategy <specifier>`; `runIntegrator` never chooses a strategy.
 20. A backend with `snapshotPaths` and a fold that fails → Parent's listed working files are as they were, what the fold created among them is gone, and a path the backend left out is not read (an unreadable one does not fail the Integration).
-21. A backend without `snapshotPaths`, or whose `snapshotPaths` returns `undefined` → the whole Parent is restored, as before.
+21. A backend without `snapshotPaths`, or whose `snapshotPaths` returns `undefined` → the whole Parent is restored.
 22. `@bluewombat/isolation-git` and a `conflict` with an ignored `node_modules/` in Parent → Parent restored; the ignored directory is not read and is still there.
 
 How to build and run this Transformer: [README.md](./README.md).

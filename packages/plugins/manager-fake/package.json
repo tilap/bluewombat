@@ -1,8 +1,8 @@
 {
   "name": "@bluewombat/manager-fake",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
-  "description": "File-based FeatureManager: JSON intentions in, Threads out. No account.",
+  "description": "File-based TicketTracker: JSON intentions in, Threads out. No account.",
   "keywords": [
     "mason",
     "bluewombat",
@@ -42,6 +42,6 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/manager-kit": "^0.8.0"
+    "@bluewombat/manager-kit": "^0.9.0"
   }
 }

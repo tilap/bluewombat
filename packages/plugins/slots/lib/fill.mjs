@@ -4,12 +4,6 @@
  */
 import { take } from "@bluewombat/slot-kit";
 
-/** @param {string | undefined} raw */
-export function doneWhen(raw) {
-  const done = (raw ?? "").trim();
-  return done.length > 0 ? `Done when:\n${done}` : "";
-}
-
 /** @param {readonly string[]} argv */
 export function attemptOf(argv) {
   const parsed = Number.parseInt(take(argv, "--attempt") ?? "", 10);

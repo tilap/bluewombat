@@ -11,7 +11,7 @@ export type NormalizeOptions = {
 const KIND_TO_INTENT: Record<string, Intent> = {
   create: "upsert",
   update: "upsert",
-  ready: "ready",
+  resume: "resume",
   cancel: "cancel",
   delete: "cancel",
 };
@@ -103,6 +103,39 @@ function readPriority(raw: Record<string, unknown>): FieldResult<number> {
   return { ok: true, value: named };
 }
 
+/** A list of ids, as written; each becomes the key of a Feature of this manager. */
+function readIdList(raw: Record<string, unknown>, field: string): FieldResult<string[]> {
+  const value = raw[field];
+  if (value === undefined) {
+    return { ok: true };
+  }
+  if (!Array.isArray(value)) {
+    return { ok: false, invalid: badType(field, value) };
+  }
+  const ids: string[] = [];
+  for (const entry of value) {
+    if (typeof entry === "number" && Number.isFinite(entry)) {
+      ids.push(String(entry));
+    } else if (typeof entry === "string" && entry.trim().length > 0) {
+      ids.push(entry.trim());
+    } else {
+      return { ok: false, invalid: badType(field, entry) };
+    }
+  }
+  return { ok: true, value: ids };
+}
+
+function readFlag(raw: Record<string, unknown>, field: string): FieldResult<boolean> {
+  const value = raw[field];
+  if (value === undefined) {
+    return { ok: true };
+  }
+  if (typeof value !== "boolean") {
+    return { ok: false, invalid: badType(field, value) };
+  }
+  return { ok: true, value };
+}
+
 function readKind(raw: Record<string, unknown>): FieldResult<Intent> {
   const value = raw.kind;
   if (value === undefined) {
@@ -117,7 +150,7 @@ function readKind(raw: Record<string, unknown>): FieldResult<Intent> {
       ok: false,
       invalid: {
         code: "unknown-kind",
-        reason: `Kind "${value}" is not one of create, update, ready, cancel, delete.`,
+        reason: `Kind "${value}" is not one of create, update, resume, cancel, delete.`,
       },
     };
   }
@@ -159,6 +192,15 @@ export function normalize(
   const revision = readIdLike(raw, "revision");
   if (!revision.ok) {
     return { ok: false, invalid: revision.invalid };
+  }
+
+  const blockedBy = readIdList(raw, "blocked_by");
+  if (!blockedBy.ok) {
+    return { ok: false, invalid: blockedBy.invalid };
+  }
+  const mergeWhenReady = readFlag(raw, "merge_when_ready");
+  if (!mergeWhenReady.ok) {
+    return { ok: false, invalid: mergeWhenReady.invalid };
   }
 
   const kind = readKind(raw);
@@ -219,6 +261,8 @@ export function normalize(
     ...(title.value !== undefined ? { title: title.value } : {}),
     ...(resolvedIntention !== undefined ? { intention: resolvedIntention } : {}),
     priority: priority.value ?? options.defaultPriority,
+    blocked_by: (blockedBy.value ?? []).map((id) => `${options.manager}:${id}`),
+    merge_when_ready: mergeWhenReady.value ?? false,
     ...(Object.keys(source).length > 0 ? { source } : {}),
     fingerprint: "",
     normalized_at: options.normalizedAt,

@@ -1,8 +1,8 @@
 {
   "name": "@bluewombat/manager-kit",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
-  "description": "Contract a FeatureManager package implements for Host.",
+  "description": "Contract a TicketTracker package implements for Host.",
   "keywords": [
     "mason",
     "bluewombat",

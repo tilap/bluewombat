@@ -4,8 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import type {
   CommandResult,
   EscalationKind,
-  FeatureAdmission,
-  FeatureAggregate,
+  TicketAggregate,
   WorkLedger,
 } from "@bluewombat/work-ledger";
 import type {
@@ -14,7 +13,7 @@ import type {
   ImplementTrace,
   TransformerPort,
 } from "../transformers/port.js";
-import { featureWorkspacePath, subtaskWorkspacePath } from "./paths.js";
+import { ticketWorkspacePath } from "./paths.js";
 
 const DEFAULT_MAX_REFUSALS = 3;
 const DEFAULT_TRANSFORMER_DURATION_MS = 30_000;
@@ -34,7 +33,7 @@ export type ConductorRefusalCode =
   | "project-busy"
   | "illegal-transition";
 
-/** Prepare a Feature workspace after Isolation — install deps, and so on. */
+/** Prepare a Ticket workspace after Isolation — install deps, and so on. */
 export type WarmOutcome = "warmed" | "failed" | "interrupted" | "invalid-invocation";
 
 export type WarmPort = {
@@ -55,20 +54,20 @@ export type OpenConductorOptions = {
   workspaceRoot: string;
   transformerDurationMs?: number;
   /**
-   * The outside judge of a Submission. Absent: an assembled feature is folded
+   * The outside judge of a Submission. Absent: an assembled ticket is folded
    * into the work line directly, with nobody else asked.
    */
   authority?: AuthorityPort;
-  /** The work line a Submission is offered to. Required with an Authority. */
+  /** The work line a Submission is offered to, unless the Ticket names its own `line`. Required with an Authority. */
   workLineTarget?: string;
   /** How many times the Authority may send the work back before it escalates. */
   maxRefusals?: number;
   /**
-   * Whether a local judge decides if the assembled feature meets the
+   * Whether a local judge decides if the assembled ticket meets the
    * intention, before any Submission exists — or, without an Authority,
    * before the final fold. Absent or `false`: `assembly.validate` is not
    * declared, and `integrating` goes straight to offer (or the local judge on
-   * `produce: false`), as before.
+   * `produce: false`).
    */
   assemblyValidate?: boolean;
   /**
@@ -79,31 +78,22 @@ export type OpenConductorOptions = {
   assemblyFixDeclared?: boolean;
   /**
    * Told at the moments a pass changes what an outsider would want to know:
-   * the plan is in, a Subtask is integrated, the work is submitted. Awaited,
+   * the work is submitted. Awaited,
    * so what the caller says lands before the next step; what it throws is
    * its own problem and does not stop the run.
    */
   observe?: (moment: ConductorMoment) => Promise<void> | void;
   /**
-   * Prepare the Feature workspace once it exists, before any Subtask is
-   * isolated from it. Absent: Subtasks inherit whatever Isolation left —
-   * often a cold tree with no dependencies. Bounded by `durationMs`; retried
-   * on the next `runProject` until it returns `warmed`.
+   * Prepare the workspace once it exists, before the Builder runs in it.
+   * Absent: the Builder gets whatever Isolation left — often a cold tree with
+   * no dependencies. Bounded by `durationMs`; retried on the next `runProject`
+   * until it returns `warmed`.
    */
   warm?: WarmPort & { durationMs: number };
 };
 
 /** One thing that happened inside a pass, for whoever is watching from outside. */
-export type ConductorMoment =
-  | { kind: "planned"; key: string }
-  | {
-      kind: "subtask-integrated";
-      key: string;
-      subtaskId: string;
-      integrated: number;
-      total: number;
-    }
-  | { kind: "submitted"; key: string; reference: string };
+export type ConductorMoment = { kind: "submitted"; key: string; reference: string };
 
 export type Conductor = {
   reconcile(project: string): Promise<void>;
@@ -112,24 +102,13 @@ export type Conductor = {
   runProject(project: string): Promise<ProjectRunResult>;
   cancel(key: string): Promise<CommandResult>;
   /**
-   * Drop a held Subtask (or planning) without waiting for the bail clock.
-   * Destroys the declared Subtask directory when one was recorded.
+   * Drop a held unit without waiting for the bail clock.
+   * Destroys the declared directory when one was recorded.
    */
   release(key: string): Promise<CommandResult>;
 };
 
 type DriveResult = ProjectRunResult | undefined;
-
-function featureJsonOf(admission: FeatureAdmission): string {
-  const document: Record<string, unknown> = {
-    key: admission.key,
-    intention: admission.intention,
-  };
-  if (admission.title !== undefined) {
-    document.title = admission.title;
-  }
-  return JSON.stringify(document);
-}
 
 async function isDirectory(path: string): Promise<boolean> {
   try {
@@ -144,17 +123,16 @@ async function destroy(path: string): Promise<void> {
 }
 
 /**
- * Where a feature's workspace is: the path the ledger declared when it was
- * made, else the one the current layout gives. The declared path wins because a
- * feature in flight — escalated, resumed — keeps its work and its git branch
- * where they were; a layout that changed since must not strand them.
+ * Where a Ticket's workspace is: the path the ledger declared when it was
+ * made, else the one the layout gives. The declared path wins because a
+ * Ticket in flight keeps its work and its git branch where they were.
  */
-function declaredFeaturePath(
+function declaredTicketPath(
   workspaceRoot: string,
   key: string,
-  aggregate: FeatureAggregate | undefined,
+  aggregate: TicketAggregate | undefined,
 ): string {
-  return aggregate?.workspaces?.feature ?? featureWorkspacePath(workspaceRoot, key);
+  return aggregate?.workspace ?? ticketWorkspacePath(workspaceRoot, key);
 }
 
 async function destroyOrphans(workspaceRoot: string, allowed: Set<string>): Promise<void> {
@@ -242,12 +220,13 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   const durationMs = options.transformerDurationMs ?? DEFAULT_TRANSFORMER_DURATION_MS;
   const authority = options.authority;
   const workLineTarget = options.workLineTarget ?? "";
+  /** The line a Ticket lands on: its own when it names one, else the Project's. */
+  const targetOf = (aggregate: TicketAggregate): string =>
+    aggregate.intention.line ?? workLineTarget;
   const maxRefusals = options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
   const assemblyValidate = options.assemblyValidate ?? false;
   const assemblyFixDeclared = options.assemblyFixDeclared ?? false;
   const warm = options.warm;
-  /** Features whose warm already succeeded in this Conductor instance. */
-  const warmed = new Set<string>();
   let paused = false;
 
   const refused = (code: ConductorRefusalCode): ProjectRunResult => ({
@@ -284,17 +263,17 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   };
 
   /**
-   * Freeze the Feature for a human. If a newer fingerprint arrived in flight,
+   * Freeze the Ticket for a human. If a newer fingerprint arrived in flight,
    * it is named on the escalation and consumed by the ledger.
    */
   async function freeze(
     key: string,
-    input: { kind: EscalationKind; subtaskId?: string; report?: string },
+    input: { kind: EscalationKind; report?: string },
   ): Promise<ProjectRunResult> {
     const got = await ledger.get(key);
     const pending =
       got.ok && got.aggregate.pending_fingerprint !== undefined
-        ? `The intention was edited while the work was in flight (now fingerprint ${got.aggregate.pending_fingerprint}). The work stops here for a human to decide: on resume it is planned again from the new words, and what already landed is kept.`
+        ? `The intention was edited while the work was in flight (now fingerprint ${got.aggregate.pending_fingerprint}). The work stops here for a human to decide: on resume the work starts again from zero.`
         : undefined;
     const report = [input.report, pending]
       .filter((part): part is string => part !== undefined && part.length > 0)
@@ -302,7 +281,6 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     const escalated = await ledger.escalate({
       key,
       kind: input.kind,
-      ...(input.subtaskId === undefined ? {} : { subtaskId: input.subtaskId }),
       ...(report.length === 0 ? {} : { report }),
     });
     const failure = fromLedger(escalated);
@@ -317,26 +295,26 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (!got.ok || got.aggregate.pending_fingerprint === undefined) {
       return undefined;
     }
-    return await freeze(key, { kind: "plan" });
+    return await freeze(key, { kind: "unit" });
   }
 
   async function expireIfHeld(key: string): Promise<void> {
+    const before = await ledger.get(key);
+    const held =
+      before.ok && before.aggregate.state === "running" ? before.aggregate.workspace : undefined;
     const expired = await ledger.expireBail(key);
-    if (expired.ok) {
-      const got = await ledger.get(key);
-      if (got.ok && got.aggregate.workspaces?.subtask !== undefined) {
-        await destroy(got.aggregate.workspaces.subtask);
-      }
+    if (expired.ok && held !== undefined) {
+      await destroy(held);
     }
   }
 
   /**
-   * A Subtask was started and a transformer stopped on interrupt. Release the
+   * A unit was started and a transformer stopped on interrupt. Release the
    * bail now so the next process does not wait an hour for the clock.
    */
   async function releaseHeldAfterInterrupt(key: string): Promise<ProjectRunResult | undefined> {
     const before = await ledger.get(key);
-    const child = before.ok ? before.aggregate.workspaces?.subtask : undefined;
+    const child = before.ok ? before.aggregate.workspace : undefined;
     const released = await ledger.releaseBail(key);
     if (!released.ok) {
       if (released.code === "persist-failed") {
@@ -356,12 +334,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     const declared = await ledger.listDeclaredWorkspaces();
     const allowed = new Set<string>();
     for (const row of declared) {
-      if (row.feature !== undefined) {
-        allowed.add(resolve(row.feature));
-      }
-      if (row.subtask !== undefined) {
-        allowed.add(resolve(row.subtask));
-      }
+      allowed.add(resolve(row.path));
     }
     await destroyOrphans(workspaceRoot, allowed);
     for (const row of declared) {
@@ -378,64 +351,48 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (!got.ok) {
       return;
     }
-    const feature = got.aggregate.workspaces?.feature;
-    const subtask = got.aggregate.workspaces?.subtask;
-    if (subtask !== undefined) {
-      await destroy(subtask);
+    if (got.aggregate.workspace !== undefined) {
+      await destroy(got.aggregate.workspace);
     }
-    if (feature !== undefined) {
-      await destroy(feature);
-    }
-    await ledger.clearWorkspace({ key, feature: true, subtask: true });
+    await ledger.clearWorkspace(key);
   }
 
-  async function ensureFeatureIsolated(key: string): Promise<ProjectRunResult | undefined> {
+  /**
+   * Make the Ticket's workspace from nothing: a unit that starts, starts from
+   * zero, so what an earlier pass left is destroyed first. No lease is held
+   * yet: a failure here costs no Attempt, and the next pass makes it again.
+   */
+  async function isolateFresh(key: string): Promise<ProjectRunResult | undefined> {
     const got = await ledger.get(key);
     if (!got.ok) {
       return refused("not-found");
     }
-    const child = declaredFeaturePath(workspaceRoot, key, got.aggregate);
-    if (got.aggregate.workspaces?.feature === undefined) {
-      const declared = await ledger.declareWorkspace({ key, feature: child });
-      const failure = fromLedger(declared);
-      if (failure !== undefined) {
-        return failure;
-      }
+    const workspace = declaredTicketPath(workspaceRoot, key, got.aggregate);
+    if (existsSync(workspace)) {
+      await destroy(workspace);
     }
-    let fresh = false;
-    if (!existsSync(child)) {
-      if (got.aggregate.submission !== undefined) {
-        // The Authority is holding a Submission built from a workspace that is no
-        // longer here. Isolating again would rebuild the feature from the work
-        // line and publish it over that Submission, which would drop whatever the
-        // Authority has already been shown. That is a human's call, not this
-        // loop's.
-        const escalated = await freeze(key, { kind: "submitted" });
-        return escalated;
-      }
-      const isolated = await transformers.isolate({
-        id: key,
-        context: key,
-        parent: workLineStable,
-        child,
-        durationMs,
-      });
-      if (isolated.outcome === "interrupted") {
-        return refused("interrupted");
-      }
-      if (isolated.outcome !== "isolated") {
-        return refused(
-          isolated.outcome === "invalid-invocation" ? "transformer-invalid" : "isolate-failed",
-        );
-      }
-      fresh = true;
-      warmed.delete(key);
+    const declared = await ledger.declareWorkspace({ key, path: workspace });
+    const declareFail = fromLedger(declared);
+    if (declareFail !== undefined) {
+      return declareFail;
     }
-    if (warm !== undefined && (fresh || !warmed.has(key))) {
-      const prepared = await warm.prepare({
-        workspace: child,
-        durationMs: warm.durationMs,
-      });
+    const isolated = await transformers.isolate({
+      id: key,
+      context: key,
+      parent: workLineStable,
+      child: workspace,
+      durationMs,
+    });
+    if (isolated.outcome === "interrupted") {
+      return refused("interrupted");
+    }
+    if (isolated.outcome !== "isolated") {
+      return refused(
+        isolated.outcome === "invalid-invocation" ? "transformer-invalid" : "isolate-failed",
+      );
+    }
+    if (warm !== undefined) {
+      const prepared = await warm.prepare({ workspace, durationMs: warm.durationMs });
       if (prepared.outcome === "interrupted") {
         return refused("interrupted");
       }
@@ -445,115 +402,51 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       if (prepared.outcome !== "warmed") {
         return refused("warm-failed");
       }
-      warmed.add(key);
     }
     return undefined;
   }
 
-  async function doPlan(key: string): Promise<DriveResult> {
-    const got = await ledger.get(key);
-    if (!got.ok) {
+  /**
+   * Run the unit: Builder, then the Gates, in the workspace Isolation made.
+   * The result stays loose in the workspace; the Integration in `doIntegrating`
+   * is what takes it up.
+   */
+  async function doRunning(key: string): Promise<DriveResult> {
+    if (paused) {
+      return { outcome: "paused", key };
+    }
+    const before = await ledger.get(key);
+    if (!before.ok) {
       return refused("not-found");
     }
-    if (got.aggregate.state !== "planning") {
+    if (before.aggregate.state !== "running") {
       return undefined;
     }
-    const broken = await transformers.breakDown({
-      featureJson: featureJsonOf(got.aggregate.intention),
-    });
-    if (broken.outcome === "refused") {
-      const recorded = await ledger.refusePlan({
-        key,
-        code: broken.code,
-        reason: broken.reason,
-      });
-      const failure = fromLedger(recorded);
-      if (failure !== undefined) {
-        return failure;
-      }
-      return { outcome: "escalated", key };
+    if (before.aggregate.bail !== undefined) {
+      // A unit is held: its lease runs out on its own if nobody is on it.
+      return { outcome: "paused", key };
     }
-    if (broken.outcome === "interrupted") {
-      return refused("interrupted");
+    const isolated = await isolateFresh(key);
+    if (isolated !== undefined) {
+      return isolated;
     }
-    if (broken.outcome === "unavailable") {
-      return refused("unavailable");
+    if (paused) {
+      return { outcome: "paused", key };
     }
-    if (broken.outcome !== "planned") {
-      return refused("transformer-invalid");
-    }
-    const recorded = await ledger.recordPlan({
-      key,
-      plannedAt: broken.plannedAt,
-      subtasks: broken.subtasks,
-    });
-    const recordFail = fromLedger(recorded);
-    if (recordFail !== undefined) {
-      return recordFail;
-    }
-    await observe({ kind: "planned", key });
-    return undefined;
-  }
-
-  async function runOneSubtask(key: string, subtaskId: string): Promise<DriveResult> {
-    const before = await ledger.get(key);
-    const started = await ledger.startSubtask({ key, subtaskId });
+    const started = await ledger.startUnit(key);
     const startFail = fromLedger(started);
     if (startFail !== undefined) {
       return startFail;
     }
-    const child = subtaskWorkspacePath(workspaceRoot, key, subtaskId);
-    // Resume from zero: Isolator refuses an existing Child. A kept one may sit
-    // where an earlier layout put it; it goes too, or its branch stays taken.
-    const kept = before.ok ? before.aggregate.workspaces?.subtask : undefined;
-    for (const path of new Set([child, ...(kept === undefined ? [] : [kept])])) {
-      if (existsSync(path)) {
-        await destroy(path);
-      }
-    }
-    const declared = await ledger.declareWorkspace({ key, subtask: child });
-    const declareFail = fromLedger(declared);
-    if (declareFail !== undefined) {
-      return declareFail;
-    }
-    const featureNow = await ledger.get(key);
-    const parent = declaredFeaturePath(
-      workspaceRoot,
-      key,
-      featureNow.ok ? featureNow.aggregate : undefined,
-    );
-    const isolated = await transformers.isolate({
-      // Scoped to the feature: a Subtask id is unique inside its plan and
-      // nowhere else, so "A" alone would name every feature's first Subtask.
-      id: `${key}:${subtaskId}`,
-      context: key,
-      parent,
-      child,
-      durationMs,
-    });
-    if (isolated.outcome === "interrupted") {
-      const failure = await releaseHeldAfterInterrupt(key);
-      return failure ?? refused("interrupted");
-    }
-    if (isolated.outcome !== "isolated") {
-      return refused(
-        isolated.outcome === "invalid-invocation" ? "transformer-invalid" : "isolate-failed",
-      );
-    }
     const got = await ledger.get(key);
     if (!got.ok) {
       return refused("not-found");
     }
-    const subtask = got.aggregate.plan?.subtasks.find((st) => st.id === subtaskId);
-    if (subtask === undefined) {
-      return refused("not-found");
-    }
     const implemented = await transformers.implement({
-      id: subtaskId,
+      id: key,
       context: key,
-      intention: subtask.intention,
-      definitionOfDone: subtask.definition_of_done,
-      workspace: child,
+      intention: got.aggregate.intention.intention,
+      workspace: declaredTicketPath(workspaceRoot, key, got.aggregate),
     });
     if (implemented.outcome === "interrupted") {
       const failure = await releaseHeldAfterInterrupt(key);
@@ -562,11 +455,10 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (implemented.outcome === "invalid-invocation") {
       return refused("transformer-invalid");
     }
-    let number = got.aggregate.attempts.filter((a) => a.subtask_id === subtaskId).length + 1;
+    let number = got.aggregate.attempts.length + 1;
     for (const trace of implemented.traces) {
       const recorded = await ledger.recordAttempt({
         key,
-        subtaskId,
         number,
         trace: {
           ended: trace.ended,
@@ -585,77 +477,16 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (implemented.outcome === "escalated") {
       const why = reasonOfTraces(implemented.traces);
       return await freeze(key, {
-        kind: "subtask",
-        subtaskId,
+        kind: "unit",
         ...(why === undefined ? {} : { report: why }),
       });
     }
-    const folded = await transformers.integrate({
-      id: subtaskId,
-      context: key,
-      parent,
-      child,
-      durationMs,
-      // What carries the work into the feature says what the work was.
-      subject: foldMessageOf(subtask.intention),
-      mergeSubject: `Merge ${subtaskId} into the feature`,
-    });
-    if (folded.outcome === "interrupted") {
-      const failure = await releaseHeldAfterInterrupt(key);
-      return failure ?? refused("interrupted");
-    }
-    if (folded.outcome === "conflict") {
-      // The unit passed its Gates; what stopped it is the fold, which leaves
-      // no trace of its own. Said here, or the escalation says nothing.
-      return await freeze(key, {
-        kind: "subtask",
-        subtaskId,
-        report: `Folding ${subtaskId} into the feature hit a conflict.`,
-      });
-    }
-    if (folded.outcome !== "integrated") {
-      return refused("transformer-invalid");
-    }
-    const marked = await ledger.markSubtaskIntegrated({ key, subtaskId });
+    const marked = await ledger.markIntegrating(key);
     const markFail = fromLedger(marked);
     if (markFail !== undefined) {
       return markFail;
     }
-    await destroy(child);
-    await ledger.clearWorkspace({ key, subtask: true });
-    const after = await ledger.get(key);
-    if (after.ok && after.aggregate.plan !== undefined) {
-      const subtasks = after.aggregate.plan.subtasks;
-      await observe({
-        kind: "subtask-integrated",
-        key,
-        subtaskId,
-        integrated: subtasks.filter((subtask) => subtask.state === "integrated").length,
-        total: subtasks.length,
-      });
-    }
     return await freezeIfPending(key);
-  }
-
-  async function doRunning(key: string): Promise<DriveResult> {
-    const isolated = await ensureFeatureIsolated(key);
-    if (isolated !== undefined) {
-      return isolated;
-    }
-    while (!paused) {
-      const next = await ledger.nextRunnable(key);
-      if (next === undefined) {
-        break;
-      }
-      const step = await runOneSubtask(key, next);
-      if (step !== undefined) {
-        return step;
-      }
-    }
-    if (paused) {
-      return { outcome: "paused", key };
-    }
-    return undefined;
   }
 
   async function doIntegrating(key: string): Promise<DriveResult> {
@@ -670,14 +501,14 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (!got.ok) {
       return refused("not-found");
     }
-    const featurePath = declaredFeaturePath(workspaceRoot, key, got.aggregate);
+    const ticketPath = declaredTicketPath(workspaceRoot, key, got.aggregate);
     // A parked refusal is this round's; a Submission's is carried forward on
     // purpose and may already be repaired. The fresher one wins.
     const parked = got.aggregate.parked_refusal;
     const sentBack = parked?.report ?? got.aggregate.submission?.last_report;
     if (sentBack !== undefined) {
       // Something refused the last round and said why. That report is the only
-      // reason this stage has to produce: the Subtasks are already validated.
+      // reason this stage has to produce: the unit is already validated.
       //
       // Before the Integration below, and that order is the whole point. What a
       // producer leaves is loose in the workspace; the Integration is the only
@@ -692,7 +523,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         stage: "assembly",
         produce: true,
         intention: got.aggregate.intention.intention,
-        workspace: featurePath,
+        workspace: ticketPath,
         report: sentBack,
         ...(refusedBy === undefined ? {} : { reportFrom: refusedBy }),
       });
@@ -703,7 +534,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         return refused("transformer-invalid");
       }
       if (remade.outcome === "escalated") {
-        // The whole, not one of its parts: naming a Subtask here sends a reader
+        // The assembled work, not the unit: naming the unit here sends a reader
         // to look at work that did not fail.
         const why = reasonOfTraces(remade.traces);
         return await freeze(key, {
@@ -715,15 +546,16 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     const aligned = await transformers.integrate({
       id: `${key}:align`,
       context: key,
-      parent: featurePath,
+      parent: ticketPath,
       child: workLineStable,
       durationMs,
-      // What is loose in the feature workspace here is a repair, if anything.
+      // What is loose in the workspace here is the work the Builder made, or a
+      // repair of it.
       subject:
         sentBack === undefined
-          ? `Align with ${workLineTarget || "the work line"}`
+          ? foldMessageOf(got.aggregate.intention.title ?? got.aggregate.intention.intention)
           : "Repair after it was refused",
-      mergeSubject: `Merge ${workLineTarget || "the work line"} into the feature`,
+      mergeSubject: `Merge ${targetOf(got.aggregate) || "the work line"} into the ticket`,
     });
     if (aligned.outcome === "interrupted") {
       return refused("interrupted");
@@ -744,7 +576,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         stage: "assembly",
         validate: true,
         intention: got.aggregate.intention.intention,
-        workspace: featurePath,
+        workspace: ticketPath,
       });
       if (validated.outcome === "interrupted") {
         return refused("interrupted");
@@ -754,7 +586,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       }
       if (validated.outcome === "escalated") {
         const last = validated.traces.at(-1);
-        const report = last?.report ?? "The assembled feature was refused, with no reason given.";
+        const report = last?.report ?? "The assembled ticket was refused, with no reason given.";
         const spent =
           (got.aggregate.submission?.refusals ?? 0) + (got.aggregate.parked_refusals ?? 0);
         const canRepair =
@@ -786,7 +618,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     }
     if (authority === undefined) {
       // Nobody outside will look at it, so the Project's own sequence is the
-      // only judgement the assembled feature gets. Skipping it here would let
+      // only judgement the assembled ticket gets. Skipping it here would let
       // work into the work line that nothing ever judged as a whole.
       const judged = await judge(key, got.aggregate);
       if (judged.outcome === "interrupted") {
@@ -809,28 +641,26 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   }
 
   /**
-   * Put the assembled feature in front of the Authority.
+   * Put the assembled ticket in front of the Authority.
    *
-   * A feature already submitted is offered again rather than a second time:
+   * A ticket already submitted is offered again rather than a second time:
    * the work was published to the same place, so the Authority is judging the
    * same Submission with new content.
    */
-  async function offer(key: string, aggregate: FeatureAggregate): Promise<ProjectRunResult> {
+  async function offer(key: string, aggregate: TicketAggregate): Promise<ProjectRunResult> {
     if (authority === undefined) {
       return refused("transformer-invalid");
     }
     const title = aggregate.intention.title;
     const intention = aggregate.intention.intention;
-    const steps = aggregate.plan?.subtasks.map((subtask) => subtask.intention) ?? [];
     const submitted = await authority.submit({
       key,
       project: aggregate.intention.project,
       ref: key,
-      target: workLineTarget,
-      workspace: declaredFeaturePath(workspaceRoot, key, aggregate),
+      target: targetOf(aggregate),
+      workspace: declaredTicketPath(workspaceRoot, key, aggregate),
       ...(title === undefined ? {} : { title }),
       ...(intention === undefined ? {} : { intention }),
-      ...(steps.length === 0 ? {} : { steps }),
     });
     if (submitted.outcome === "unavailable") {
       // Nothing is lost: the state still says integrating, and the next pass
@@ -850,20 +680,20 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   }
 
   /**
-   * Judge the assembled feature with the Project's Gate sequence for it.
+   * Judge the assembled ticket with the Project's Gate sequence for it.
    *
    * Nothing is produced: the work is done, and this pass only decides whether it
    * may enter the work line. A Gate that reads an outside answer belongs in that
    * sequence like any other — it says ok or not, and it does not act.
    */
-  async function judge(key: string, aggregate: FeatureAggregate): Promise<ImplementResult> {
+  async function judge(key: string, aggregate: TicketAggregate): Promise<ImplementResult> {
     return await transformers.implement({
       id: `${key}:judgement`,
       context: key,
       stage: "assembly",
       produce: false,
       intention: aggregate.intention.intention,
-      workspace: declaredFeaturePath(workspaceRoot, key, aggregate),
+      workspace: declaredTicketPath(workspaceRoot, key, aggregate),
     });
   }
 
@@ -876,7 +706,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (authority === undefined || submission === undefined) {
       return refused("transformer-invalid");
     }
-    const featurePath = declaredFeaturePath(workspaceRoot, key, got.aggregate);
+    const ticketPath = declaredTicketPath(workspaceRoot, key, got.aggregate);
     const judged = await judge(key, got.aggregate);
     if (judged.outcome === "interrupted") {
       return refused("interrupted");
@@ -931,14 +761,14 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (doneFailure !== undefined) {
       return doneFailure;
     }
-    await destroy(featurePath);
-    await ledger.clearWorkspace({ key, feature: true, subtask: true });
+    await destroy(ticketPath);
+    await ledger.clearWorkspace(key);
     return { outcome: "done", key };
   }
 
   async function doMerging(key: string): Promise<ProjectRunResult> {
     const got = await ledger.get(key);
-    const featurePath = declaredFeaturePath(workspaceRoot, key, got.ok ? got.aggregate : undefined);
+    const ticketPath = declaredTicketPath(workspaceRoot, key, got.ok ? got.aggregate : undefined);
     const title = got.ok
       ? (got.aggregate.intention.title ?? got.aggregate.intention.intention)
       : key;
@@ -946,7 +776,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       id: key,
       context: key,
       parent: workLineStable,
-      child: featurePath,
+      child: ticketPath,
       durationMs,
       subject: foldMessageOf(title),
       mergeSubject: `Merge ${subjectOf(title)}`,
@@ -965,16 +795,32 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (failure !== undefined) {
       return failure;
     }
-    await destroy(featurePath);
-    await ledger.clearWorkspace({ key, feature: true, subtask: true });
+    await destroy(ticketPath);
+    await ledger.clearWorkspace(key);
     return { outcome: "done", key };
   }
 
-  async function drive(key: string): Promise<ProjectRunResult> {
-    const planResult = await doPlan(key);
-    if (planResult !== undefined) {
-      return planResult;
+  /**
+   * The assembled work is in the workspace and nowhere else. When it is gone,
+   * making it again from the work line would drop what was made, and when the
+   * Authority holds a Submission built from it, publish over what it was
+   * shown. Either is a human's call, not this loop's.
+   */
+  async function workspaceGone(key: string): Promise<ProjectRunResult | undefined> {
+    const got = await ledger.get(key);
+    if (!got.ok) {
+      return refused("not-found");
     }
+    if (existsSync(declaredTicketPath(workspaceRoot, key, got.aggregate))) {
+      return undefined;
+    }
+    return await freeze(key, {
+      kind: got.aggregate.submission === undefined ? "assembly" : "submitted",
+      report: "The workspace the work was assembled in is gone.",
+    });
+  }
+
+  async function drive(key: string): Promise<ProjectRunResult> {
     const runningResult = await doRunning(key);
     if (runningResult !== undefined) {
       return runningResult;
@@ -988,6 +834,13 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     }
     if (got.aggregate.state === "running") {
       return { outcome: "paused", key };
+    }
+    if (got.aggregate.state === "done") {
+      return { outcome: "done", key };
+    }
+    const gone = await workspaceGone(key);
+    if (gone !== undefined) {
+      return gone;
     }
     if (got.aggregate.state === "integrating") {
       const integratingResult = await doIntegrating(key);
@@ -1060,7 +913,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
 
     async release(key: string): Promise<CommandResult> {
       const before = await ledger.get(key);
-      const child = before.ok ? before.aggregate.workspaces?.subtask : undefined;
+      const child = before.ok ? before.aggregate.workspace : undefined;
       const released = await ledger.releaseBail(key);
       if (released.ok && child !== undefined) {
         await destroy(child);

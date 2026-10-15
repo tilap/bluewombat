@@ -85,21 +85,16 @@ describe("titleOf", () => {
 });
 
 describe("bodyOf", () => {
-  it("says what was asked, what changed, and closes the issue", () => {
+  it("says what was asked and closes the issue", () => {
     const body = bodyOf({
       key: KEY,
       title: "Add slugify",
       intention: "A slug helper.",
-      steps: ["Add slugify with its tests", "Document it"],
     });
     assert.equal(
       body,
       [
         "A slug helper.",
-        "",
-        "## Changes",
-        "1. Add slugify with its tests",
-        "2. Document it",
         "",
         "Closes #7",
         "",

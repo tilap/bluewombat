@@ -13,7 +13,8 @@ function invocation(overrides: Partial<Invocation> = {}): Invocation {
     maxRawBytes: 65_536,
     projectLabelPrefix: "project:",
     priorityLabelPrefix: "priority:",
-    readyLabel: "ready",
+    resumeLabel: "to-resume",
+    mergeWhenReadyLabel: "merge-when-ready",
     fetch: false,
     requestRetries: 0,
     at: "2026-09-05T10:00:00.000Z",
@@ -44,7 +45,12 @@ function channelOf(
 ): { github: GithubClient; urls: string[] } {
   const urls: string[] = [];
   const fetch = (async (input: unknown): Promise<Response> => {
-    urls.push(String(input));
+    const url = String(input);
+    urls.push(url);
+    // What blocks an issue is asked beside it; the tests that do not care get none.
+    if (url.includes("/dependencies/")) {
+      return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+    }
     return new Response(JSON.stringify(response.body), {
       status: response.status,
       headers: { "content-type": "application/json" },
@@ -85,12 +91,12 @@ describe("runAdapter", () => {
       invocation: invocation(),
       raw: JSON.stringify({
         action: "labeled",
-        issue: { ...complete, labels: ["project:p", "ready"] },
+        issue: { ...complete, labels: ["project:p", "to-resume"] },
       }),
       write,
     });
 
-    assert.equal(result.feature?.intent, "ready");
+    assert.equal(result.feature?.intent, "resume");
   });
 
   it("is a verdict, not a crash, when the issue cannot be converted", async () => {
@@ -139,7 +145,8 @@ describe("runAdapter", () => {
     assert.equal(result.outcome, "converted");
     assert.equal(result.feature?.title, "From the notification");
     assert.equal(result.feature?.intention, "Users need a CSV export.");
-    assert.deepEqual(urls, ["https://api.github.com/repos/tilap/mason/issues/42"]);
+    assert.equal(urls[0], "https://api.github.com/repos/tilap/mason/issues/42");
+    assert.match(urls[1] ?? "", /\/issues\/42\/dependencies\/blocked_by/);
     assert.equal(lines[0]?.event, "fetch-finished");
   });
 

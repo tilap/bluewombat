@@ -76,7 +76,7 @@ describe("normalize", () => {
     const cases: Array<[string, string]> = [
       ["create", "upsert"],
       ["update", "upsert"],
-      ["ready", "ready"],
+      ["resume", "resume"],
       ["cancel", "cancel"],
       ["delete", "cancel"],
     ];
@@ -91,13 +91,13 @@ describe("normalize", () => {
     assert.equal(result.ok && result.feature.intent, "upsert");
   });
 
-  it("accepts a ready signal carrying only an identity", () => {
-    const result = normalize({ id: "42", project: "reporting", kind: "ready" }, options);
+  it("accepts a resume signal carrying only an identity", () => {
+    const result = normalize({ id: "42", project: "reporting", kind: "resume" }, options);
     assert.equal(result.ok, true);
     if (!result.ok) {
       return;
     }
-    assert.equal(result.feature.intent, "ready");
+    assert.equal(result.feature.intent, "resume");
     assert.equal(result.feature.intention, undefined);
   });
 
@@ -146,16 +146,46 @@ describe("normalize", () => {
       return;
     }
     assert.deepEqual(Object.keys(result.feature).sort(), [
+      "blocked_by",
       "external_id",
       "fingerprint",
       "intent",
       "intention",
       "key",
       "manager",
+      "merge_when_ready",
       "normalized_at",
       "priority",
       "project",
     ]);
+  });
+
+  it("reads the Features it waits on as keys, and whether its line merges by itself", () => {
+    const result = normalize(upsertRaw({ blocked_by: ["7", 8], merge_when_ready: true }), options);
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      return;
+    }
+    assert.deepEqual(result.feature.blocked_by, ["fake:7", "fake:8"]);
+    assert.equal(result.feature.merge_when_ready, true);
+    const plain = normalize(upsertRaw(), options);
+    assert.equal(plain.ok && plain.feature.merge_when_ready, false);
+    assert.deepEqual(plain.ok && plain.feature.blocked_by, []);
+  });
+
+  it("changes the fingerprint when the order or the merge changes", () => {
+    const base = normalize(upsertRaw(), options);
+    const waits = normalize(upsertRaw({ blocked_by: ["7"] }), options);
+    const merges = normalize(upsertRaw({ merge_when_ready: true }), options);
+    assert.ok(base.ok && waits.ok && merges.ok);
+    assert.notEqual(base.feature.fingerprint, waits.feature.fingerprint);
+    assert.notEqual(base.feature.fingerprint, merges.feature.fingerprint);
+  });
+
+  it("refuses a blocked_by that is not a list of ids, and a merge flag that is not a boolean", () => {
+    assert.equal(invalidCode(upsertRaw({ blocked_by: "7" })), "bad-field-type");
+    assert.equal(invalidCode(upsertRaw({ blocked_by: [{}] })), "bad-field-type");
+    assert.equal(invalidCode(upsertRaw({ merge_when_ready: "yes" })), "bad-field-type");
   });
 
   it("carries no state, counters, or bail", () => {

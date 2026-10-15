@@ -48,8 +48,6 @@ export async function runBuilder(input: {
     String(attempt),
     "--intention",
     invocation.intention,
-    "--definition-of-done",
-    invocation.definitionOfDone,
   ];
   if (previousReport !== undefined) {
     argv.push("--report", previousReport);

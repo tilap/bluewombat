@@ -7,7 +7,7 @@ a human on the happy path.
 
 It is three layers with a one-way dependency. The **kernel** is the
 tracker-agnostic core — Conductor, WorkLedger, four Transformers — that speaks
-intention, plan, attempt, and directory. The **host** is what runs that core:
+intention, attempt, and directory. The **host** is what runs that core:
 the binary **mason**, the loop, and the contracts a plugin answers. **Plugins**
 are what a Project names in its config — managers, isolation, persistence,
 slots — loaded by name; Host never imports them, and the kernel imports nothing
@@ -68,23 +68,24 @@ npx mason watch
 Two things are left for you: the Builder (the stub `mason-builder.mjs`, or
 point `builder.producer` and `builder.repair` at a shipped one from
 [`@bluewombat/slots`](./packages/plugins/slots/README.md)), and any Gate you add —
-each of `planner`, `builder.producer`, `builder.repair`, `assembly.fix` and
+each of `builder.producer`, `builder.repair`, `assembly.fix` and
 `assembly.validate` carries its own `gates`, independently.
-Passing `--manager` to `init` turns the questions off, which is what a script wants.
+Passing `--manager` to `init` turns the questions off, which is what a script wants. It names one package for both sides.
 
 ```json
 {
-  "manager": "@bluewombat/manager-github",
-  "managerOptions": { "repo": "owner/name", "labels": ["mason"] },
+  "featureTracker": {
+    "package": "@bluewombat/manager-github",
+    "options": { "repo": "owner/name" }
+  },
+  "ticketTracker": {
+    "package": "@bluewombat/manager-github",
+    "options": { "repo": "owner/name" }
+  },
   "workLine": { "stable": "./work-line-stable" },
   "authority": { "enabled": false },
   "workspaceRoot": "./.mason/workspaces",
   "ledger": "./.mason/ledger",
-  "planner": {
-    "cmd": ["node", "./node_modules/@bluewombat/slots/planners/one-subtask.mjs"],
-    "timeoutMs": 600000,
-    "gates": { "defaultTimeoutMs": 120000, "gates": [] }
-  },
   "builder": {
     "producer": {
       "cmd": ["node", "./mason-builder.mjs"],
@@ -104,7 +105,7 @@ Passing `--manager` to `init` turns the questions off, which is what a script wa
 }
 ```
 
-`builder` makes a Subtask. `assembly` judges the whole, and when that
+`builder` makes the unit of work. `assembly` judges the whole, and when that
 judgement refuses it, `assembly.fix` corrects what it named — not a second
 first-pass of the request. The judgement is the `assembly.gates` sequence (the
 one no producer runs — nothing new made, the existing assembled state
@@ -116,13 +117,14 @@ a local read-only review run before either, judged by its own `gates`, not
 `fix` too — a reviewer that only gates, whose refusals escalate on the spot —
 and `doctor` says so rather than failing.
 
-`manager` names any package that exports `createManager`; `managerOptions` is
-opaque to Host and documented by that package. Another tracker is another
-package, and nothing in Host changes —
+`featureTracker` and `ticketTracker` each name a package that exports
+`createManager` — the same one or two different ones (Features in one tool,
+Tickets in another); their `options` are opaque to Host and documented by that
+package. Another tracker is another package, and nothing in Host changes —
 contract: [`packages/host/manager-kit`](./packages/host/manager-kit/README.md).
 
-Without an Authority, a finished feature is folded into WorkLineStable on this
-machine and that is the end of it. With an Authority, the assembled feature is
+Without an Authority, a finished ticket is folded into WorkLineStable on this
+machine and that is the end of it. With an Authority, the assembled ticket is
 offered as a Submission — on GitHub, a pull request — and only an accepted
 verdict enters the work line. bluewombat does not merge that line onto a further
 reference such as `main`; the Authority holds it.

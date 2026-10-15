@@ -1,4 +1,6 @@
+import { listBlockers } from "../../github/blockers.js";
 import type { GithubClient } from "../../github/client.js";
+import { issueNumberFromPayload } from "../../issue-number.js";
 import { fetchIssue } from "../github/fetch-issue.js";
 import { normalize } from "../normalize/normalize.js";
 import type { ProgressWriter } from "../progress/emit.js";
@@ -62,7 +64,7 @@ function fetchableNumber(issue: Record<string, unknown>): number | undefined {
 }
 
 /**
- * Run one FeatureAdapter invocation to a run outcome.
+ * Run one Adapter invocation to a run outcome.
  */
 export async function runAdapter(options: RunOptions): Promise<RunResult> {
   const { invocation, raw } = options;
@@ -105,6 +107,7 @@ export async function runAdapter(options: RunOptions): Promise<RunResult> {
 
   const unwrapped = unwrapIssue(parsed.object);
   let merged = unwrapped;
+  let blockedBy: string[] = [];
 
   if (invocation.fetch) {
     const number = fetchableNumber(unwrapped.issue);
@@ -133,6 +136,28 @@ export async function runAdapter(options: RunOptions): Promise<RunResult> {
       }
       // The Fetch is the base; the raw intention is the fresher of the two.
       merged = { ...unwrapped, issue: { ...fetched.issue, ...unwrapped.issue } };
+
+      // What blocks the issue is not on the issue: it is asked of the API too.
+      const blockers = await listBlockers({
+        github: options.github,
+        repo: invocation.repo,
+        number,
+        deadlineMs: now() + (invocation.fetchDurationMs ?? 1),
+        now,
+        shouldInterrupt,
+      });
+      if (blockers.kind === "interrupted") {
+        return finishInterrupted();
+      }
+      if (blockers.kind === "unavailable") {
+        return finishUnavailable(blockers.detail);
+      }
+      blockedBy = blockers.issues.flatMap((issue) => {
+        const blocker = issueNumberFromPayload(issue);
+        return blocker === undefined
+          ? []
+          : [`${invocation.manager}:${invocation.repo.owner}/${invocation.repo.name}#${blocker}`];
+      });
     }
   }
 
@@ -146,7 +171,9 @@ export async function runAdapter(options: RunOptions): Promise<RunResult> {
     defaultPriority: invocation.defaultPriority,
     projectLabelPrefix: invocation.projectLabelPrefix,
     priorityLabelPrefix: invocation.priorityLabelPrefix,
-    readyLabel: invocation.readyLabel,
+    resumeLabel: invocation.resumeLabel,
+    mergeWhenReadyLabel: invocation.mergeWhenReadyLabel,
+    blockedBy,
     normalizedAt: invocation.at ?? new Date(now()).toISOString(),
     ...(invocation.defaultProject !== undefined
       ? { defaultProject: invocation.defaultProject }

@@ -46,10 +46,10 @@ a fault.
 `packages/plugins/isolation-git/src/git-worktree.ts` — `addGitWorktree`
 
 `-B` keeps Isolator's contract exactly: the Child is a snapshot of the Parent,
-never the leftovers of an earlier run. But the Submission flow wants the feature
+never the leftovers of an earlier run. But the Submission flow wants the ticket
 branch to *keep* receiving commits across refusals. Today the two do not collide
-because a refusal returns the feature to `integrating` without re-isolating —
-the branch survives. **If a resume ever re-isolates a feature that already has a
+because a refusal returns the ticket to `integrating` without re-isolating —
+the branch survives. **If a resume ever re-isolates a ticket that already has a
 Submission, that Submission's history is reset under it.** Nothing prevents that
 today.
 
@@ -58,25 +58,19 @@ explicitly whether it is continuing or starting over.
 
 ### C7 · The work line copy is refreshed on every driving pass
 
-`packages/host/runtime/src/loop/tick.ts` — `runOnce`
+`packages/host/runtime/src/loop/features.ts` — `refreshOnto`
 
-A pass with nothing to drive fetches nothing. A pass that drives does a
-`git fetch` per run, whether or not anything was folded since the last one.
-Cheap and always correct, and noisy on a short poll interval.
+A pass with no Feature to open, drive or settle fetches nothing. A pass that
+drives a Feature does a `git fetch` per Ticket started and per settle check,
+whether or not anything was folded since the last one. Cheap and always
+correct, and noisy on a short poll interval.
 
-"Something to drive" counts a `received` Feature (`pendingWork`, `SWEEP_STATES`)
-— so a Feature queued behind an `escalated` one, which the sweep will not
-drive, still costs a fetch on every tick for as long as the human takes to
-answer. **Observed** 2026-09-14 (#27 behind #26) and 2026-09-16 (#38 behind
-#37): one `refresh` line per tick, nothing driven.
-
-**Instead:** refresh only after an accepted Submission, which needs the tick to
-know that one happened; or leave `received` out of the refresh guard and let
-the sweep refresh on the tick it actually starts one.
+**Instead:** refresh only after an accepted Submission, which needs the pass to
+know that one happened.
 
 ### C8 · A refresh that cannot fast-forward stops the whole pass
 
-`packages/host/runtime/src/loop/tick.ts` — `runOnce`
+`packages/host/runtime/src/loop/features.ts` — `refreshOnto`
 
 Every Project stops, not only the one whose work line diverged. Starting work on
 a copy that could not be brought up to date builds on a version that no longer
@@ -132,18 +126,16 @@ step that ran, which is a guess.
 
 `packages/host/slot-kit/src/prompt.ts` — `PROMPT_RULES`, `--rules-file`
 
-`{{rules}}` used to be fixed in code, on the reasoning that it is not a matter
-of taste: the Gates read the working tree of one directory, so an agent that
-commits, stashes or writes elsewhere leaves them nothing to see. A Project can
-now replace the whole list.
+`{{rules}}` is a list a Project can replace as a whole. The default is not a
+matter of taste: the Gates read the working tree of one directory, so an agent
+that commits, stashes or writes elsewhere leaves them nothing to see.
 
 Asked for, and consistent with the prompts being the Project's. What it costs:
 nothing stops a Project's `--rules-file` dropping "do not commit", and the
 failure that follows is silent in the wrong place — the agent works, the Gate
 says nothing changed, the Attempt is refused for having done nothing. The rule
-still holds; only the sentence saying so is gone. (Leaving `{{rules}}` out of
-the template altogether is no longer possible: the role refuses before the
-agent runs.)
+still holds; only the sentence saying so is gone. (A template that leaves `{{rules}}` out
+altogether is refused: the role refuses before the agent runs.)
 
 An alternative was a fixed preamble the Project could only add to. It was not
 taken because the same argument would then apply to the prompt templates, which
@@ -154,7 +146,7 @@ are already the Project's entirely.
 `packages/host/slot-kit/src/transcript.ts` — `openTranscript`
 
 One Markdown file per turn — invocation, prompt, stdout, stderr, timing — filed
-under the Feature. Off unless `--transcript-dir` is given.
+under the Ticket. Off unless `--transcript-dir` is given.
 
 Off by default because the content is the Project's own material in the clear.
 One file per turn rather than a stream, because the pair that has to be read
@@ -169,19 +161,6 @@ from the journal's `at` stamps, which is not the same as being written down.
 Rotation is nobody's job. A long-running Project accumulates one file per turn
 forever, and nothing prunes them.
 
-### C20 · A queued Feature behind a `submitted` one waits until the next tick
-
-`packages/host/runtime/src/loop/tick.ts` — `driven`
-
-A pass that admits B while A is `submitted` drives A (the active one) and
-marks the Project driven, so the sweep skips B. B starts on the next pass,
-one `pollIntervalMs` later. Driving twice in the same tick would start B the
-moment A became `done`, at the cost of two `runProject` calls and a second
-work-line refresh question.
-
-**Instead:** when `runProject` returns a terminal outcome, drive the same
-Project again in that pass until it is idle or frozen.
-
 ### C21 · `assembly/validate.mjs`'s verdict is a `MASON_VERDICT:` line the slot parses
 
 `packages/plugins/slots/assembly/validate.mjs` — `answer`, `lastVerdictLine`
@@ -193,8 +172,8 @@ invented here, and revised once already from what a real run showed:
 
 The first cut asked the agent to answer with exactly `VALIDATED` or
 `REFUSED: <paragraph>`, matched at the start of the answer. Run for real
-against `tilap/mason-test` (2026-09-24), the agent reasoned out loud first —
-`"I'll review the assembled feature… — read-only, no changes.VALIDATED"` —
+against a real repository (2026-09-24), the agent reasoned out loud first —
+`"I'll review the assembled ticket… — read-only, no changes.VALIDATED"` —
 and the anchored match missed it, parking a refusal that named nothing wrong.
 A bare "search anywhere" fix was rejected in review: a model's own reasoning
 can use either word by accident ("the units were already validated on their
@@ -209,7 +188,7 @@ transcript (as a fixture) and against a synthetic answer that uses both
 words in unrelated sentences before the marker line.
 
 Still open: every future validate prompt (the shipped one and any Project's
-`--prompt-file`) now has to place `MASON_VERDICT:` correctly, and a model
+`--prompt-file`) has to place `MASON_VERDICT:` correctly, and a model
 that never writes that exact line is treated as a malformed refusal. Only
 one real agent CLI (Cursor) has exercised this path so far.
 
@@ -248,15 +227,57 @@ run does.
 **Instead:** isolate Claude once those flags have been measured; hide the
 `cursor` namespace; treat `status` as proof the key works.
 
-### C24 · FeatureBreakdown's Gate primitive is duplicated from Implementer's, not shared
-
-`packages/kernel/feature-breakdown/src/types.ts`, `src/child/run-gate.ts`, `src/child/parse-gate-output.ts`
-
-Giving the Planner a Gate sequence meant `GateSpec`/`GateVerdict`/`GateTraceEntry`/`runGate` had to exist somewhere FeatureBreakdown could reach, and Transformers do not depend on each other (`AGENTS.md`). The call was made without the user's sign-off — asked once, no answer came back in time — and taken by default toward the lower-risk option: copy the ~80 lines into `feature-breakdown`, matching the project's own convention of deliberate duplication across independent units (`ai-plugins/README.md`'s `repo-recon` et al.: "the same file in every plugin: edit one, copy it to the others"). The alternative not taken: extract a shared `@bluewombat/gate-kit`-style package both Transformers (and Host, for its own `GateSpec` import) depend on — more DRY, but a bigger, separate refactor, and the first instance of a kernel package shared between two Transformers rather than owned by one. `scripts/check-kernel.mjs` confirms the duplication did not become an import, but has no opinion on whether it *should* have been one.
-
-**Instead:** extract the shared package, once there is a second feature (beyond Gates) that would otherwise be copied a third time.
-
 ---
+
+### C26 · A Ticket that joins a Feature after it opened is ignored
+
+`packages/host/runtime/src/loop/features.ts` — `syncTickets`
+
+The Tickets of a Feature are read once, when it opens. A sub-issue added later
+is not part of it, and the Feature closes without it.
+
+**Instead:** read the list again on each pass and admit what is new, which
+reopens the question of a Feature that already submitted its line.
+
+### C27 · A Feature lands without its cancelled Tickets
+
+`packages/host/runtime/src/loop/features.ts` — `advanceOpenFeature`, `closeFeature`
+
+A Ticket cancelled on the tracker is dropped from the Feature: once the others
+are `done` the line is submitted without it. Only a Feature none of whose
+Tickets is `done` escalates.
+
+**Instead:** escalate a Feature that lost any Ticket, and let a human decide.
+
+### C28 · A Feature whose Tickets are all blocked escalates
+
+`packages/host/runtime/src/loop/features.ts` — `advanceOpenFeature`
+
+When a pass drives nothing and `received` Tickets remain, each waits on a
+Ticket that is not `done` (a cycle, or a blocker cancelled). The Feature
+escalates rather than waiting silently.
+
+**Instead:** tell a cycle from a blocker that is cancelled, and say which.
+
+### C29 · A submitted Feature waits forever when `settled` is unavailable
+
+`packages/host/runtime/src/loop/features.ts` — `settleFeature`
+
+Without `merge-when-ready`, a human folds the pull request and the Authority's
+`settled` says so. When it answers `unavailable` (or the manager omits it) the
+Feature stays `submitted` and no other Feature opens on the Project.
+
+**Instead:** escalate after a duration the Project sets.
+
+### C30 · Without an Authority there is no line
+
+`packages/host/runtime/src/loop/features.ts` — `openNextFeature`
+
+A manager that declares no Authority methods gets no `feature/<id>` line: each
+Ticket is folded into WorkLineStable directly and a Feature is done when its
+Tickets are. `merge-when-ready` and the human merge have no meaning there.
+
+**Instead:** refuse to run a Feature without an Authority.
 
 ## F — Faults found and left
 
@@ -297,16 +318,16 @@ sighting — it is not assertable by a test, an agent being what it is.
 The WorkLedger is the only memory. With it gone, every open issue that still
 carries the admission labels is admitted again and rebuilt from scratch, even
 though the tracker already says `mason:done` on it and the work is merged.
-**Observed**: a wiped ledger started rebuilding four features that
+**Observed**: a wiped ledger started rebuilding four tickets that
 were already merged, and would have opened a pull request for each.
 
-*Mitigated:* the GitHub listener no longer delivers an issue that
+*Mitigation:* the GitHub listener does not deliver an issue that
 already carries the `done` or `cancelled` state label, unless the resume signal
-is on it too (`settled.ts`). `cancelled` was added after a fresh Mason home took
-up an abandoned issue and started planning it.
-The WorkLedger stays the source of truth; the tracker's own memory is now read
+is on it too (`settled.ts`); `cancelled` keeps a fresh Mason home from taking
+up an abandoned issue.
+The WorkLedger stays the source of truth; the tracker's own memory is read
 as a guard against rebuilding what is already merged. It only works when
-`stateLabelPrefix` is set, and a tracker with no state of its own has no such
+`stateLabels` is set, and a tracker with no state of its own has no such
 guard.
 
 ### F12 · `parent-clean` compares a copy Parent by modification time
@@ -330,13 +351,11 @@ that quietly got worse. What rode along uninvited — secrets — is settled:
 (`workLine.isolationOptions.exclude`, DECISIONS). What remains is the cost.
 
 **Measured** on a real `node_modules` (11 654 files, 214 MB): the hand copy took
-6 s; the `cp -c` clone the plugin now uses takes 3.7 s and **0 MB** on APFS —
+6 s; the `cp -c` clone the plugin uses takes 3.7 s and **0 MB** on APFS —
 the bytes are shared. So the disk cost is gone where the file system clones,
-and the time is per-file syscalls, once per Isolation: one into the Feature
-workspace and one per Subtask. The Integrator used to add a fold snapshot per
-Integration, the kernel's own hand copy of the whole Parent (~29 s on 44 385
-files, `node_modules` included, measured 2026-10-12); the git strategy no longer
-copies what `.gitignore` leaves out (DECISIONS, F31), and that part is settled.
+and the time is per-file syscalls, once per Isolation. A backend without `snapshotPaths` snapshots the whole Parent by hand
+(~29 s on 44 385 files, `node_modules` included, measured 2026-10-12); the git
+strategy copies only what `.gitignore` does not leave out (DECISIONS, F31).
 
 Excluding `node_modules` through the list is not the answer as it stands: the
 Gates run in the Child, and a Child with no dependencies fail-blocks on
@@ -367,7 +386,7 @@ and this does not:
 - **A directory the fold creates and the failure empties** stays, empty: the
   list names files.
 - **A submodule** is a directory in git's list and is skipped by the snapshot;
-  the old copy took its files. Never run against a repository with submodules.
+  a whole-Parent copy would take its files. Never run against a repository with submodules.
 
 **Measured** on 2026-10-12 with the integrator CLI on a 44 576-file workspace
 (`node_modules` installed): 36 s before, 1.15 s after. **Not yet seen in a real
@@ -442,14 +461,14 @@ trace for the History.
 `packages/plugins/slots/gates/ci-green.mjs` — `stopWaiting`
 
 When no check appears, or checks stay running, until the Gate's ceiling, `ci-green`
-answers `fail-blocking`: the Feature is `escalated` with a clear reason and waits
-for a person (a `ready` label resumes it). That is honest, and it replaces a fix
+answers `fail-blocking`: the Ticket is `escalated` with a clear reason and waits
+for a person (a `resume` label resumes it). That is honest, and it replaces a fix
 agent sent after nothing. It is also heavy for a CI that is only late: Vercel
-deployed about fifty minutes after the push on 2026-10-12, and an escalated Feature
+deployed about fifty minutes after the push on 2026-10-12, and an escalated Ticket
 holds the queue of its project until someone acts. **Not yet seen in a real
 `mason run`**: tested with a stand-in GitHub.
 
-**Instead:** a third answer, "not judged", that leaves the Feature `submitted` and
+**Instead:** a third answer, "not judged", that leaves the Ticket `submitted` and
 asks again on a later pass, with a budget, without a producer, and escalates only
 when the budget is spent. It changes Implementer and Conductor (a new verdict and
 a counter), which is why it was not done with this fix.
@@ -459,7 +478,7 @@ a counter), which is why it was not done with this fix.
 `packages/host/runtime/src/loop/deliveries.ts` — `handleCancel`;
 `packages/kernel/conductor/src/run/open-conductor.ts` — `cancel`
 
-Abandoning a Feature that has a Submission destroys its workspaces and marks
+Abandoning a Ticket that has a Submission destroys its workspaces and marks
 the record `cancelled`; nothing tells the Authority. The pull request stays
 open, on a branch nobody will push to again, until a person closes it.
 **Observed** twice, #32 on 2026-09-14 and #47 on 2026-09-16, both closed by
@@ -489,24 +508,24 @@ hides exactly this.
 
 ---
 
-### F26 · A Submission carries every commit the feature workspace ever made
+### F26 · A Submission carries every commit the ticket workspace ever made
 
-`packages/plugins/slots/publishers/git.mjs` — a plain push of the feature
+`packages/plugins/slots/publishers/git.mjs` — a plain push of the ticket
 branch; `packages/plugins/isolation-git/src/git-merge.ts` — each fold and
 align adds history, never rewrites it
 
 What reaches the Authority is the branch, history and all. A blob that entered
-it once is pushed even after a later commit removed it: seen live, a feature
+it once is pushed even after a later commit removed it: seen live, a ticket
 whose first fold had committed a Builder's install (1 531 files, a 17 MB
 `libvips` and a 10 MB `esbuild` binary) still had a 17 MB pack to push after
 the repair took them out, and every push failed mid-way (`RPC failed; HTTP
 400`, `unexpected disconnect while reading sideband packet`) while the same
 token's API calls kept working. The pack's size over HTTPS is the likely
 cause, not a proved one. The pull request is squash-merged, so the work line stays clean;
-the branch and the push do not. The fold now keeps ignored paths out of
+the branch and the push do not. The fold keeps ignored paths out of
 history (DECISIONS), which closes the way this happened, not the class.
 
-**Instead:** publish one commit per Submission — the feature's tree on the
+**Instead:** publish one commit per Submission — the ticket's tree on the
 work line's head — rather than the workspace's history; or refuse, before the
 push, a branch whose history holds what its tip does not.
 
@@ -514,7 +533,7 @@ push, a branch whose history holds what its tip does not.
 
 `scripts/templates/process-tree.ts` — `track`
 
-Every supervised child leads a group of its own, so it no longer shares the
+Every supervised child leads a group of its own, so it does not share the
 terminal's Ctrl-C. Their only reaper is the `exit` hook of the process that
 started them, and a SIGKILL runs no hook: an agent at work, and what it
 started, run on until they end by themselves. SIGINT / SIGTERM end them (seen
@@ -567,14 +586,14 @@ That whole combination is untested and probably unusable as it stands.
 ### U7 · `reject_late`
 
 Cancel has run for real on a `received`, an `escalated` and a `submitted`
-Feature (#31 and #46: closed seconds after `## Submitted`, `cancelled` on the
+Ticket (#31 and #46: closed seconds after `## Submitted`, `cancelled` on the
 next tick, the Project free). The point of no return — a cancel arriving in
-`merging` or on a `done` Feature, and the `reject_late` it must answer — has
+`merging` or on a `done` Ticket, and the `reject_late` it must answer — has
 only run in unit tests.
 
 ### U8 · An interrupt during `submitted`
 
-SIGINT while a feature waits for a verdict.
+SIGINT while a ticket waits for a verdict.
 
 ### U9 · Two Projects at once
 
@@ -588,7 +607,7 @@ typed.
 ### U11 · No test runs the shipped Gates against a real Authority any more
 
 `integration/03-host-authority-slots` was the one assembly with a real Host on a
-real git work line, a FeatureManager that was also the Authority, and the
+real git work line, a TicketTracker that was also the Authority, and the
 **shipped** Gates — no stub anywhere. It was deleted with `integration/`. It
 guarded two defects by putting them back: the fold before the producing pass,
 and `workspace-changed` blind to the stage (both fixed since, both now rows in
@@ -617,7 +636,7 @@ run number never goes green (push and pull_request both fire). What works is a
 rule the agent cannot anticipate but can satisfy once told — require
 `refs #<pull request number>` in the changelog; the number does not exist
 until the pull request does, the failing log states it, the second round
-passes. That rule is now the trial repository's own CI, so every run there
+passes. That rule is the trial repository's own CI, so every run there
 pays one refusal round.
 
 ### U13 · A fold from a copy of the directory's index
@@ -628,7 +647,7 @@ pays one refusal round.
 Covered by `fold.test.ts` (an ignored build output stays out, a path tracked
 under an ignored directory stays in, a staged `git rm --cached` counts). The
 live run that found the leak ran the earlier `-f` fold, then a version with an
-empty index; this one has not folded a real feature yet. Unproved outside the
+empty index; this one has not folded a real ticket yet. Unproved outside the
 tests: a Child whose index git cannot read from a copy (`core.splitIndex`, a
 `sparse` index) — git resolves a shared index against `$GIT_DIR`, so it should
 hold, and nothing checks it.
@@ -638,8 +657,8 @@ hold, and nothing checks it.
 `packages/plugins/slots/gates/gitignore-leak.mjs`
 
 Covered by `test/gates.test.ts` against throwaway repositories. It has never
-judged a real assembled feature, and its `--base` has only ever been a local
-`main`: a work line whose branch is not named the same in the feature
+judged a real assembled ticket, and its `--base` has only ever been a local
+`main`: a work line whose branch is not named the same in the ticket
 workspace (a copy that fetched only `origin/main`) would fail-block it, which
 is loud, but untried.
 
@@ -650,42 +669,22 @@ is loud, but untried.
 `packages/plugins/manager-github/src/github/client.ts` — `boundedFetch`; `packages/host/runtime/src/loop/report.ts` — `pushReport`
 
 On `tilap/orangemonkey-site#5` the "In progress" comment was posted five
-minutes after the Subtask it reports on landed; nothing else ran meanwhile,
+minutes after the work it reports on landed; nothing else ran meanwhile,
 and the report is awaited where the work is. A silent connection is the
 likely cause (a plain request to the same API hung over two minutes that
 evening), a secondary rate-limit wait the other one; the journal could not
-tell. Each attempt now has a 30-second clock and is retried, and every report
+tell. Each attempt has a 30-second clock and is retried, and every report
 is filmed with its duration, so the next one shows. 30 seconds is a guess no
 measurement backs. **Instead**: reports off the critical path — queued and
 sent beside the work — would make any wait harmless, at the cost of ordering
 the tracker's comments by hand.
-
-### U16 · A planner Gate checks `workLineStable`, which may disagree with what `--read` was told
-
-`packages/host/runtime/src/loop/transformers.ts` — `breakDown()`; `packages/kernel/feature-breakdown/src/run/run-gate.ts`
-
-`planner.gates` runs against `workLineStable` — the one persistent trunk Host
-resolves and keeps across every run, never torn down the way a Subtask's
-workspace is. That is a deliberate choice (there is no other directory
-bluewombat itself knows about that corresponds to "what the Planner was only
-supposed to read"), but nothing ties it to whatever path the Project's own
-`--read <path>` convention told the Planner agent to read from. If the two
-name different directories, a Gate judges a directory the Planner was never
-prompted about, and a Project could misconfigure the two to disagree with no
-error at load time. Never run against a real Project's `planner.gates`, so
-the shipped Implementer-shaped Gate scripts (`workspace-changed.mjs` and
-friends) have not been checked against this smaller argv contract either —
-see `feature-breakdown/SPECS.md` §5a. **Instead**: a doctor check comparing
-the two paths when both are set; collapsing them into one config key the
-Project sets once, with Host threading it to both the Planner's `--read` and
-`--workspace`.
 
 ### U17 · Deck profiles for agents: one real run, one calls left open
 
 `packages/plugins/slots/agents/agent-plugins.mjs`; `packages/host/runtime/src/operator/agent-plugins.ts`
 
 Run once for real (2026-10-11, tilap/orangemonkey-site#23, Cursor): the
-planner got its core plugin and the project's base, the builder the base and
+builder got the base and
 its profile's `impeccable`, `assembly.validate` the base only — each
 transcript's `plugins` and `skills` say so. `impeccable`'s hooks, written in
 Claude's format (`${CLAUDE_PLUGIN_ROOT}`, `PostToolUse` on edits), did run
@@ -695,12 +694,31 @@ binary download into the isolated `HOME` on a fresh agent home.
 
 Two calls made here. A lock that does not pin a request makes the wrapper
 refuse before the vendor starts, on every Attempt of the role, until the
-Subtask escalates — cheap (no model call) but noisy; `mason doctor` reads the
+unit escalates — cheap (no model call) but noisy; `mason doctor` reads the
 locks in the work line first. That check is offline, so it approximates deck's
 own: it compares ids, not whole requests, and an edited request deck would
-refuse can pass it. **Instead:** refuse at warm, once per Feature, through
-`freeze` (`open-conductor.ts` `ensureFeatureIsolated`), and let doctor call
+refuse can pass it. **Instead:** refuse at warm, once per Ticket, through
+`freeze` (`open-conductor.ts` `isolateFresh`), and let doctor call
 `deck materialize` when an `--online` check exists.
+
+### U18 · Nothing here has run against GitHub for real
+
+`packages/plugins/manager-github/src` — sub-issues, issue dependencies, `git/refs`, `settled`
+
+Features as issues with `feature-ready`, Tickets as sub-issues with `task-ready`,
+blockers from `/dependencies/blocked_by`, line creation, a pull request onto a
+line, a human's merge read by `settled`, `mason setup` creating the three new
+labels: all covered by mocked HTTP only. The eight scenarios of the plan
+(simple Feature, blocker chain, `merge-when-ready` on and off, `feature-ready`
+without every Ticket `task-ready`, escalation, final pull request refused, two
+Features, a Feature closed in flight) have not been run on a repository.
+
+### U19 · The git Refresher switching branch
+
+`packages/plugins/slots/refreshers/git.mjs`
+
+Tested against a local remote. Not seen on a copy that holds a Ticket branch
+checked out when the target changes.
 
 ## I — Working, and worse than it could be
 
@@ -708,7 +726,7 @@ refuse can pass it. **Instead:** refuse at warm, once per Feature, through
 
 `packages/plugins/slots/gates/ci-green.mjs` — `--poll-ms`
 
-One set of API calls per poll per waiting feature, at the same rate whether the
+One set of API calls per poll per waiting ticket, at the same rate whether the
 checks started a second ago or ten minutes ago.
 
 ### I5 · The `npm-test` Gate cannot install dependencies
@@ -736,8 +754,8 @@ and end the child's whole tree through `process-tree.ts`. They still poll
 take an `AbortSignal` would change packages that implement those backends
 (`packages/plugins/isolation-*`). Not done from `packages/kernel/` alone.
 
-`listDeclaredWorkspaces` still `load`s every Feature after `listSummaries`.
-Putting workspace paths on `FeatureSummary` would require both persistence
+`listDeclaredWorkspaces` still `load`s every Ticket after `listSummaries`.
+Putting workspace paths on `TicketSummary` would require both persistence
 adapters under `packages/` to write them. Not done from `packages/kernel/` alone.
 
 `openConductor` still passes one `brickDurationMs` (default 30 s) to isolate
@@ -754,10 +772,9 @@ reason: pause and emergency stop as Host commands (RUNBOOKS describes them;
 they mutate the ledger from outside the worker, which nothing does yet);
 journal rotation (see I13); a full-screen TUI (taste).
 
-Settled since: a child's raw output is no longer lost. It is not forwarded
-through the `ProgressWriter` as this entry once planned — that would put an
-agent's megabytes on the journal's synchronous path — but written to its own
-file by a sink Host injects (`packages/host/runtime/src/loop/streams.ts`).
+A child's raw output is not lost. It is written to its own file by a sink Host
+injects, not forwarded through the `ProgressWriter`, which would put an agent's
+megabytes on the journal's synchronous path (`packages/host/runtime/src/loop/streams.ts`).
 Neither `watch` nor `status` reads those files yet: the journal names each one
 in a `stream-opened` line, and following one is the reader's to do.
 
@@ -779,14 +796,14 @@ moves three commands, and nothing without git exists yet to test it against.
 
 `packages/kernel/conductor/src/run/open-conductor.ts`
 
-Every journal line about a Task now names its Feature in `key`, which is what a
-reader joins on. What a line calls the Task itself was left alone, and it is not
-one thing: FeatureBreakdown says `key`, Isolator and Integrator say `id`,
-Implementer says `task_id`. The values disagree too — `implement` is given a
-bare `s1` for a Subtask but `${key}:assembly` for an assembly, and `integrate` a
-bare `s1` for a Subtask fold but `${key}:align` for the alignment. The stated
-rule is that a Task's id names the unit of work and not what it serves; four of
-the eight call sites break it.
+Every journal line about a Task names its Ticket in `key`, which is what a
+reader joins on. What a line calls the Task itself is not
+one thing: Isolator and Integrator say `id`, Implementer says `task_id`. The
+values disagree too — `implement` is given the bare key for the unit but
+`${key}:assembly` for an assembly, and `integrate` `${key}:align` for the
+alignment. The stated
+rule is that a Task's id names the unit of work and not what it serves; some
+call sites break it.
 
 Not fixed here because renaming a field or changing an id's shape is a break for
 anything already reading the journal, and the correlation problem — which is
@@ -799,11 +816,11 @@ work.
 
 `packages/host/slot-kit/src/transcript.ts`
 
-Streams and the journal are bounded now. Streams are discarded when a Feature
+Streams and the journal are bounded now. Streams are discarded when a Ticket
 reaches `done` or `cancelled` — what each file held is written to the film
 first, so the shape of the run survives the bytes — and an escalation keeps
 everything, which is the one outcome where somebody has to go and look. The
-journal no longer writes a line per empty pass: they are held and said as one
+journal does not write a line per empty pass: they are held and said as one
 line carrying the count, at most once a minute — 56% fewer lines and 42% fewer
 bytes when the rule is replayed over a real ledger.
 
@@ -827,16 +844,16 @@ been seen to come near it, but no test drives a slow disk. Not chosen: a bounded
 queue that drops on overflow, which is the right shape and is more code than the
 evidence justifies yet.
 
-### I15 · Only two of the five `run-child` copies film anything
+### I15 · Only one of the four `run-child` copies films anything
 
 `packages/kernel/integrator/src/child/run-child.ts`, `packages/kernel/isolator/src/child/run-child.ts`, `packages/plugins/isolation-git/src/child/run-child.ts`
 
-The sink was added to Implementer's and FeatureBreakdown's copies, which spawn
-the agents. The other three spawn git — short, and quiet enough that the journal
+The sink was added to Implementer's copy, which spawns the agents. The other
+three spawn git — short, and quiet enough that the journal
 already says what happened. A git command that hangs or fails strangely is
 therefore still as opaque as it was. The same four lines would do it.
 
-### I16 · A `listen` that failed no longer hides, but still does not say why
+### I16 · A failed `listen` is visible but does not say why
 
 `packages/host/manager-kit/src/port.ts` — `ListenResult`
 
@@ -844,11 +861,11 @@ Found the hard way: a run polled a repository for half an hour writing
 `source-lost` every tick, and the reason — the token belonged to an account that
 was not a collaborator — was only recoverable by querying the API by hand.
 
-Half fixed. A `listen` that did not complete is no longer treated as a quiet
-line: `mason log` stops hiding it and the journal never folds it into a
+A `listen` that did not complete is not treated as a quiet
+line: `mason log` does not hide it and the journal never folds it into a
 heartbeat. So the line is visible, repeated, and impossible to miss.
 
-What it says is still only a word. The manager knows the reason — GitHub's own
+What it says is only a word. The manager knows the reason — GitHub's own
 `detail` — and `ListenResult` has nowhere to put it: `{ outcome, deliveries }`
 and nothing else. Every other failing line in the film carries the child's last
 words. Fixing it properly means an optional `detail` on that contract, which is

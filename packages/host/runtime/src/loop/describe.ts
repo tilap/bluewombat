@@ -2,15 +2,13 @@ import type { PassSpec } from "../config/types.js";
 import { runSlot } from "./run-slot.js";
 
 /**
- * How a delivered feature describes itself is the Project's decision, not
+ * How a delivered ticket describes itself is the Project's decision, not
  * Host's: a team has conventions, and an agent can read the change and
  * follow them. The Describer slot is where that lives. Host spawns it once
- * per feature, in the feature workspace where the whole change is, tells it
+ * per ticket, in the ticket workspace where the whole change is, tells it
  * what was asked, and takes one JSON line back: `{ subject, body? }`. What
  * the Authority makes of those words is the manager's business — for GitHub,
- * the fold's message and the pull request's text. A Subtask is never
- * described: its fold is folded again into the feature's, and words spent on
- * it are words wasted.
+ * the fold's message and the pull request's text.
  *
  * A slot that fails — cannot run, answers nothing readable, subject empty —
  * is not a reason to lose the Submission: the caller keeps the words it had,
@@ -24,7 +22,7 @@ export type DescribeInput = {
   intention: string;
   /** The work line the change will land on, so the slot can diff against it. */
   target: string;
-  /** The feature workspace; the slot may read its diff. */
+  /** The ticket workspace; the slot may read its diff. */
   cwd: string;
 };
 
@@ -43,9 +41,9 @@ export async function describe(slot: PassSpec, input: DescribeInput): Promise<De
       ...rest,
       "--id",
       input.id,
-      // A Describer keeping a record of its turn files it under the feature,
+      // A Describer keeping a record of its turn files it under the ticket,
       // the way every other slot does. Without this its transcripts land in
-      // `no-context/` and the feature has to be read back out of the filename.
+      // `no-context/` and the ticket has to be read back out of the filename.
       "--context",
       input.id,
       "--title",

@@ -12,7 +12,7 @@ function trace(
     task_id: "t",
     attempt,
     builder: {
-      input: { intention: "i", definition_of_done: "" },
+      input: { intention: "i" },
       result: { kind: "completed", ...over },
     },
     gates,

@@ -62,8 +62,6 @@ function runRole(
       "1",
       "--intention",
       "Write delivered.txt",
-      "--definition-of-done",
-      "delivered.txt exists",
       ...implExtra,
     ],
     { cwd, encoding: "utf8" },
@@ -87,22 +85,20 @@ function echoedPrompt(cwd: string): string {
 describe("builder producer", () => {
   it("fail-blocking when there is no intention", () => {
     const cwd = sandbox();
-    const result = spawnSync(
-      node,
-      [producer, "--", node, cursor, "--bin", agentOk, "--definition-of-done", "x"],
-      { cwd, encoding: "utf8" },
-    );
+    const result = spawnSync(node, [producer, "--", node, cursor, "--bin", agentOk], {
+      cwd,
+      encoding: "utf8",
+    });
     assert.notEqual(result.status, 0);
     assert.equal(failureOf(result.stdout).outcome, "fail-blocking");
   });
 
   it("fail-blocking when no agent command follows --", () => {
     const cwd = sandbox();
-    const result = spawnSync(
-      node,
-      [producer, "--id", "t", "--attempt", "1", "--intention", "x", "--definition-of-done", "y"],
-      { cwd, encoding: "utf8" },
-    );
+    const result = spawnSync(node, [producer, "--id", "t", "--attempt", "1", "--intention", "x"], {
+      cwd,
+      encoding: "utf8",
+    });
     assert.notEqual(result.status, 0);
     assert.match(failureOf(result.stdout).report, /agent command after --/);
   });
@@ -166,7 +162,6 @@ describe("builder producer", () => {
     assert.equal(result.status, 0, result.stderr);
     const prompt = echoedPrompt(cwd);
     assert.match(prompt, /Write delivered\.txt/);
-    assert.match(prompt, /delivered\.txt exists/);
     assert.match(prompt, /do not commit, branch, stash/);
   });
 
@@ -208,13 +203,12 @@ describe("builder producer", () => {
   it("takes the prompt template from --prompt-file", () => {
     const cwd = sandbox();
     const template = join(cwd, "prompt.md");
-    writeFileSync(template, "House rules apply.\n\n{{task}}\n\n{{done_when}}\n\n{{rules}}\n");
+    writeFileSync(template, "House rules apply.\n\n{{task}}\n\n{{rules}}\n");
     const result = run(cwd, ["--bin", agentEchoArgv], ["--prompt-file", template]);
     assert.equal(result.status, 0, result.stderr);
     const prompt = echoedPrompt(cwd);
     assert.match(prompt, /^House rules apply\./);
     assert.match(prompt, /Write delivered\.txt/);
-    assert.match(prompt, /delivered\.txt exists/);
     assert.doesNotMatch(prompt, /unattended/);
   });
 
@@ -346,7 +340,7 @@ describe("assembly fix", () => {
     );
     assert.equal(result.status, 0, result.stderr);
     const prompt = echoedPrompt(cwd);
-    assert.match(prompt, /assembled feature/);
+    assert.match(prompt, /assembled work/);
     assert.match(prompt, /Fix what the refusal names/);
     assert.match(prompt, /Refused by: ci-green/);
     assert.match(prompt, /ci red/);
@@ -354,7 +348,7 @@ describe("assembly fix", () => {
 });
 
 describe("assembly validate", () => {
-  it("exits 0 when the review validates the assembled feature", () => {
+  it("exits 0 when the review validates the assembled ticket", () => {
     const cwd = sandbox();
     const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentReviewValidated]);
     assert.equal(result.status, 0, result.stderr);
@@ -578,8 +572,6 @@ describe("builder transcript", () => {
         "github:tilap/mason-one#34",
         "--intention",
         "Write delivered.txt",
-        "--definition-of-done",
-        "delivered.txt exists",
       ],
       { cwd, encoding: "utf8" },
     );

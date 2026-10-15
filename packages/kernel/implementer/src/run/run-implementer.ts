@@ -118,7 +118,6 @@ async function runLoop(input: {
 
     const builderInput: BuilderInput = {
       intention: invocation.intention,
-      definition_of_done: invocation.definitionOfDone,
     };
     if (previousReport !== undefined) {
       builderInput.report = previousReport;

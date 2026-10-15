@@ -5,7 +5,6 @@
     "baseUrl": ".",
     "paths": {
       "@bluewombat/conductor": ["../../kernel/conductor/src/index.ts"],
-      "@bluewombat/feature-breakdown": ["../../kernel/feature-breakdown/src/index.ts"],
       "@bluewombat/manager-kit": ["../manager-kit/src/index.ts"],
       "@bluewombat/implementer": ["../../kernel/implementer/src/index.ts"],
       "@bluewombat/integrator": ["../../kernel/integrator/src/index.ts"],

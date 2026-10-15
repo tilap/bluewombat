@@ -5,14 +5,13 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { stringify as stringifyYaml } from "yaml";
-import { CONFIG_FILENAME } from "../config/find-config.js";
+import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
 import { openHost } from "../loop/open-host.js";
 import { runCancel } from "./cancel.js";
 
 const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = join(here, "../../fixtures");
-const planner = join(fixtures, "planner-one-subtask.mjs");
 const builder = join(fixtures, "builder-write-marker.mjs");
 const gateFail = join(fixtures, "gate-fail-blocking.mjs");
 
@@ -22,14 +21,19 @@ function sandbox(): string {
   mkdirSync(join(root, "source"));
   writeFileSync(join(root, "stable", "seed.txt"), "already good\n");
   writeFileSync(
-    join(root, CONFIG_FILENAME),
+    join(root, DEFAULT_CONFIG_FILENAME),
     stringifyYaml({
-      manager: "@bluewombat/manager-fake",
-      managerOptions: { source: "./source", target: "./threads" },
+      featureTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
+      ticketTracker: {
+        package: "@bluewombat/manager-fake",
+        options: { source: "./source", target: "./threads" },
+      },
       workLine: { stable: "./stable", isolation: "@bluewombat/isolation-copy" },
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
-      planner: { cmd: [node, planner], timeoutMs: 30_000 },
       builder: {
         producer: {
           cmd: [node, builder],
@@ -64,10 +68,10 @@ describe("runCancel", () => {
   it("refuses a key the ledger does not know", async () => {
     const { code, output } = await cancelIn(sandbox(), ["fake:99"]);
     assert.equal(code, 2);
-    assert.match(output, /No Feature named "fake:99"/);
+    assert.match(output, /No Ticket named "fake:99"/);
   });
 
-  it("abandons an escalated Feature by key", async () => {
+  it("abandons an escalated Ticket by key", async () => {
     const cwd = sandbox();
     writeFileSync(
       join(cwd, "source", "0001-create.json"),
@@ -79,16 +83,24 @@ describe("runCancel", () => {
       }),
     );
     const host = await openHost({
-      manager: "@bluewombat/manager-fake",
-      managerOptions: {
-        source: join(cwd, "source"),
-        target: join(cwd, "threads"),
+      featureTracker: {
+        package: "@bluewombat/manager-fake",
+        options: {
+          source: join(cwd, "source"),
+          target: join(cwd, "threads"),
+        },
+      },
+      ticketTracker: {
+        package: "@bluewombat/manager-fake",
+        options: {
+          source: join(cwd, "source"),
+          target: join(cwd, "threads"),
+        },
       },
       workLineStable: join(cwd, "stable"),
       workLineIsolation: "@bluewombat/isolation-copy",
       workspaceRoot: join(cwd, ".mason/workspaces"),
       ledgerRoot: join(cwd, ".mason/ledger"),
-      planner: { cmd: [node, planner], timeoutMs: 30_000, gates: [] },
       builder: {
         producer: {
           cmd: [node, builder],

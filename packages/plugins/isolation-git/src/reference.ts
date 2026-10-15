@@ -126,8 +126,9 @@ function parsed(reference: GitReference): ParsedReference {
 
 /**
  * Whether what is at `path` is a copy of this reference: a git tree, whose
- * `origin` is the remote, checked out on the branch. Anything else is somebody
- * else's directory, and this system does not write over those.
+ * `origin` is the remote, on a branch. Which branch is the Refresher's business:
+ * it moves the copy onto the line the next unit is cut from. Anything else is
+ * somebody else's directory, and this system does not write over those.
  */
 function inspectCopy(reference: GitReference, path: string): ReferenceCopyState {
   if (!existsSync(path)) {
@@ -149,13 +150,8 @@ function inspectCopy(reference: GitReference, path: string): ReferenceCopyState 
       reason: `${path} has "${REMOTE}" at ${url.stdout.trim()}, not ${reference.remote}`,
     };
   }
-  const branch = git(["symbolic-ref", "--short", "HEAD"], path);
-  const checkedOut = branch.ok ? branch.stdout.trim() : "a detached HEAD";
-  if (checkedOut !== reference.branch) {
-    return {
-      kind: "mismatch",
-      reason: `${path} is on "${checkedOut}", not "${reference.branch}"`,
-    };
+  if (!git(["symbolic-ref", "--short", "HEAD"], path).ok) {
+    return { kind: "mismatch", reason: `${path} is on a detached HEAD` };
   }
   return { kind: "matches" };
 }

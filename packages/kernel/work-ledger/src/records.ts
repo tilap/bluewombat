@@ -1,9 +1,8 @@
 /** Persisted shapes. Data only — no transitions. */
 
-export type FeatureState =
+export type TicketState =
   | "received"
   | "invalid"
-  | "planning"
   | "running"
   | "escalated"
   | "integrating"
@@ -12,38 +11,27 @@ export type FeatureState =
   | "done"
   | "cancelled";
 
-export type SubtaskState =
-  | "pending"
-  | "runnable"
-  | "running"
-  | "escalated"
-  | "integrated"
-  | "cancelled";
-
 /**
- * Where a Feature stopped, in terms a person reading the tracker can act on.
+ * Where a Ticket stopped, in terms a person reading the tracker can act on.
  *
- * `subtask` is one unit of work; `assembly` is the whole they make up, which
- * fails for its own reasons and names no unit. Reporting one as the other sends
- * a reader to look at work that did not fail.
+ * `unit` is the work being made; `assembly` is the work once assembled, which
+ * fails for its own reasons. Reporting one as the other sends a reader to look
+ * at work that did not fail.
  */
-export type EscalationKind = "plan" | "subtask" | "assembly" | "submitted" | "merging";
+export type EscalationKind = "unit" | "assembly" | "submitted" | "merging";
 
 export type RefusalCode =
   | "not-found"
   | "duplicate"
   | "illegal-transition"
-  | "project-busy"
-  | "plan-frozen"
-  | "plan-not-frozen"
-  | "subtask-not-runnable"
   | "another-running"
+  | "project-busy"
   | "missing-trace"
   | "point-of-no-return"
   | "too-late"
   | "persist-failed";
 
-export type FeatureIntention = {
+export type TicketIntention = {
   key: string;
   project: string;
   fingerprint: string;
@@ -53,19 +41,12 @@ export type FeatureIntention = {
   manager?: string;
   external_id?: string;
   source?: { ref?: string; revision?: string };
-};
-
-export type PlannedSubtask = {
-  id: string;
-  intention: string;
-  definition_of_done: string;
-  depends_on: string[];
-  state: SubtaskState;
-};
-
-export type PlanRecord = {
-  planned_at: string;
-  subtasks: PlannedSubtask[];
+  /** The Feature this Ticket belongs to. */
+  feature?: string;
+  /** Tickets that must be `done` before this one may start. */
+  blocked_by?: string[];
+  /** The line this Ticket lands on, when it is not the Project's final one. */
+  line?: string;
 };
 
 export type TraceRecord = {
@@ -77,14 +58,13 @@ export type TraceRecord = {
 };
 
 export type AttemptRecord = {
-  subtask_id: string;
   number: number;
   /**
-   * The round this Attempt belongs to: the Feature's `resumes` when it was
+   * The round this Attempt belongs to: the Ticket's `resumes` when it was
    * recorded. The budget is per round, so a report counting Attempts against
-   * it reads this round's alone. Absent on a record written before: read as 0.
+   * it reads this round's alone.
    */
-  round?: number;
+  round: number;
   trace?: TraceRecord;
 };
 
@@ -92,20 +72,14 @@ export type BailRecord = {
   expires_at: number;
 };
 
-export type WorkspacesRecord = {
-  feature?: string;
-  subtask?: string;
-};
-
 export type EscalationRecord = {
   kind: EscalationKind;
   born_in_merging: boolean;
-  subtask_id?: string;
   /**
    * Why it stopped, in the words of whatever refused it.
    *
    * An escalation is read by a person who was not there. Without this they are
-   * told a Feature is frozen and nothing else, and the reason has to be found
+   * told a Ticket is frozen and nothing else, and the reason has to be found
    * again from the outside.
    */
   report?: string;
@@ -143,24 +117,23 @@ export type ParkedRefusalRecord = {
   refused_by?: string;
 };
 
-export type FeatureAggregate = {
-  intention: FeatureIntention;
-  state: FeatureState;
+export type TicketAggregate = {
+  intention: TicketIntention;
+  state: TicketState;
   received_at: number;
   attempts: AttemptRecord[];
   attempts_used: number;
   /**
-   * How many times a human's `ready` was taken. A round is what tells two
-   * escalations of the same kind apart — a plan refused, resumed, refused
-   * again has the same Attempt count both times — so a report can name one.
-   * Absent on a record written before the counter existed: read as 0.
+   * How many times a human's resume was taken. A round is what tells two
+   * escalations of the same kind apart — refused, resumed, refused again has
+   * the same Attempt count both times — so a report can name one.
    */
-  resumes?: number;
+  resumes: number;
   invalid?: InvalidRecord;
   pending_fingerprint?: string;
-  plan?: PlanRecord;
   bail?: BailRecord;
-  workspaces?: WorkspacesRecord;
+  /** The isolated directory the work is made in, once Isolation made one. */
+  workspace?: string;
   escalation?: EscalationRecord;
   submission?: SubmissionRecord;
   /** The work line's own name for the fold that made it `done`, when the Authority gave one. Opaque. */
@@ -179,11 +152,81 @@ export type FeatureAggregate = {
   parked_refusals?: number;
 };
 
+export type TicketSummary = {
+  key: string;
+  project: string;
+  state: TicketState;
+  priority: number;
+  received_at: number;
+  bail_expires_at?: number;
+  feature?: string;
+};
+
+/**
+ * Where a Feature stands. A Feature waits until it may open, is `open` while
+ * its Tickets are made, is `submitted` when its line is with the Authority, and
+ * is `done` once the line is folded.
+ */
+export type FeatureState = "waiting" | "open" | "submitted" | "escalated" | "done" | "cancelled";
+
+export type FeatureIntention = {
+  key: string;
+  project: string;
+  fingerprint: string;
+  priority: number;
+  intention: string;
+  title?: string;
+  manager?: string;
+  external_id?: string;
+  source?: { ref?: string; revision?: string };
+  /** Features that must be `done` before this one may open. */
+  blocked_by: string[];
+  /** The line may be folded without a human. */
+  merge_when_ready: boolean;
+};
+
+export type FeatureSubmissionRecord = {
+  reference: string;
+  submitted_at: number;
+};
+
+export type FeatureAggregate = {
+  kind: "feature";
+  intention: FeatureIntention;
+  state: FeatureState;
+  received_at: number;
+  /** The line the Feature's Tickets land on, once it is open. */
+  line?: string;
+  /** Keys of the Tickets admitted when the Feature opened. */
+  tickets: string[];
+  submission?: FeatureSubmissionRecord;
+  /** Why it stopped, in the words of whatever refused it. */
+  escalation?: { report?: string };
+  /** How many times a human's resume was taken. */
+  resumes: number;
+  pending_fingerprint?: string;
+  /** The work line's own name for the fold, when the Authority gave one. Opaque. */
+  integration_reference?: string;
+};
+
 export type FeatureSummary = {
+  kind: "feature";
   key: string;
   project: string;
   state: FeatureState;
   priority: number;
   received_at: number;
-  bail_expires_at?: number;
 };
+
+/** What the Persistence Port stores: one record per key. */
+export type Aggregate = TicketAggregate | FeatureAggregate;
+
+export type Summary = TicketSummary | FeatureSummary;
+
+export function isFeatureAggregate(aggregate: Aggregate): aggregate is FeatureAggregate {
+  return "kind" in aggregate && aggregate.kind === "feature";
+}
+
+export function isFeatureSummary(summary: Summary): summary is FeatureSummary {
+  return "kind" in summary && summary.kind === "feature";
+}

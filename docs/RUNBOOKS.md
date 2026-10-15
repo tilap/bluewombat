@@ -24,7 +24,7 @@ plus how this repository's packages reach npm.
 ## Deploy
 
 This is how `@bluewombat/*` reaches the npm registry. It is not bluewombat folding a
-Feature into WorkLineStable — that has no production target.
+Ticket into WorkLineStable — that has no production target.
 
 A release is a `v*` tag on `main`. Pushing that tag runs
 [`.github/workflows/release.yml`](../.github/workflows/release.yml). The workflow
@@ -77,40 +77,39 @@ package that is already on the registry.
 
 ## Rollback
 
-The product does not automatically revert a FeatureStandard already in WorkLineStable.
+The product does not automatically revert a TicketStandard already in WorkLineStable.
 That repair is out of scope. If integration is stuck in `merging`, the human path is
-escalation then `ready` → `integrating`, not abandon.
+escalation then `resume` → `integrating`, not abandon.
 
 ## Pause (global)
 
 Intended behaviour when implemented:
 
-1. **Preconditions** — you need the process to stop taking new work without crashing in-flight Subtasks.
-2. **Steps** — not built. Effect: no new FeatureStandard admission, no new Subtask start; the current Subtask may finish; **no** integration into WorkLineStable.
-3. **Verify** — WorkLedger shows no new `running` Subtask after the pause; FeatureEmitter does not report `done` for work that finished after the pause.
+1. **Preconditions** — you need the process to stop taking new work without crashing the unit in flight.
+2. **Steps** — not built. Effect: no new TicketStandard admission, no new unit start; the current unit may finish; **no** integration into WorkLineStable.
+3. **Verify** — WorkLedger shows no new unit started after the pause; Emitter does not report `done` for work that finished after the pause.
 4. **If it failed** — use *Emergency stop* below.
 
 ## Emergency stop
 
 Intended behaviour when implemented:
 
-1. **Steps** — not built. Effect: Implementers are interrupted; affected Subtasks become `runnable`; isolated workspaces are destroyed.
-2. **Verify** — no Implementer still holds a bail; WorkLedger is the only remaining state; workspaces for those Subtasks are gone.
-3. **Undo** — there is no undo of destroyed workspaces. Resume is from zero on `runnable` Subtasks, consuming an Attempt.
+1. **Steps** — not built. Effect: Implementers are interrupted; the unit in flight starts over from zero; isolated workspaces are destroyed.
+2. **Verify** — no Implementer still holds a bail; WorkLedger is the only remaining state; the workspace of that unit is gone.
+3. **Undo** — there is no undo of destroyed workspaces. Resume is from zero, consuming an Attempt.
 
 ## Incident response — escalation
 
-The human surface is the FeatureManager, not the WorkLedger.
+The human surface is the TicketTracker, not the WorkLedger.
 
-1. **Assess** — FeatureEmitter event `escalated`: motif, step (plan / subtask / integrating / merging), Trace if an Attempt exists, bound counters. The whole feature is frozen.
-2. **Communicate** — stay in the FeatureManager. An untreated escalation stays `escalated` and should receive `escalation_reminder` events.
+1. **Assess** — Emitter event `escalated`: motif, stage (unit / integrating / submitting / merging), Trace if an Attempt exists, bound counters. The whole ticket is frozen.
+2. **Communicate** — stay in the TicketTracker. An untreated escalation stays `escalated` and should receive `escalation_reminder` events.
 3. **Stabilise**
    | Lever                                | How                                                                                | Effect                                                                          |
    | ------------------------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-   | `ready` after a plan escalation      | Human signal in the FeatureManager                                                 | Return to `planning`; breakdown is replayed                                     |
-   | `ready` after a Subtask escalation   | Human signal in the FeatureManager                                                 | That Subtask restarts from zero; already `integrated` Subtasks are not replayed |
-   | `ready` after a `merging` escalation | Human signal in the FeatureManager                                                 | Return to `integrating`. Abandon is refused                                     |
-   | Abandon                              | FeatureManager, only before `merging`                                              | Feature `cancelled`; WorkSpaceFeature is never integrated                       |
+   | `resume` after a unit escalation      | Human signal in the TicketTracker                                                 | The unit restarts from zero                                                     |
+   | `resume` after a `merging` escalation | Human signal in the TicketTracker                                                 | Return to `integrating`. Abandon is refused                                     |
+   | Abandon                              | TicketTracker, only before `merging`                                              | Ticket `cancelled`; WorkSpaceTicket is never integrated                       |
    | Deleted item, poll never mentions it | Automatic on the next pass (`probe`), or `mason cancel <key>` after stopping `run` | Same as abandon. The command takes the ledger lock.                             |
 4. **Record** — the Trace on the Attempt is the record. An escalation without a Trace (when an Attempt existed) is invalid.
 
@@ -145,4 +144,4 @@ is dead, assess exposure.
 ## On call
 
 - Rotation: none
-- Escalation: the FeatureManager is the only human channel; there is no paging policy yet
+- Escalation: the TicketTracker is the only human channel; there is no paging policy yet

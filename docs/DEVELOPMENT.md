@@ -134,7 +134,7 @@ Two things to know:
 | Trap                                                               | Sign                                                        | Fix                                                                            |
 | ------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Describing a plan as if it were the present                        | A `docs/` file that says what will exist                    | `docs/` is the present; what is owed goes to RESERVATIONS.md                   |
-| Using `ready` and `runnable` as if they were the same word         | Human signal confused with Subtask state                    | `ready` is human; `runnable` is Subtask state — see [PRODUCT.md](./PRODUCT.md) |
+| Using `resume` and `feature-ready` as if they were the same word | Resuming an escalation confused with opening work | `resume` resumes; `feature-ready` and `task-ready` open — see [PRODUCT.md](./PRODUCT.md) |
 | Putting a Transformer's CLI in root `docs/`                        | DEVELOPMENT.md lists `--workspace` for Implementer          | Move argv next to the Transformer; this file stays the repo toolchain          |
 | Adding a per-package `.nvmrc` or `biome.json`                      | A Transformer drifts off Node 24.20 or the shared formatter | Delete it; extend `tsconfig.base.json`; use the root Biome file                |
 | Importing one Transformer from another                             | A Transformer grows a dependency on a sibling               | Wire them only in Host                                                         |

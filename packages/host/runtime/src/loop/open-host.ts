@@ -9,11 +9,18 @@ import { DEFAULT_PERSIST } from "../config/defaults.js";
 import { homeOf } from "../config/home.js";
 import type { HostOptions } from "../config/types.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
-import { contextOf, loadManagerModule, type ManagerRequest } from "../plugins/manager.js";
+import {
+  contextOf,
+  loadManagerModule,
+  type ManagerRequest,
+  openManagers,
+  requestOf,
+} from "../plugins/manager.js";
 import { resolvePersistModule } from "../plugins/persist.js";
 import { openAuthority } from "./authority.js";
 import type { HostRunInput } from "./context.js";
-import { cancelFeature, releaseFeature } from "./deliveries.js";
+import { releaseTicket } from "./deliveries.js";
+import { cancelKey } from "./features.js";
 import { coalesceQuiet, type Journal, openJournalFile, stampJournal } from "./journal.js";
 import { acquireLock } from "./lock.js";
 import { openStreams, type Streams } from "./streams.js";
@@ -26,9 +33,6 @@ import { inspectWorkLine, materializeWorkLine, resolveWorkLine } from "./work-li
 export type { HostOptions } from "../config/types.js";
 export type { CancelResult, ReleaseResult } from "./deliveries.js";
 export type { Host, HostTickResult } from "./tick.js";
-
-const DEFAULT_MAX_UNITS = 10;
-const DEFAULT_MAX_FEATURE_BYTES = 65_536;
 
 /**
  * Which build of Host is running, for the line that opens the film.
@@ -78,19 +82,23 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   if (!backend.ok) {
     throw new Error(backend.reason);
   }
-  const request: ManagerRequest = {
-    manager: options.manager,
-    managerOptions: options.managerOptions ?? {},
+  const common: Omit<ManagerRequest, "manager" | "managerOptions"> = {
     configDir,
     durationMs: options.timeoutMs,
     interruptFlag,
     env: options.env ?? process.env,
   };
-  const loaded = await loadManagerModule(request);
+  // The Authority lives with the Tickets, so that is the side that names the
+  // reference work line.
+  const trackerRequest = requestOf(options.ticketTracker, common);
+  const loaded = await loadManagerModule(trackerRequest);
   if (!loaded.ok) {
     throw new Error(loaded.reason);
   }
-  const managerName = typeof options.manager === "string" ? options.manager : "the manager";
+  const managerName =
+    typeof options.ticketTracker.package === "string"
+      ? options.ticketTracker.package
+      : "the ticket tracker";
 
   // Whose directory the work line is, settled before anything is written. A
   // reference the manager names is read by the strategy — strictly, since the
@@ -103,7 +111,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     branch: options.workLineBranch,
     manager: managerName,
     wantsAuthority: options.authority?.enabled === true,
-    reference: loaded.module.referenceManager?.(contextOf(request)),
+    reference: loaded.module.referenceManager?.(contextOf(trackerRequest)),
     strategy: resolved.strategy,
     strategyName: resolved.specifier,
   });
@@ -171,27 +179,26 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     trace,
     journal,
     ...(streams === undefined ? {} : { streams }),
-    planner: options.planner,
     builder: options.builder,
     assembly: options.assembly,
-    workLineStable: stable,
     isolation: resolved.strategy.isolation,
     fold: resolved.strategy.fold,
     timeoutMs: options.timeoutMs,
     interruptFlag,
-    maxUnits: DEFAULT_MAX_UNITS,
-    maxFeatureBytes: DEFAULT_MAX_FEATURE_BYTES,
   });
   const hostOptions: HostOptions = { ...options, interruptFlag };
-  const created = await loaded.module.createManager(contextOf(request));
-  if (!created.ok) {
-    throw new Error(created.reason);
+  const opened = await openManagers(
+    { featureTracker: options.featureTracker, ticketTracker: options.ticketTracker },
+    common,
+  );
+  if (!opened.ok) {
+    throw new Error(opened.reason);
   }
-  const manager = created.manager;
+  const { features, tickets } = opened;
 
   // Declared, never inferred: a Project has an Authority because it says so,
   // not because a directory happens to look a certain way. Disabled, the
-  // assembled feature is folded into WorkLineStable and that fold is final.
+  // assembled ticket is folded into WorkLineStable and that fold is final.
   const wantsAuthority = options.authority?.enabled === true;
   if (wantsAuthority && target === undefined) {
     throw new Error(
@@ -201,9 +208,8 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
   const authority =
     wantsAuthority && options.authority !== undefined && target !== undefined
       ? openAuthority({
-          manager,
+          manager: tickets,
           workLineStable: stable,
-          workLineTarget: target,
           publishArgv: options.authority.publishArgv,
           timeoutMs: options.timeoutMs,
           refOf: resolved.strategy.refOf ?? ((id) => id),
@@ -258,7 +264,9 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     },
     ledger,
     conductor,
-    manager,
+    features,
+    tickets,
+    transformers,
     journal,
     ...(streams === undefined ? {} : { streams }),
     trace,
@@ -272,8 +280,8 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     conductor,
     runOnce: () => runOnce(ctx),
     run: () => run(ctx),
-    cancel: (key) => cancelFeature(ctx, key),
-    release: (key) => releaseFeature(ctx, key),
+    cancel: (key) => cancelKey(ctx, key),
+    release: (key) => releaseTicket(ctx, key),
     // The film closes before the lock does: whoever reads it next has to be
     // able to tell a run that ended from one whose process was killed, and the
     // absence of this line is the only way to say the second.

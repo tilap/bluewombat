@@ -1,6 +1,5 @@
 import type { AuthorityPort } from "@bluewombat/conductor";
-import { subjectOf } from "@bluewombat/conductor";
-import type { ManagerPort, SubmissionRequest } from "@bluewombat/manager-kit";
+import type { SubmissionRequest, TicketTrackerPort } from "@bluewombat/manager-kit";
 import type { PassSpec } from "../config/types.js";
 import { describe } from "./describe.js";
 import type { Journal } from "./journal.js";
@@ -11,7 +10,7 @@ import { runSlot } from "./run-slot.js";
  *
  * Two halves that do not belong to the same world: publishing the work is an
  * operation on a directory Host owns, and offering it to the outside belongs to
- * the FeatureManager. Host runs the first as a slot it never reads into, then
+ * the TicketTracker. Host runs the first as a slot it never reads into, then
  * hands the second the name that slot published under. Neither of them judges:
  * that is a Gate.
  *
@@ -20,9 +19,8 @@ import { runSlot } from "./run-slot.js";
  * places its work some other way changes that command and nothing else.
  */
 export function openAuthority(input: {
-  manager: ManagerPort;
+  manager: TicketTrackerPort;
   workLineStable: string;
-  workLineTarget: string;
   publishArgv: string[];
   timeoutMs: number;
   /** The isolation strategy's name for a Child, from its id. */
@@ -33,7 +31,7 @@ export function openAuthority(input: {
   describe?: PassSpec | undefined;
   journal?: Journal | undefined;
 }): AuthorityPort | undefined {
-  const { manager, workLineStable, workLineTarget, publishArgv, timeoutMs, refOf } = input;
+  const { manager, workLineStable, publishArgv, timeoutMs, refOf } = input;
   if (manager.submit === undefined || manager.fold === undefined) {
     return undefined;
   }
@@ -42,18 +40,25 @@ export function openAuthority(input: {
 
   return {
     async submit(offer) {
-      // The name the strategy gave this feature's Child. What the Publisher
-      // does with it — push it, copy it, upload it — is the Publisher's business.
-      const ref = refOf(offer.ref);
-      const published = await publish({
-        argv: publishArgv,
-        cwd: workLineStable,
-        id: offer.key,
-        ref,
-        target: workLineTarget,
-        timeoutMs,
-        env: input.env,
-      });
+      // A Feature's line is already with the Authority: the cut and every
+      // Ticket folded into it happened there, so there is nothing to publish
+      // and a local copy of it would only have diverged. A Ticket is published
+      // under the name the strategy gave its Child; what the Publisher does
+      // with it — push it, copy it, upload it — is the Publisher's business.
+      let published: Published;
+      if (offer.branch !== undefined) {
+        published = { ok: true, ref: offer.branch };
+      } else {
+        published = await publish({
+          argv: publishArgv,
+          cwd: workLineStable,
+          id: offer.key,
+          ref: refOf(offer.ref),
+          target: offer.target,
+          timeoutMs,
+          env: input.env,
+        });
+      }
       if (!published.ok) {
         input.journal?.append({
           event: "submit-refused",
@@ -65,14 +70,15 @@ export function openAuthority(input: {
       }
       // The Project's own words for what it submits, when it has a slot for
       // them; the Authority puts them where its kind of Submission is read.
-      // Asked in the feature workspace, where the whole change is.
+      // Asked in the ticket workspace, where the whole change is.
       let description: SubmissionRequest["description"];
-      if (input.describe !== undefined) {
+      // A line the Feature kept is not described: its words are the Feature's.
+      if (input.describe !== undefined && offer.branch === undefined) {
         const asked = await describe(input.describe, {
           id: offer.key,
           title: offer.title ?? offer.key,
           intention: offer.intention ?? "",
-          target: workLineTarget,
+          target: offer.target,
           cwd: offer.workspace,
         });
         if (asked.ok) {
@@ -87,10 +93,7 @@ export function openAuthority(input: {
       const submitted = await submit({
         ...request,
         ref: published.ref,
-        target: workLineTarget,
-        // What the Submission lists as its work: one line per Subtask, the way
-        // the plan was said on the tracker, not the whole intentions.
-        ...(offer.steps === undefined ? {} : { steps: offer.steps.map(subjectOf) }),
+        target: offer.target,
         ...(description === undefined ? {} : { description }),
       });
       if (submitted.outcome === "refused") {

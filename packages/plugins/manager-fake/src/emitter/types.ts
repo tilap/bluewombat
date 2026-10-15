@@ -1,4 +1,4 @@
-/** Domain types owned by FeatureEmitter. Names match the Block perimeter only. */
+/** Domain types owned by Emitter. Names match the Block perimeter only. */
 
 export type RunOutcome =
   | "reported"
@@ -11,7 +11,6 @@ export type RunOutcome =
 export type EventName =
   | "invalid"
   | "accepted"
-  | "planned"
   | "progress"
   | "escalated"
   | "escalation_reminder"
@@ -21,9 +20,9 @@ export type EventName =
   | "cancelled"
   | "reject_late";
 
-export type Stage = "plan" | "unit" | "integrating" | "submitting" | "merging";
+export type Stage = "unit" | "integrating" | "submitting" | "merging";
 
-export type ResumePoint = "planning" | "running" | "integrating";
+export type ResumePoint = "running" | "integrating";
 
 /** Every field an Event may carry beyond key, project and timestamp. */
 export type EventFields = {
@@ -33,9 +32,7 @@ export type EventFields = {
   stage?: Stage;
   trace?: string;
   counters?: Record<string, string>;
-  plan?: string;
   priority?: number;
-  unit?: string;
   remaining?: number;
   state?: string;
   resume_point?: ResumePoint;

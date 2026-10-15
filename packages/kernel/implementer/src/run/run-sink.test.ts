@@ -18,7 +18,6 @@ function baseInvocation(over: Partial<Invocation> & Pick<Invocation, "workspace"
   return {
     id: "task-1",
     intention: "ship it",
-    definitionOfDone: "green",
     builderArgv: [node, join(fixtures, "builder-ok.mjs")],
     gates: [],
     repairGates: [],
@@ -101,7 +100,7 @@ describe("what a child says, as it says it", () => {
     );
   });
 
-  it("the sink carries the feature the Task serves, when Implementer was told it", async () => {
+  it("the sink carries the ticket the Task serves, when Implementer was told it", async () => {
     const sink = recorder();
     await runImplementer({
       invocation: baseInvocation({ workspace: workspace(), context: "fake:42" }),

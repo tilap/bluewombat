@@ -473,7 +473,7 @@ async function writeWorkingTreeCommit(input: {
 /**
  * Start the temporary index from a copy of the directory's own. Asked without
  * `GIT_INDEX_FILE`, which would answer with the temporary path itself. A
- * directory with no index yet (nothing ever staged) starts empty, as before.
+ * directory with no index yet (nothing ever staged) starts empty.
  */
 async function seedIndex(
   input: { cwd: string; deadlineMs: number; now: () => number; shouldInterrupt: () => boolean },

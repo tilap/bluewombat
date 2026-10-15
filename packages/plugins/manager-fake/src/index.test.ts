@@ -53,14 +53,14 @@ describe("createManager", () => {
       throw new Error("unreachable");
     }
     const report = {
-      event: "planned" as const,
+      event: "progress" as const,
       key: "fake:42",
       project: "proj",
-      fields: { plan: "1. first" },
-      eventId: "fake:42:planned:once",
+      fields: { summary: "Landed 1 of 2" },
+      eventId: "fake:42:progress:once",
     };
-    assert.equal(await created.manager.report(report), true);
-    assert.equal(await created.manager.report(report), true);
+    assert.equal(await created.manager.features?.report(report), true);
+    assert.equal(await created.manager.features?.report(report), true);
   });
 });
 

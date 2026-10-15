@@ -51,7 +51,7 @@ export function invalidInvocationResult(write: ProgressWriter, reason: string): 
 }
 
 /**
- * Run one FeatureEmitter invocation to a run outcome.
+ * Run one Emitter invocation to a run outcome.
  */
 export async function runEmitter(options: RunOptions): Promise<RunResult> {
   const { invocation } = options;
@@ -148,10 +148,10 @@ export async function runEmitter(options: RunOptions): Promise<RunResult> {
   return finish("reported");
 
   async function syncLabel(): Promise<void> {
-    if (invocation.labelPrefix === undefined) {
+    if (invocation.stateLabels === undefined) {
       return;
     }
-    const synced = await syncStateLabel(invocation, github, context, invocation.labelPrefix);
+    const synced = await syncStateLabel(invocation, github, context, invocation.stateLabels);
     write({
       event: "labels-finished",
       key: invocation.key,
