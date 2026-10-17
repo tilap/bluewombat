@@ -355,6 +355,33 @@ describe("isolation-git fold", () => {
     assert.equal(status, "", "nothing is left staged or untracked");
   });
 
+  it("leaves the checkpoint's own commit on top when the clock ticks between two snapshots", async () => {
+    const { parent } = gitPair({ "a.txt": "base\n" });
+    writeFileSync(join(parent, "a.test.ts"), "test\n");
+    // Every commit-tree takes longer than a second: two snapshots of the same directory would
+    // be made in different seconds, and so be different commits.
+    const bin = join(sandbox(), "bin");
+    mkdirSync(bin, { recursive: true });
+    const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    writeFileSync(
+      join(bin, "git"),
+      `#!/bin/sh\n[ "$1" = "commit-tree" ] || [ "$3" = "commit-tree" ] && sleep 1.1\nexec ${real} "$@"\n`,
+    );
+    chmodSync(join(bin, "git"), 0o755);
+    setRunEnv({ PATH: `${bin}:${process.env.PATH ?? ""}` });
+    try {
+      const result = await runIntegrator({
+        backend: strategy.fold,
+        invocation: { id: "tests", parent, child: parent, durationMs: 60_000, subject: "Tests: a" },
+        write: () => {},
+      });
+      assert.equal(result.outcome, "integrated");
+    } finally {
+      clearRunEnv();
+    }
+    assert.deepEqual(gitLog(parent), ["Tests: a", "init"]);
+  });
+
   it("leaves one merge commit, named after the fold, when both sides moved", async () => {
     const { parent, child } = gitPair({ "a.txt": "base\n" });
     writeFileSync(join(parent, "b.txt"), "parent\n");

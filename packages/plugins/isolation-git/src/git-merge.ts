@@ -234,13 +234,20 @@ export async function gitMerge(input: {
       return failRestore(parentCommit);
     }
 
-    const childCommit = await writeWorkingTreeCommit({
-      cwd: child,
-      subject,
-      deadlineMs,
-      now,
-      shouldInterrupt,
-    });
+    // The same directory on both sides is a checkpoint of what is loose in it. Its snapshot is
+    // taken once: taken twice, the two commits carry the second they were made in, and across a
+    // second boundary they differ, so the fold would see both sides moved and add a merge commit
+    // that hides the one named after the work.
+    const childCommit =
+      resolve(parent) === resolve(child)
+        ? parentCommit
+        : await writeWorkingTreeCommit({
+            cwd: child,
+            subject,
+            deadlineMs,
+            now,
+            shouldInterrupt,
+          });
     if (!childCommit.ok) {
       return failRestore(childCommit);
     }
