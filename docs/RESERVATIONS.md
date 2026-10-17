@@ -94,9 +94,9 @@ manager did not mint — hand-edited, or from another host — silently becomes
 `packages/plugins/slots/README.md` (the example config), and the trial
 project's `mason.config.yaml`
 
-`workspace-changed` → `parent-clean` → `sensitive-path` → `npm-test`: cheapest
-and most structural first, the Project's own check last. Defensible, never
-agreed. At the assembly stage, `gitignore-leak` before `ci-green` for the same
+`workspace-changed` → `parent-clean` → `sensitive-path` → `project-checks`
+(typecheck, then tests): cheapest and most structural first, the Project's own
+checks last, each from the quickest to the slowest. Defensible, never agreed. At the assembly stage, `gitignore-leak` before `ci-green` for the same
 reason: a local answer in a second before a wait on CI.
 
 ### C16 · Where a failing job's log is cut
@@ -279,6 +279,76 @@ Tickets are. `merge-when-ready` and the human merge have no meaning there.
 
 **Instead:** refuse to run a Feature without an Authority.
 
+---
+
+### C31 · One active Ticket at a time is a shortcut, not a law
+
+`docs/PRODUCT.md` (domain rules); `activeOn` in the WorkLedger; the loop in
+`packages/host/runtime/src/loop/features.ts` (`advanceOpenFeature`)
+
+A Project has at most one active Ticket, and a Ticket in `submitted` counts as
+active, so the next one starts only once the previous is `done`. It was chosen to
+keep merges simple, and it is meant to go. The rule is written in three places and
+nothing else names it as temporary. What already does not lean on it: a Ticket is
+checked against the line right before its fold (`AuthorityPort.behind`, DECISIONS),
+and re-aligned if the line moved. What would still need work: the shared copy of the
+line (`workLineStable`) refreshed before each align, the `maxRefusals` ceiling on
+realigns (right for a person writing to the line, probably too tight when Tickets
+move it), and the ledger's single-active rule.
+
+**Instead**: nothing yet — this entry exists so that the shortcut stays visible.
+
+
+### C32 · An align conflict is told to the fix, which has not been seen resolving one
+
+`packages/kernel/conductor/src/run/open-conductor.ts` — `sendBack`;
+`mason` home `roles/assembly-fix/prompt.md`
+
+A conflict while merging the line into the Ticket used to stop. It now goes to
+`assembly.fix` with a generic report (the line, and "adapt the Ticket's changes so
+they sit on top of it"), because the Integrator reports `conflict` without the
+paths. Whether the fix agent can resolve one from that sentence is untried, and
+the files in conflict are not named. A conflict at the final local fold (no
+Authority, state `merging`) still stops: it is past the point of no return.
+
+### C33 · The recheck judges an aligned Ticket with Gates written for loose work
+
+`packages/host/runtime/src/loop/transformers.ts` — `roleWiring`, `recheck`
+
+`builder.gates` run again after align, with `--stage assembly`. The project's own
+checks (typecheck, tests) mean the same thing there. The structural ones do not:
+`sensitive-path` compares the disk to the last commit, and after the commit it
+sees nothing, so it always passes; `workspace-changed` and `parent-clean` pass by
+design. The first is therefore blind on the recheck. It judges the Builder's loose
+work before the commit, which is where it can.
+
+### C34 · `workspace-unchanged` after checks that leave files behind
+
+`packages/plugins/slots/gates/workspace-unchanged.mjs`
+
+Run on `assembly.validate`, it follows the recheck, which runs the Project's own
+commands (typecheck, tests). A command that writes into a path git does not ignore
+(a coverage report, a `.tsbuildinfo`, a build directory) makes the review look as if
+it had written, and the Ticket stops for a person. Nothing was seen with a real
+Project yet. The way out is `--allow GLOB`, per Project, and it is a thing to
+discover on the first run. **Instead**: compare against a snapshot taken before the
+review, which the Gate cannot take, because it is only told what ran after.
+
+### C35 · A unit picked up after a stop keeps the line it was cut from
+
+`packages/kernel/conductor/src/run/open-conductor.ts` (`stillThere`, `doRunning`)
+
+A unit that was stopped (Ctrl-C, a crash) is picked up in the workspace it left, not
+made again: the Attempts it finished count and the numbering goes on. Conductor looks
+neither inside that workspace nor at the line it was cut from, because it knows no
+stack, and a Project can be anything from a repository to a book. So the work is
+checked, until it is aligned, against the line as it was when the unit started. A line
+that moved meanwhile (a fix merged, a dependency bumped) is not seen by the Gates of
+the resumed unit. Not seen on a real run yet. The way out is `mason release <key>`,
+which drops the workspace; it is a human's call. **Instead**: the Isolator names the
+line it cut from, the ledger keeps that name, and a resume compares it with the line
+now; that needs a Port to read the line's head, which nothing has today.
+
 ## F — Faults found and left
 
 ### F6 · RUNBOOKS.md says there are no secrets
@@ -359,7 +429,7 @@ strategy copies only what `.gitignore` does not leave out (DECISIONS, F31).
 
 Excluding `node_modules` through the list is not the answer as it stands: the
 Gates run in the Child, and a Child with no dependencies fail-blocks on
-`npm-test` (I5). It becomes one the day a Project can say how a Child gets
+`project-checks` (I5). It becomes one the day a Project can say how a Child gets
 its dependencies (an install step, a link to the Parent's).
 
 **Instead:** a way for a Project to exclude `node_modules` from the Child and
@@ -720,6 +790,36 @@ Features, a Feature closed in flight) have not been run on a repository.
 Tested against a local remote. Not seen on a copy that holds a Ticket branch
 checked out when the target changes.
 
+---
+
+### U20 · `project-checks` has never judged a real ticket
+
+`packages/plugins/slots/gates/project-checks.mjs`
+
+Covered by `test/gates.test.ts` against throwaway directories. Not seen in a real
+`mason run`: a pnpm/turbo suite that takes minutes, a runner that leaves workers,
+a Child whose dependencies `workLine.warm` installed. Three calls nobody validated:
+a stopped run is `fail-blocking`, not retryable (a hung test the producer wrote
+would then freeze the Feature instead of being repaired); the kill happens five
+seconds before the ceiling, a number picked, not measured; the process group is
+killed with `kill(-pid)`, which does not exist on Windows. **Instead** of the first:
+`fail-retryable` on the first stop, `fail-blocking` on the second.
+
+---
+
+### U21 · The moved-line check has never run against GitHub
+
+`packages/plugins/manager-github/src/submission/submission.ts` — `behindPullRequest`;
+`packages/kernel/conductor/src/run/open-conductor.ts` — `doSubmitted`
+
+Covered by tests against a stand-in GitHub and a stand-in Authority. Not seen in a real
+`mason run`: whether `compare` with `<tip>...<head>` returns `behind_by` as read here on a
+pull request whose branch was just republished, and whether a squash fold of a pull
+request that is current really leaves nothing unjudged. The ceiling reuses
+`maxRefusals`, a number picked, not measured. One call per fold is added (three
+requests: the pull request, the line's tip, the comparison). **Instead** of reusing
+`maxRefusals`: a ceiling of its own, once Tickets can move the line.
+
 ## I — Working, and worse than it could be
 
 ### I4 · `ci-green` polling has no backoff
@@ -729,13 +829,16 @@ checked out when the target changes.
 One set of API calls per poll per waiting ticket, at the same rate whether the
 checks started a second ago or ten minutes ago.
 
-### I5 · The `npm-test` Gate cannot install dependencies
+### I5 · `project-checks` cannot install dependencies
 
-The trial project's `gates/npm-test.mjs` (not shipped)
+`packages/plugins/slots/gates/project-checks.mjs`
 
-It fail-blocks with a clear message when a workspace has dependencies and no
-`node_modules`, which is honest but leaves the operator to solve it. Isolator
-does not carry an ignored directory across, so somebody has to.
+It runs the command it is given and nothing else. In a workspace with
+dependencies and no `node_modules` the command fails (exit 127 for a missing
+binary: `fail-blocking`, a person reads it), which is honest but leaves the
+operator to solve it. Isolator does not carry an ignored directory across, so
+somebody has to: today `workLine.warm` installs once on the Feature and every
+Ticket inherits it.
 
 ### I6 · A prompt template is a single file
 

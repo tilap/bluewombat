@@ -74,6 +74,19 @@ falsifiable — if code violates it, that is a bug, not a design choice.
   sequence for a Ticket, **and** the assembled Ticket was judged — by its own Gate
   sequence, by the Authority, or by both. The two sequences are separate: a check
   that is right while the work is made can be wrong once it is assembled.
+- A Ticket is folded into its line only if the line has not moved on since the
+  Ticket was aligned with it and judged. If it has, the Ticket goes back to be
+  aligned and judged again; that is not a refusal and asks nothing of a fixer.
+  The line moves on when a person writes to it, and would when Tickets run side by
+  side. The same goes for a fold the Authority refuses.
+- Whatever goes wrong after the work was made is corrected, not stopped on: a
+  conflict while aligning, a check that fails once the line's code is in, a
+  refusal of the review or of the Authority. Each sends the Ticket to the fix with
+  the reason, and the Ticket starts again from the alignment. All of these draw on
+  one budget, `maxRefusals`; when it is spent, or when nothing can fix the cause,
+  the Ticket escalates.
+- After a Ticket is aligned with its line, the Ticket's own checks (the Builder's
+  Gates) run again on the result, before anyone reviews it.
 - Durable state is written to the WorkLedger before it is acted on. Isolated workspaces
   are a consequence of that state, never the source of it.
 - A Gate has three verdicts only: `pass`, `fail-retryable`, `fail-blocking`. The first

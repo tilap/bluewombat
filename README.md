@@ -68,8 +68,8 @@ npx mason watch
 Two things are left for you: the Builder (the stub `mason-builder.mjs`, or
 point `builder.producer` and `builder.repair` at a shipped one from
 [`@bluewombat/slots`](./packages/plugins/slots/README.md)), and any Gate you add —
-each of `builder.producer`, `builder.repair`, `assembly.fix` and
-`assembly.validate` carries its own `gates`, independently.
+each of `builder.producer`, `builder.repair`, `ticket.fix` and
+`ticket.validate` carries its own `gates`, independently.
 Passing `--manager` to `init` turns the questions off, which is what a script wants. It names one package for both sides.
 
 ```json
@@ -99,21 +99,21 @@ Passing `--manager` to `init` turns the questions off, which is what a script wa
     },
     "maxAttempts": 3
   },
-  "assembly": { "gates": { "defaultTimeoutMs": 900000, "gates": [] } },
+  "ticket": { "gates": { "defaultTimeoutMs": 900000, "gates": [] } },
   "timeoutMs": 600000,
   "pollIntervalMs": 30000
 }
 ```
 
-`builder` makes the unit of work. `assembly` judges the whole, and when that
-judgement refuses it, `assembly.fix` corrects what it named — not a second
-first-pass of the request. The judgement is the `assembly.gates` sequence (the
+`builder` makes the unit of work. `ticket` judges the whole, and when that
+judgement refuses it, `ticket.fix` corrects what it named — not a second
+first-pass of the request. The judgement is the `ticket.gates` sequence (the
 one no producer runs — nothing new made, the existing assembled state
-re-checked), an Authority's own checks, or — optionally — `assembly.validate`,
+re-checked), an Authority's own checks, or — optionally — `ticket.validate`,
 a local read-only review run before either, judged by its own `gates`, not
-`assembly.gates`. Any of them may send work back to `fix`, and all share one
-`maxRefusals` budget. `doctor` requires `assembly.fix` exactly when
-`authority.enabled` is true; a Project may declare `assembly.validate` with no
+`ticket.gates`. Any of them may send work back to `fix`, and all share one
+`maxRefusals` budget. `doctor` requires `ticket.fix` exactly when
+`authority.enabled` is true; a Project may declare `ticket.validate` with no
 `fix` too — a reviewer that only gates, whose refusals escalate on the spot —
 and `doctor` says so rather than failing.
 
