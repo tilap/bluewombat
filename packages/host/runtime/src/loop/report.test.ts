@@ -58,7 +58,7 @@ function harness(answer = true): Harness {
     reports,
     journal,
     input: {
-      options: {} as HostDeliveryInput["options"],
+      options: { ticket: { gates: [] } } as unknown as HostDeliveryInput["options"],
       workLine: { stable: STABLE },
       ledger: {} as HostDeliveryInput["ledger"],
       conductor: {} as HostDeliveryInput["conductor"],
@@ -224,7 +224,7 @@ describe("reporting after a pass", () => {
     assert.deepEqual(reports, []);
   });
 
-  it("says a parked assembly.validate refusal is on its way, before any Submission", async () => {
+  it("says a parked ticket.validate refusal is on its way, before any Submission", async () => {
     const { input, reports } = harness();
     const aggregate = aggregateOf({
       state: "integrating",
@@ -240,6 +240,48 @@ describe("reporting after a pass", () => {
       stage: "integrating",
       trace: "the diff drops the CLI flag",
     });
+  });
+
+  it("counts a line that moved on, with the refusals, in the budget it tells", async () => {
+    const { input, reports } = harness();
+    input.options = { ticket: { maxRefusals: 4 } } as HostDeliveryInput["options"];
+    const aggregate = aggregateOf({
+      state: "integrating",
+      parked_refusal: { report: "TS2322", refused_by: "typecheck" },
+      parked_refusals: 1,
+      submission: { reference: "pr-1", submitted_at: 1, refusals: 0, realigns: 1 },
+    });
+    await reportAfterRun(input, { outcome: "paused", key: KEY }, aggregate);
+    assert.match(
+      String(reports[0]?.fields.summary),
+      /typecheck refused the assembled work; a repair is on its way \(refusal 2 of 4\)\./,
+    );
+  });
+
+  it("says no attempt is left only once the one budget is spent", async () => {
+    const reasonOf = async (over: Partial<TicketAggregate>, maxRefusals: number) => {
+      const { input, reports } = harness();
+      input.options = { ticket: { maxRefusals } } as HostDeliveryInput["options"];
+      await reportAfterRun(input, ESCALATED, aggregateOf(over));
+      return reports[0]?.fields.reason;
+    };
+    const stopped = {
+      escalation: { kind: "assembly" as const, born_in_merging: false, report: "lint: red" },
+    };
+    // Nothing spent: it stopped because nothing could fix it, not for lack of attempts.
+    assert.equal(await reasonOf(stopped, 4), "The assembled work was refused.");
+    // A parked refusal and a line that moved: two of the budget gone, the next is the last.
+    assert.equal(
+      await reasonOf(
+        {
+          ...stopped,
+          parked_refusals: 1,
+          submission: { reference: "pr-1", submitted_at: 1, refusals: 0, realigns: 2 },
+        },
+        4,
+      ),
+      "The assembled work was refused and no attempt is left.",
+    );
   });
 
   it("prefers the parked refusal over a stale Submission report", async () => {
@@ -390,7 +432,7 @@ describe("reporting after a pass", () => {
   it("says only what the ledger shows about a refused Submission", async () => {
     const reasonFor = async (over: Partial<TicketAggregate>, maxRefusals: number) => {
       const { input, reports } = harness();
-      input.options = { maxRefusals } as HostDeliveryInput["options"];
+      input.options = { ticket: { maxRefusals } } as HostDeliveryInput["options"];
       await reportAfterRun(input, ESCALATED, aggregateOf(over));
       return reports[0]?.fields;
     };

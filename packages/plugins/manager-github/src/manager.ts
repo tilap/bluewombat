@@ -1,5 +1,6 @@
 import type {
   AdaptResult,
+  BehindResult,
   FeatureTrackerPort,
   FoldResult,
   LineResult,
@@ -27,6 +28,7 @@ import { settledAlready } from "./settled.js";
 import type { StateLabels } from "./state-labels.js";
 import { dropLine, openLine, settledPullRequest } from "./submission/lines.js";
 import {
+  behindPullRequest,
   foldPullRequest,
   type SubmissionContext,
   submitPullRequest,
@@ -321,6 +323,10 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
 
     async submit(input: SubmissionRequest): Promise<SubmissionResult> {
       return await submitPullRequest(input, submissionContext());
+    },
+
+    async behind(input: { reference: string }): Promise<BehindResult> {
+      return await behindPullRequest(input.reference, submissionContext());
     },
 
     async fold(input: { reference: string }): Promise<FoldResult> {

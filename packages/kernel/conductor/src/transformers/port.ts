@@ -56,13 +56,16 @@ export type ImplementInput = {
    */
   context?: string;
   /**
-   * What is being judged: the unit of work, or the work once assembled.
+   * What is being judged: the unit of work, the tests written for it before
+   * the code, a Ticket once its work is assembled, or a Feature once its
+   * Tickets have landed.
    *
    * They are not the same situation, and a check written for one can be wrong
    * for the other — "nothing changed" means nothing was done in a unit, and is
-   * the correct outcome for an assembly that needed nothing.
+   * the correct outcome for a Ticket or a Feature that needed nothing. Each of
+   * the last two has its own checks, its own fix and its own judgement.
    */
-  stage?: "unit" | "assembly";
+  stage?: "unit" | "tests" | "ticket" | "feature";
   /**
    * Whether this Task may produce, or only be judged.
    *
@@ -76,12 +79,22 @@ export type ImplementInput = {
    * `produce` already names.
    *
    * `produce: false` is the Gate sequence: it reads what was published.
-   * `produce: true` is `assembly.fix`: it writes. `validate: true` is neither —
+   * `produce: true` is the fix: it writes. `validate: true` is neither —
    * it reads the diff against the intention and answers directly, before there
    * is anything for a Gate to read or a Submission to hold its verdict. Absent:
    * `stage` and `produce` decide alone.
    */
   validate?: boolean;
+  /**
+   * The checks of the unit, run again on work that was just brought up to date
+   * with the line.
+   *
+   * Aligning changes the code: it now holds what other tickets landed. The unit's
+   * own Gates are the way to know it still stands, so with `produce: false` they
+   * are asked once more, with nothing to produce. Without it, `produce: false`
+   * is the judgement of what was published.
+   */
+  recheck?: boolean;
 };
 
 export type ImplementResult = {
@@ -112,7 +125,11 @@ export type IntegrateOutcome =
 export type TransformerPort = {
   isolate(input: IsolateInput): Promise<{ outcome: IsolateOutcome }>;
   implement(input: ImplementInput): Promise<ImplementResult>;
-  integrate(input: IntegrateInput): Promise<{ outcome: IntegrateOutcome }>;
+  /**
+   * `changed`: whether the fold brought anything in. Absent: not known, and a
+   * caller treats it as changed.
+   */
+  integrate(input: IntegrateInput): Promise<{ outcome: IntegrateOutcome; changed?: boolean }>;
 };
 
 /**
@@ -151,13 +168,25 @@ export type AuthorityFoldResult =
   | { outcome: "conflict"; reason: string }
   | { outcome: "unavailable" };
 
+export type AuthorityBehindResult =
+  | { outcome: "current" }
+  /** `commits`: how many the line holds that the work does not. */
+  | { outcome: "behind"; commits: number }
+  | { outcome: "unavailable" };
+
 /**
- * The outside authority, as two actions and nothing else.
+ * The outside authority: it publishes, it folds, and it can say whether the line
+ * moved on while a Submission waited.
  *
  * It does not answer whether the work is good: that is a judgement, and a
- * judgement is a Gate. An Authority publishes and it folds.
+ * judgement is a Gate.
  */
 export type AuthorityPort = {
   submit(input: SubmitInput): Promise<SubmitResult>;
+  /**
+   * Asked just before a fold. Absent, the fold goes ahead unchecked, as it did
+   * before the question existed.
+   */
+  behind?(input: { reference: string }): Promise<AuthorityBehindResult>;
   fold(input: { reference: string }): Promise<AuthorityFoldResult>;
 };

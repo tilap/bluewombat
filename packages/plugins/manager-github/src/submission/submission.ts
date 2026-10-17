@@ -1,4 +1,9 @@
-import type { FoldResult, SubmissionRequest, SubmissionResult } from "@bluewombat/manager-kit";
+import type {
+  BehindResult,
+  FoldResult,
+  SubmissionRequest,
+  SubmissionResult,
+} from "@bluewombat/manager-kit";
 import { PRODUCT } from "@bluewombat/manager-kit";
 import { callSignal, type GithubClient, readFailure } from "../github/client.js";
 import { issueNumberFromExternalId } from "../issue-number.js";
@@ -70,6 +75,57 @@ export async function submitPullRequest(
     return failure.permanent
       ? { outcome: "refused", reason: failure.detail }
       : { outcome: "unavailable" };
+  } finally {
+    call.release();
+  }
+}
+
+/**
+ * Whether the line the pull request is offered to holds commits the pull
+ * request does not: it moved on since the work was last brought up to date with
+ * it. Asked right before a fold, because what the Gates judged is then not what
+ * a squash would put on the line.
+ *
+ * The line's tip is read as a commit, and the two are compared by commit: a
+ * branch name with a slash does not travel well in a compare address.
+ */
+export async function behindPullRequest(
+  reference: string,
+  context: SubmissionContext,
+): Promise<BehindResult> {
+  const number = numberFromReference(reference);
+  if (number === undefined) {
+    return { outcome: "unavailable" };
+  }
+  const call = callSignal(context.deadlineMs, context.now, context.shouldInterrupt);
+  try {
+    const pull = await context.github.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      pull_number: number,
+      request: { signal: call.signal },
+    });
+    const line = await context.github.request("GET /repos/{owner}/{repo}/git/ref/{ref}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      ref: `heads/${pull.data.base.ref}`,
+      request: { signal: call.signal },
+    });
+    const compared = await context.github.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      basehead: `${line.data.object.sha}...${pull.data.head.sha}`,
+      per_page: 1,
+      request: { signal: call.signal },
+    });
+    const behind = compared.data.behind_by;
+    if (typeof behind !== "number") {
+      return { outcome: "unavailable" };
+    }
+    return behind === 0 ? { outcome: "current" } : { outcome: "behind", commits: behind };
+  } catch {
+    // Any failure to read says nothing about the line: the fold waits for the answer.
+    return { outcome: "unavailable" };
   } finally {
     call.release();
   }

@@ -452,3 +452,45 @@ describe("bringing the work line copy up to date", () => {
     });
   });
 });
+
+describe("the Authority and a line that moved on", () => {
+  function managerAnswering(
+    answer: Awaited<ReturnType<NonNullable<TicketTrackerPort["behind"]>>> | undefined,
+  ): TicketTrackerPort {
+    return {
+      ...stubManager([]),
+      ...(answer === undefined
+        ? {}
+        : {
+            async behind() {
+              return answer;
+            },
+          }),
+    };
+  }
+
+  function authorityOf(manager: TicketTrackerPort) {
+    const authority = openAuthority({
+      manager,
+      workLineStable: "/not/read",
+      publishArgv: ["node", GIT_PUBLISHER],
+      timeoutMs: 60_000,
+      refOf: strategy.refOf,
+    });
+    assert.ok(authority !== undefined);
+    return authority;
+  }
+
+  it("passes the manager's answer on, when the manager can give one", async () => {
+    const authority = authorityOf(managerAnswering({ outcome: "behind", commits: 3 }));
+    assert.deepEqual(await authority.behind?.({ reference: "ref-1" }), {
+      outcome: "behind",
+      commits: 3,
+    });
+  });
+
+  it("asks nothing of a manager that cannot say, so the fold is not held up", () => {
+    const authority = authorityOf(managerAnswering(undefined));
+    assert.equal(authority.behind, undefined);
+  });
+});

@@ -30,7 +30,7 @@ import { extrasFromClaude } from "./claude-extras.mjs";
 //   --agent-home / --api-key-env   recognised, then refused. Claude is not
 //                         isolated yet; starting would keep the operator's config
 //   --plugin-dir DIR      a plugin folder, repeatable (see agent-plugins.mjs)
-//   --profile / --plugins-out / --deck-bin   recognised, then refused for the
+//   --app-deck-profile / --plugins-out / --deck-bin   recognised, then refused for the
 //                         same reason: Claude would also load the operator's
 //                         and the project's own plugins, so a role's profile
 //                         would not be what it gets
@@ -64,12 +64,12 @@ if (
   );
 }
 if (
-  textOption(options, "profile") !== undefined ||
+  textOption(options, "appDeckProfile") !== undefined ||
   textOption(options, "pluginsOut") !== undefined ||
   textOption(options, "deckBin") !== undefined
 ) {
   refuse(
-    "Claude Code does not isolate the operator home yet, so a deck profile would not be all it loads. Remove --profile; the vendor was not started.",
+    "Claude Code does not isolate the operator home yet, so a deck profile would not be all it loads. Remove --app-deck-profile; the vendor was not started.",
   );
 }
 

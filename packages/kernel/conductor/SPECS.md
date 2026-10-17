@@ -129,9 +129,9 @@ Gates may send the work back before Conductor escalates.
 
 Constructor: `openConductor({ ledger, transformers, workLineStable, workspaceRoot,
 transformerDurationMs?, authority?, workLineTarget?, maxRefusals?,
-assemblyValidate?, assemblyFixDeclared?, observe? })`. `assemblyValidate` says
+validate?, fixDeclared?, observe? })`. `validate` says
 whether a local judge runs after align, with or without an Authority.
-`assemblyFixDeclared` says whether a refusal has anything to repair it with; a
+`fixDeclared` says whether a refusal has anything to repair it with; a
 validate refusal escalates on the spot when it does not.
 `observe` is told, mid-pass, when the work is submitted — awaited, and a throw
 from it changes nothing about the run.
@@ -231,25 +231,38 @@ One TicketStandard, one Project. Pause flag is off.
       stop. Do not align.
    2. If a parked refusal or a Submission `last_report` is set (the parked one
       wins when both are), `implement` on the ticket workspace with
-      `stage: "assembly"`, `produce: true`, and that report **before** align.
+      `stage: "ticket"`, `produce: true`, and that report **before** align.
       `escalated` → `escalate({ kind: "assembly" })`.
    3. **Align.** `integrate` with WorkLineStable as **child** and the
       workspace as **parent**. What is loose in the workspace is first taken up
       as one commit whose subject is the Ticket's title (or its intention's
-      headline); after a refusal it is the repair, with its own subject. `conflict` → return `refused` (`align-conflict`);
-      state stays `integrating`. Cancel is still allowed. Retry `runProject`
-      retries align. Do not `escalate({ kind: "merging" })` here: that would set
+      headline); after a refusal it is the repair, with its own subject. `conflict` → the work is **sent back** like any
+      refusal (see below), with a report that names the line and says what to do;
+      it is not a stop. Do not `escalate({ kind: "merging" })` here: that would set
       `born_in_merging` and block cancel before WorkLineStable is the fold parent.
-   4. **Validate**, when `assemblyValidate` is set — with or without an
-      Authority. `implement` on the ticket workspace with `stage: "assembly"`
+   3b. **Recheck.** Aligning brought other tickets' code in, so the unit's own
+      Gates run again: `implement` on the ticket workspace with
+      `stage: "ticket"`, `produce: false`, `recheck: true` (one attempt; Host
+      judges it by `builder.gates`, no other list). `validated` →
+      `clearParkedRefusal`. `escalated` → sent back with the Gate's report and name.
+
+   **Sent back** (align conflict, failed recheck, `ticket.validate` refusal): with
+   `fixDeclared`, a retryable cause and budget left → `recordParkedRefusal`,
+   return `paused`; the next pass produces the fix, then aligns, rechecks and
+   validates again. Otherwise (blocking, budget spent, no fix declared) →
+   `escalate({ kind: "assembly" })`. **One budget** covers every loop of a ticket:
+   `submission.refusals + parked_refusals + submission.realigns`, against
+   `maxRefusals`.
+   4. **Validate**, when `validate` is set — with or without an
+      Authority. `implement` on the ticket workspace with `stage: "ticket"`
       and `validate: true` (no gates, one attempt). `validated` →
       `clearParkedRefusal`, then continue to 5 or 6. `escalated`, retryable,
       under `maxRefusals` (the budget shared with `submission.refusals`), and
-      `assemblyFixDeclared` → `recordParkedRefusal`, return `paused`. Do not
+      `fixDeclared` → `recordParkedRefusal`, return `paused`. Do not
       continue to 5 or 6. `escalated` otherwise (blocking, at the budget, or no
-      `assembly.fix` declared) → `escalate({ kind: "assembly" })`.
+      `ticket.fix` declared) → `escalate({ kind: "assembly" })`.
    5. **Without an Authority.** `implement` on the ticket workspace with
-      `stage: "assembly"` and `produce: false` (judgement only). `validated` →
+      `stage: "ticket"` and `produce: false` (judgement only). `validated` →
       `markMerging`. `escalated` → `escalate({ kind: "assembly" })`.
       Then **final fold**: `integrate` ticket child into WorkLineStable.
       `integrated` → `markDone`, delete ticket directory, `clearWorkspace`.
@@ -263,9 +276,16 @@ One TicketStandard, one Project. Pause flag is off.
       `escalate({ kind: "submitted" })`. Retryable refusal → `recordRefusal`
       (which also drops a stale parked refusal, if one is held),
       return `paused` (next pass repairs then aligns, then offers again).
-      `validated` → Authority `fold`. `folded` → `markMerging` then `markDone` (with the fold's `reference`, when the Authority named one)
+      `validated` → ask the Authority whether the line moved on (`behind`, when
+      it can say): `unavailable` → `paused`; `behind` → `recordRealign` (state
+      `integrating`, no report kept, no fix owed) and `paused`, so the next pass
+      aligns, rechecks, validates, offers again and judges again; with the budget spent →
+      `escalate({ kind: "submitted" })`; `current`, or no `behind` → Authority
+      `fold`. `folded` → `markMerging` then `markDone` (with the fold's `reference`, when the Authority named one)
       (the Authority moved the work line; Conductor does not `integrate` into
-      WorkLineStable). `conflict` → `escalate({ kind: "submitted" })`.
+      WorkLineStable). `conflict` → the same as `behind`: `recordRealign` and back to align
+      (the alignment conflicts, the fix is told); `escalate({ kind: "submitted" })` only
+      when the budget is spent.
 
 ## 9. Pause and interrupt
 
@@ -309,7 +329,6 @@ it was asked to run.
 | `interrupted`         | A transformer returned `interrupted`                             |
 | `isolate-failed`      | Isolation did not return `isolated`                              |
 | `warm-failed`         | Warm (when configured) did not return `warmed`                   |
-| `align-conflict`      | Align Integration returned `conflict`; state stays `integrating` |
 | `transformer-invalid` | A transformer returned `invalid-invocation`                      |
 
 Ledger codes (`project-busy`, `point-of-no-return`, …) pass through on `cancel`
@@ -321,9 +340,9 @@ Shipped:
 
 - Import face, `openConductor({ ledger, transformers, workLineStable, workspaceRoot })`
 - Optional Authority (`submit` / `fold`), `workLineTarget`, `maxRefusals`
-- Optional local `assemblyValidate`, before offer or the local judge, with or
+- Optional local `validate`, before offer or the local judge, with or
   without an Authority. Its refusal is parked on the aggregate and shares the
-  `maxRefusals` budget; `assemblyFixDeclared` says whether it escalates on the
+  `maxRefusals` budget; `fixDeclared` says whether it escalates on the
   spot instead
 - `reconcile`, `pause`, `resume`, `runProject`, `cancel`, `release`
 - Happy path: align, assembly judgement (`produce: false`), `markMerging`, final fold
@@ -370,18 +389,19 @@ src/
    then `escalate({ kind: "unit" })`; no `integrate`; the directory is not
    deleted by Conductor. After `resumeTicket` the unit starts from a fresh
    workspace.
-4b. `implement` `interrupted` (the process was stopped) -> the Attempts that
+4b. `implement` `interrupted` (the process was stopped) → the Attempts that
    finished are `recordAttempt`d (the interrupted one is not an Attempt), then
    `releaseBail`: no Attempt is spent, the workspace stays declared and on disk.
    The next pass over the Ticket finds a declared workspace that still holds
-   something and picks it up: no `isolate`, no second `warm`; `implement` is
-   given `firstAttempt` (the Attempts already recorded this round, plus one)
-   and, as `report`, the refusal of the last Attempt, or a note that the pass
-   before was stopped and left its work there. A declared workspace that is
-   gone or empty starts the unit from zero. `release` is the way to start over:
-   it drops the bail, destroys the directory and forgets it. Conductor does not
-   look inside the workspace, nor at the line it was cut from: a Project that
-   cannot pick up a stale one uses `release`.
+   something and picks it up: no `isolate`, no second `warm`; the stage made
+   before the producer (the tests) is not made again when the ledger says it is
+   done; `implement` is given `firstAttempt` (the Attempts already recorded this
+   round, plus one) and, as `report`, the refusal of the last Attempt, or a
+   note that the pass before was stopped and left its work there. A declared
+   workspace that is gone or empty starts the unit from zero. `release` is the
+   way to start over: it drops the bail, destroys the directory and forgets it.
+   Conductor does not look inside the workspace, nor at the line it was cut
+   from: a Project that cannot pick up a stale one uses `release`.
 5. `cancel` of a `running` Ticket → ledger `cancelled`; declared directories
    destroyed. `cancel` after `markMerging` → ledger `point-of-no-return`;
    WorkLineStable untouched.
@@ -399,9 +419,8 @@ src/
     double still passes 1–9. No Transformer `dist/` and no filesystem persist are
     required for those.
 
-Gap, named: align `conflict` leaves `integrating` (`align-conflict`) rather than
-a first-class ledger kind. Do not hide that. A later WorkLedger command can
-close it. Assembly `escalated` uses `escalate({ kind: "assembly" })`;
+An align `conflict` is not a stop: it is sent back to the fix like a refusal
+(`recordParkedRefusal`), so no ledger kind is needed for it. Assembly `escalated` uses `escalate({ kind: "assembly" })`;
 `resumeTicket` returns that Ticket to `integrating`; a `unit` escalation returns
 it to `running`.
 

@@ -311,6 +311,50 @@ describe("isolation-git fold", () => {
     );
   });
 
+  it("says the fold changed nothing when the Child has nothing the Parent lacks", async () => {
+    const { parent, child } = gitPair({ "a.txt": "base\n" });
+    writeFileSync(join(parent, "b.txt"), "parent\n");
+    gitCommitAll(parent, "parent work");
+    const result = await runIntegrator({
+      backend: strategy.fold,
+      invocation: { id: "align", parent, child, durationMs: 30_000 },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "integrated");
+    assert.equal(result.changed, false);
+  });
+
+  it("says the fold changed something when the Child brings a change in", async () => {
+    const { parent, child } = gitPair({ "a.txt": "base\n" });
+    writeFileSync(join(child, "c.txt"), "child\n");
+    const result = await runIntegrator({
+      backend: strategy.fold,
+      invocation: { id: "align", parent, child, durationMs: 30_000 },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "integrated");
+    assert.equal(result.changed, true);
+  });
+
+  it("commits a workspace's loose work into itself and leaves git status clean", async () => {
+    const { parent } = gitPair({ "a.txt": "base\n" });
+    writeFileSync(join(parent, "a.test.ts"), "test\n");
+    writeFileSync(join(parent, "a.txt"), "base\nmore\n");
+    const result = await runIntegrator({
+      backend: strategy.fold,
+      // The same directory on both sides: a checkpoint of what is loose.
+      invocation: { id: "tests", parent, child: parent, durationMs: 30_000, subject: "Tests: a" },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "integrated");
+    assert.deepEqual(gitLog(parent)[0], "Tests: a");
+    const status = execFileSync("git", ["status", "--porcelain"], {
+      cwd: parent,
+      encoding: "utf8",
+    });
+    assert.equal(status, "", "nothing is left staged or untracked");
+  });
+
   it("leaves one merge commit, named after the fold, when both sides moved", async () => {
     const { parent, child } = gitPair({ "a.txt": "base\n" });
     writeFileSync(join(parent, "b.txt"), "parent\n");

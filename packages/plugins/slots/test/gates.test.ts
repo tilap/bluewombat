@@ -753,7 +753,10 @@ describe("project-checks", () => {
 
   it("reduces a line redrawn with a carriage return to its last state", () => {
     const result = verdictOf(
-      run(projectChecks, sandbox(), ["--cmd", String.raw`printf 'step 1\rstep 2\r\033[2Kdone 3\n'; exit 1`]),
+      run(projectChecks, sandbox(), [
+        "--cmd",
+        String.raw`printf 'step 1\rstep 2\r\033[2Kdone 3\n'; exit 1`,
+      ]),
     );
     const output = result.report.split("End of its output:")[1] ?? "";
     assert.match(output, /done 3/);

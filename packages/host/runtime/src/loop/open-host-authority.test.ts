@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { GateSpec } from "@bluewombat/implementer";
 import type {
+  BehindResult,
   Delivery,
   FoldResult,
   LineResult,
@@ -45,6 +46,8 @@ const LINE_PR = "pr-line";
 type Paths = {
   root: string;
   workLineStable: string;
+  /** The copy of the line a Feature is folded into. */
+  targetStable: string;
   workspaceRoot: string;
   ledgerRoot: string;
 };
@@ -54,9 +57,13 @@ function sandbox(): Paths {
   const workLineStable = join(root, "stable");
   mkdirSync(workLineStable);
   writeFileSync(join(workLineStable, "seed.txt"), "already good\n");
+  const targetStable = join(root, "target");
+  mkdirSync(targetStable);
+  writeFileSync(join(targetStable, "seed.txt"), "already good\n");
   return {
     root,
     workLineStable,
+    targetStable,
     workspaceRoot: join(root, "workspaces"),
     ledgerRoot: join(root, "ledger"),
   };
@@ -103,6 +110,8 @@ type Stub = {
   foldAnswer: FoldResult;
   lineAnswer: LineResult;
   settledAnswers: SettledResult[];
+  /** What the Authority says of a Submission falling behind, per reference; "current" once the list is empty. */
+  behind: Record<string, BehindResult[]>;
   listenOutcome: string;
   probes: string[];
   probe?: (key: string) => Promise<ProbeResult>;
@@ -128,6 +137,7 @@ function stubManager(over: Partial<Stub> = {}): Stub {
     foldAnswer: { outcome: "folded", reference: "9aeff61" },
     lineAnswer: { outcome: "opened" },
     settledAnswers: ["folded"],
+    behind: {},
     listenOutcome: "listened",
     probes: [],
     foldsLocally: false,
@@ -244,6 +254,8 @@ function stubManager(over: Partial<Stub> = {}): Stub {
             return stub.foldAnswer;
           };
           tickets.settled = async () => stub.settledAnswers.shift() ?? "open";
+          tickets.behind = async (input) =>
+            stub.behind[input.reference]?.shift() ?? { outcome: "current" };
         }
         return { ok: true, manager: { features, tickets } };
       },
@@ -292,6 +304,7 @@ function optionsFor(paths: Paths, stub: Stub, over: Partial<HostOptions> = {}): 
     featureTracker: { package: stub.module, options: {} },
     ticketTracker: { package: stub.module, options: {} },
     workLineStable: paths.workLineStable,
+    workLineTargetStable: paths.targetStable,
     workLineBranch: TARGET,
     workLineIsolation: "@bluewombat/isolation-copy",
     workspaceRoot: paths.workspaceRoot,
@@ -308,7 +321,20 @@ function optionsFor(paths: Paths, stub: Stub, over: Partial<HostOptions> = {}): 
         gates: [],
       },
     },
-    assembly: { gates: [] },
+    ticket: { gates: [] },
+    feature: {
+      validate: {
+        cmd: [node, join(fixtures, "builder-ok.mjs")],
+        timeoutMs: 30_000,
+        gates: passingGates(),
+      },
+      gates: passingGates(),
+      fix: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates: [],
+      },
+    },
     authority: {
       enabled: true,
       publishArgv: slot(paths.root, "publisher", { ref: "shelf/42" }),
@@ -372,6 +398,7 @@ describe("host with an Authority", () => {
     assert.deepEqual(
       journal.lines.filter((l) => l.event === "refresh").map((l) => [l.outcome, l.target]),
       [
+        ["ok", LINE],
         ["ok", LINE],
         ["ok", LINE],
       ],
@@ -447,7 +474,7 @@ describe("host with an Authority", () => {
     });
     const host = await openHost(
       optionsFor(paths, stub, {
-        assembly: {
+        ticket: {
           gates: [
             {
               id: "ci",
@@ -463,6 +490,293 @@ describe("host with an Authority", () => {
     const tick = await host.runOnce();
     assert.ok(tick.reported.includes("escalated"));
     assert.deepEqual(stub.folds, []);
+  });
+
+  function defaultFeature(): NonNullable<HostOptions["feature"]> {
+    return {
+      validate: {
+        cmd: [node, join(fixtures, "builder-ok.mjs")],
+        timeoutMs: 30_000,
+        gates: passingGates(),
+      },
+      gates: passingGates(),
+      fix: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates: [],
+      },
+    };
+  }
+
+  /** A Gate that refuses until the repair has put its marker in the line. */
+  function needsRepairGate(root: string): GateSpec[] {
+    const path = join(root, "needs-repair.mjs");
+    writeFileSync(
+      path,
+      [
+        'import { existsSync } from "node:fs";',
+        'const ok = existsSync("feature-fixed.txt");',
+        "console.log(JSON.stringify(ok",
+        '  ? { verdict: "pass" }',
+        '  : { verdict: "fail-retryable", report: "the line needs feature-fixed.txt" }));',
+        "",
+      ].join("\n"),
+    );
+    return [{ id: "line-check", argv: [node, path], timeoutMs: 10_000 }];
+  }
+
+  function script(root: string, name: string, body: string): string[] {
+    const path = join(root, `${name}.mjs`);
+    writeFileSync(path, body);
+    return [node, path];
+  }
+
+  function writesRepair(root: string): string[] {
+    return script(
+      root,
+      "repairs",
+      'import { writeFileSync } from "node:fs";\nwriteFileSync("feature-fixed.txt", "repaired\\n");\n',
+    );
+  }
+
+  /** The Ticket has landed and the Feature's line is with the Authority. */
+  async function featureSubmitted(host: Awaited<ReturnType<typeof openHost>>): Promise<void> {
+    await host.runOnce();
+    await host.runOnce();
+  }
+
+  async function stateOf(host: Awaited<ReturnType<typeof openHost>>) {
+    const got = await host.ledger.getFeature(FEATURE);
+    assert.ok(got.ok);
+    return got.aggregate;
+  }
+
+  it("judges the published line by the Feature's own gates, not the ticket's", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        // The Ticket's ticket passes; only the Feature's sequence refuses.
+        ticket: { gates: [] },
+        feature: { ...defaultFeature(), gates: blockingGates() },
+      }),
+    );
+    await featureSubmitted(host);
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "escalated");
+    assert.deepEqual(stub.folds, [TICKET_PR]);
+  });
+
+  it("brings the final line into the Feature and reviews it before the line is offered", async () => {
+    const paths = sandbox();
+    // The final line holds a file the Feature's line does not.
+    writeFileSync(join(paths.targetStable, "from-target.txt"), "moved on\n");
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    // The review's gates run in the Feature's workspace and see what was merged into it.
+    const checks = script(
+      paths.root,
+      "sees-target",
+      [
+        'import { existsSync, writeFileSync } from "node:fs";',
+        'const ok = existsSync("from-target.txt");',
+        'writeFileSync(process.env.SEEN ?? "seen.txt", ok ? "yes" : "no");',
+        "console.log(JSON.stringify(ok",
+        '  ? { verdict: "pass" }',
+        '  : { verdict: "fail-blocking", report: "the target was not merged" }));',
+        "",
+      ].join("\n"),
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          validate: {
+            ...defaultFeature().validate,
+            gates: [{ id: "target-merged", argv: checks, timeoutMs: 10_000 }],
+          },
+        },
+      }),
+    );
+    await featureSubmitted(host);
+    const feature = await stateOf(host);
+    assert.equal(feature.state, "submitted");
+    // What was merged is on the Feature's line, which is what gets published.
+    assert.equal(existsSync(join(paths.workLineStable, "from-target.txt")), true);
+  });
+
+  it("repairs a refused line, publishes it again, and folds it once the gates agree", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          gates: needsRepairGate(paths.root),
+          fix: { cmd: writesRepair(paths.root), timeoutMs: 30_000, gates: [] },
+        },
+      }),
+    );
+    await featureSubmitted(host);
+
+    // The judgement refuses: the line goes back to where it is made.
+    await host.runOnce();
+    const refused = await stateOf(host);
+    assert.equal(refused.state, "open");
+    assert.equal(refused.submission?.refusals, 1);
+    assert.match(refused.submission?.last_report ?? "", /feature-fixed\.txt/);
+    assert.deepEqual(stub.folds, [TICKET_PR]);
+
+    // The fix, the align, the review and the offer, on the same Submission.
+    await host.runOnce();
+    const repaired = await stateOf(host);
+    assert.equal(repaired.state, "submitted");
+    assert.equal(repaired.submission?.reference, LINE_PR);
+    assert.equal(existsSync(join(paths.workLineStable, "feature-fixed.txt")), true);
+
+    await host.runOnce();
+    assert.deepEqual(stub.folds, [TICKET_PR, LINE_PR]);
+    assert.equal((await stateOf(host)).state, "done");
+  });
+
+  it("escalates the Feature when its own rounds are spent", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          // Never satisfied: the repair writes a file the gate does not look for.
+          gates: [
+            {
+              id: "never",
+              argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
+              timeoutMs: 10_000,
+            },
+          ],
+          fix: { cmd: writesRepair(paths.root), timeoutMs: 30_000, gates: [] },
+          maxRefusals: 2,
+        },
+      }),
+    );
+    await featureSubmitted(host);
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "open");
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "submitted");
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "escalated");
+    assert.deepEqual(stub.folds, [TICKET_PR]);
+  });
+
+  it("runs the gates of feature.validate alone when its agent is turned off", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    // The gate records that it ran, in the Feature's workspace.
+    const ran = join(paths.root, "validate-gate-ran.txt");
+    const gate = script(
+      paths.root,
+      "records-run",
+      `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(ran)}, "ran\\n");\nconsole.log(JSON.stringify({ verdict: "pass" }));\n`,
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          validate: { agent: false, gates: [{ id: "records", argv: gate, timeoutMs: 10_000 }] },
+        },
+      }),
+    );
+    await featureSubmitted(host);
+    assert.equal((await stateOf(host)).state, "submitted");
+    assert.equal(readFileSync(ran, "utf8"), "ran\n");
+  });
+
+  it("goes back to be brought up to date when the final line moved on, then folds", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+      behind: { [LINE_PR]: [{ outcome: "behind", commits: 2 }] },
+    });
+    const host = await openHost(optionsFor(paths, stub));
+    await featureSubmitted(host);
+
+    await host.runOnce();
+    const behind = await stateOf(host);
+    assert.equal(behind.state, "open");
+    assert.equal(behind.submission?.realigns, 1);
+    assert.deepEqual(stub.folds, [TICKET_PR], "nothing is folded that was not judged");
+
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "submitted");
+
+    await host.runOnce();
+    assert.deepEqual(stub.folds, [TICKET_PR, LINE_PR]);
+    assert.equal((await stateOf(host)).state, "done");
+  });
+
+  it("sends a conflict with the final line to the fix, which settles it by hand", async () => {
+    const paths = sandbox();
+    // A file on the Feature's line, a directory of the same name on the final one.
+    writeFileSync(join(paths.workLineStable, "clash"), "feature\n");
+    mkdirSync(join(paths.targetStable, "clash"));
+    writeFileSync(join(paths.targetStable, "clash", "inner.txt"), "target\n");
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    // The copy strategy cannot turn a file into a directory and fold it back, so
+    // the fix settles it on both sides, as a person editing both would.
+    const fix = script(
+      paths.root,
+      "settles-clash",
+      `import { rmSync } from "node:fs";\nrmSync("clash", { force: true });\nrmSync(${JSON.stringify(join(paths.workLineStable, "clash"))}, { force: true });\n`,
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: { ...defaultFeature(), fix: { cmd: fix, timeoutMs: 30_000, gates: [] } },
+      }),
+    );
+    await host.runOnce();
+    await host.runOnce();
+    // First pass: the align conflicts, and the reason is kept for the fix.
+    const parked = await stateOf(host);
+    assert.equal(parked.state, "open");
+    assert.match(parked.parked_refusal?.report ?? "", /conflicts/);
+    assert.equal(parked.parked_refusal?.refused_by, "align");
+
+    // Second pass: the fix settles it, and the line is offered.
+    await host.runOnce();
+    const offered = await stateOf(host);
+    assert.equal(offered.state, "submitted");
+    assert.equal(offered.parked_refusal, undefined);
+    assert.equal(offered.parked_refusals, 1);
+  });
+
+  it("escalates a conflict with the final line when the rounds are spent", async () => {
+    const paths = sandbox();
+    writeFileSync(join(paths.workLineStable, "clash"), "feature\n");
+    mkdirSync(join(paths.targetStable, "clash"));
+    writeFileSync(join(paths.targetStable, "clash", "inner.txt"), "target\n");
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, { feature: { ...defaultFeature(), maxRefusals: 1 } }),
+    );
+    await host.runOnce();
+    await host.runOnce();
+    const feature = await stateOf(host);
+    assert.equal(feature.state, "escalated");
+    assert.match(feature.escalation?.report ?? "", /align: .*conflicts/);
   });
 
   it("escalates the Feature when the line is closed without being folded, and resumes it on ready", async () => {
@@ -487,7 +801,9 @@ describe("host with an Authority", () => {
     const back = await host.ledger.getFeature(FEATURE);
     assert.equal(back.ok && back.aggregate.state, "submitted");
     assert.equal(back.ok && back.aggregate.resumes, 1);
-    assert.equal(stub.submissions.length, 2, "the same Submission, not a second one");
+    // Offered again: a real Authority answers the pull request that is still open,
+    // and opens a new one when the old was closed.
+    assert.equal(stub.submissions.length, 3);
 
     const merged = await host.runOnce();
     assert.deepEqual(merged.reported, ["done"]);
@@ -616,8 +932,8 @@ describe("host with an Authority", () => {
     const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     const host = await openHost(
       optionsFor(paths, stub, {
-        maxRefusals: 3,
-        assembly: {
+        ticket: {
+          maxRefusals: 3,
           fix: {
             cmd: [node, join(fixtures, "builder-write-marker.mjs")],
             timeoutMs: 30_000,

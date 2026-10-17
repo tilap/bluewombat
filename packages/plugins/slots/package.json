@@ -19,7 +19,8 @@
   },
   "exports": {
     "./builders/*": "./builders/*",
-    "./assembly/*": "./assembly/*",
+    "./ticket/*": "./ticket/*",
+    "./feature/*": "./feature/*",
     "./agents/*": "./agents/*",
     "./gates/*": "./gates/*",
     "./publishers/*": "./publishers/*",
@@ -28,7 +29,8 @@
   },
   "files": [
     "builders",
-    "assembly",
+    "ticket",
+    "feature",
     "agents",
     "lib",
     "gates",

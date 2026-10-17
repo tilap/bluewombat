@@ -10,7 +10,7 @@ import {
 import { join, resolve } from "node:path";
 import { CLI_NAME } from "@bluewombat/manager-kit";
 import { parseArgs } from "../config/parse-args.js";
-import type { HostInvocation } from "../config/types.js";
+import { type HostInvocation, hasAgent } from "../config/types.js";
 import { journalPath, parseJournalChunk } from "../loop/journal.js";
 import {
   formatJournalLine,
@@ -146,10 +146,15 @@ function writeTranscripts(write: (line: string) => void, invocation: HostInvocat
 
 function transcriptDir(invocation: HostInvocation): string | undefined {
   const commands = [
+    ...(invocation.builder.tests === undefined || !hasAgent(invocation.builder.tests)
+      ? []
+      : [invocation.builder.tests.cmd]),
     invocation.builder.producer.cmd,
     invocation.builder.repair.cmd,
-    ...(invocation.assembly.fix === undefined ? [] : [invocation.assembly.fix.cmd]),
-    ...(invocation.assembly.validate === undefined ? [] : [invocation.assembly.validate.cmd]),
+    ...(invocation.ticket.fix === undefined ? [] : [invocation.ticket.fix.cmd]),
+    ...(invocation.ticket.validate === undefined || !hasAgent(invocation.ticket.validate)
+      ? []
+      : [invocation.ticket.validate.cmd]),
   ];
   for (const cmd of commands) {
     const index = cmd.indexOf("--transcript-dir");

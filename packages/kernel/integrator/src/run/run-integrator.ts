@@ -9,6 +9,8 @@ export type RunResult = {
   outcome: IntegrationOutcome;
   parent?: string;
   report?: string;
+  /** Whether the fold brought anything in, when the backend said. */
+  changed?: boolean;
   exitCode: number;
 };
 
@@ -113,6 +115,7 @@ async function runIntegration(input: {
       write,
       outcome: "integrated",
       parent: invocation.parent,
+      ...(folded.changed === undefined ? {} : { changed: folded.changed }),
     });
   }
 
@@ -165,6 +168,7 @@ async function finishIntegration(input: {
   outcome: Exclude<IntegrationOutcome, "invalid-invocation">;
   parent?: string;
   report?: string;
+  changed?: boolean;
   cwd: string | undefined;
 }): Promise<RunResult> {
   const { invocation, write, outcome } = input;
@@ -197,6 +201,9 @@ async function finishIntegration(input: {
   }
   if (input.report !== undefined) {
     result.report = input.report;
+  }
+  if (input.changed !== undefined) {
+    result.changed = input.changed;
   }
   return result;
 }

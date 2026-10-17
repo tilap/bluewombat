@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openConductor } from "@bluewombat/conductor";
+import { type Delivery, openConductor, openDelivery } from "@bluewombat/conductor";
 import { openWorkLedger } from "@bluewombat/work-ledger";
 import { DEFAULT_PERSIST } from "../config/defaults.js";
-import { homeOf } from "../config/home.js";
+import { homeOf, inHome } from "../config/home.js";
 import type { HostOptions } from "../config/types.js";
+import { hasAgent, isOn } from "../config/types.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
 import {
   contextOf,
@@ -17,7 +18,7 @@ import {
   requestOf,
 } from "../plugins/manager.js";
 import { resolvePersistModule } from "../plugins/persist.js";
-import { openAuthority } from "./authority.js";
+import { openAuthority, openLine } from "./authority.js";
 import type { HostRunInput } from "./context.js";
 import { releaseTicket } from "./deliveries.js";
 import { cancelKey } from "./features.js";
@@ -144,6 +145,35 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     }
   }
 
+  // A Feature is brought up to date with the line it is folded into the way a
+  // Ticket is brought up to date with the Feature's: the line is merged into
+  // the work. That needs the line in a directory of its own, because the work
+  // line copy above is on the Feature's branch, not the final one.
+  let targetStable: string | undefined;
+  if (options.authority?.enabled === true) {
+    if (workLine.kind === "copy") {
+      const path = options.workLineTargetStable ?? inHome(home, "targetLine");
+      const made = await materializeWorkLine({
+        ...workLine,
+        stable: path,
+        state: workLine.reference.inspect(path),
+      });
+      if (!made.ok) {
+        throw new Error(made.reason);
+      }
+      if (made.fetched) {
+        trace(`work line  copied ${workLine.reference.summary} to ${path} (the target line)`);
+      }
+      targetStable = path;
+    } else if (options.workLineTargetStable !== undefined) {
+      targetStable = options.workLineTargetStable;
+    } else {
+      throw new Error(
+        'authority.enabled is true, but there is no copy of the line a Feature is folded into. Name one with "workLine.targetStable", or let the manager name a reference work line so Host keeps its own.',
+      );
+    }
+  }
+
   await mkdir(options.workspaceRoot, { recursive: true });
   const release = await acquireLock(options.ledgerRoot);
   const persist = await backend.module.openPersist({ ledgerRoot: options.ledgerRoot });
@@ -180,7 +210,8 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     journal,
     ...(streams === undefined ? {} : { streams }),
     builder: options.builder,
-    assembly: options.assembly,
+    ticket: options.ticket,
+    ...(options.feature === undefined ? {} : { feature: options.feature }),
     isolation: resolved.strategy.isolation,
     fold: resolved.strategy.fold,
     timeoutMs: options.timeoutMs,
@@ -240,18 +271,83 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
           trace,
           journal,
         });
+  if (wantsAuthority && options.feature === undefined) {
+    throw new Error(
+      'authority.enabled is true, but "feature" is missing. A Feature\'s line needs its own "gates" and its own "fix" before it is folded.',
+    );
+  }
+  const maxParallel = options.ticket.maxParallel ?? 1;
+  if (maxParallel > 1 && authority === undefined) {
+    throw new Error(
+      '"ticket.maxParallel" is above 1, but no Authority is enabled. Tickets worked on together can only land one by one through an Authority; set "authority.enabled" to true, or leave "ticket.maxParallel" at 1.',
+    );
+  }
+  const line =
+    authority === undefined
+      ? undefined
+      : openLine({
+          workLineStable: stable,
+          refreshArgv: options.authority?.refreshArgv ?? [],
+          timeoutMs: options.timeoutMs,
+          env: workLineEnv,
+          journal,
+          trace,
+        });
+  // A Feature's line is delivered by the same steps as a Ticket's, with the
+  // final line where the Feature's was, and its own checks and fix.
+  let featureDelivery: HostRunInput["featureDelivery"];
+  if (authority !== undefined && options.feature !== undefined && targetStable !== undefined) {
+    const targetLine = openLine({
+      workLineStable: targetStable,
+      refreshArgv: options.authority?.refreshArgv ?? [],
+      timeoutMs: options.timeoutMs,
+      env: workLineEnv,
+      journal,
+      trace,
+    });
+    let lastOnTarget: Promise<unknown> = Promise.resolve();
+    const delivery: Delivery = openDelivery({
+      transformers,
+      authority,
+      durationMs: options.timeoutMs,
+      maxRefusals: options.feature.maxRefusals ?? 3,
+      // A Feature's checks are the gates of its review, so there is no pass of
+      // their own to run again.
+      recheck: false,
+      validate: isOn(options.feature.validate),
+      fixDeclared: true,
+      onLine: (job) => {
+        const run = lastOnTarget.then(job, job);
+        lastOnTarget = run.catch(() => undefined);
+        return run;
+      },
+      refreshLine: async (line) => (await targetLine.refresh(line)).ok,
+      isPaused: () => interruptFlag.interrupted,
+    });
+    featureDelivery = {
+      delivery,
+      targetStable,
+      workspaces: inHome(home, "featureWorkspaces"),
+      ...(warm === undefined ? {} : { warm }),
+    };
+  }
   const conductor = openConductor({
     ledger,
     transformers,
     workLineStable: stable,
     workspaceRoot: options.workspaceRoot,
     transformerDurationMs: options.timeoutMs,
+    maxParallel,
+    ...(line === undefined ? {} : { line }),
     observe: (moment) => watcher.current?.(moment),
     ...(authority === undefined ? {} : { authority }),
     ...(target === undefined ? {} : { workLineTarget: target }),
-    ...(options.maxRefusals === undefined ? {} : { maxRefusals: options.maxRefusals }),
-    assemblyValidate: options.assembly.validate !== undefined,
-    assemblyFixDeclared: options.assembly.fix !== undefined,
+    ...(options.ticket.maxRefusals === undefined
+      ? {}
+      : { maxRefusals: options.ticket.maxRefusals }),
+    validate: isOn(options.ticket.validate),
+    tests: options.builder.tests !== undefined && hasAgent(options.builder.tests),
+    fixDeclared: options.ticket.fix !== undefined,
     ...(warm === undefined ? {} : { warm }),
   });
 
@@ -273,6 +369,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     watcher,
     said: new Set(),
     ...(authority === undefined ? {} : { authority }),
+    ...(featureDelivery === undefined ? {} : { featureDelivery }),
   };
 
   return {

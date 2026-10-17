@@ -2,8 +2,14 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { CLI_NAME } from "@bluewombat/manager-kit";
+import { parseAppDeckProfile } from "../config/agent-shorthand.js";
 import { parseArgs } from "../config/parse-args.js";
-import type { HostInvocation } from "../config/types.js";
+import {
+  type GatedPassSpec,
+  type HostInvocation,
+  hasAgent,
+  type ReviewSpec,
+} from "../config/types.js";
 import type { WorkLineResolution } from "../loop/work-line.js";
 import { loadManagerModule, requestOf } from "../plugins/manager.js";
 import { isDirectory, requestsOf, unpinnedIn } from "./agent-plugins.js";
@@ -82,15 +88,27 @@ export const PROMPT_PLACEHOLDERS: Record<
     known: ["task", "history", "rules", "id", "attempt"],
     required: ["task", "rules"],
   },
+  "builder.tests": {
+    known: ["task", "history", "rules", "id", "attempt"],
+    required: ["task", "rules"],
+  },
   "builder.repair": {
     known: ["task", "history", "report", "refused_by", "rules", "id", "attempt"],
     required: ["task", "report", "rules"],
   },
-  "assembly.fix": {
+  "ticket.fix": {
     known: ["task", "history", "report", "refused_by", "rules", "id", "attempt"],
     required: ["task", "report", "rules"],
   },
-  "assembly.validate": {
+  "feature.fix": {
+    known: ["task", "history", "report", "refused_by", "rules", "id", "attempt"],
+    required: ["task", "report", "rules"],
+  },
+  "ticket.validate": {
+    known: ["task", "rules", "id", "attempt"],
+    required: ["task", "rules"],
+  },
+  "feature.validate": {
     known: ["task", "rules", "id", "attempt"],
     required: ["task", "rules"],
   },
@@ -134,10 +152,19 @@ function rolesOf(invocation: HostInvocation): RoleDef[] {
       gates: (pass.gates ?? []).map((gate) => gate.id),
     });
   };
+  const withAgent = (review: ReviewSpec | undefined): GatedPassSpec | undefined =>
+    review !== undefined && hasAgent(review) ? review : undefined;
+  add("builder.tests", withAgent(invocation.builder.tests), invocation.builder.maxAttempts);
   add("builder.producer", invocation.builder.producer, invocation.builder.maxAttempts);
   add("builder.repair", invocation.builder.repair, invocation.builder.maxAttempts);
-  add("assembly.fix", invocation.assembly.fix, invocation.assembly.maxAttempts);
-  add("assembly.validate", invocation.assembly.validate, invocation.assembly.maxAttempts);
+  add("ticket.fix", invocation.ticket.fix, invocation.ticket.maxAttempts);
+  add("ticket.validate", withAgent(invocation.ticket.validate), invocation.ticket.maxAttempts);
+  add("feature.fix", invocation.feature?.fix, invocation.feature?.maxAttempts);
+  add(
+    "feature.validate",
+    invocation.feature === undefined ? undefined : withAgent(invocation.feature.validate),
+    invocation.feature?.maxAttempts,
+  );
   if (invocation.authority?.describeArgv !== undefined) {
     add(
       "authority.describe",
@@ -341,12 +368,17 @@ function projectOf(
   workLine: WorkLineResolution,
   notes: Note[],
 ): { project: NonNullable<RoleReport["project"]>; plugins: PluginReport[] } {
+  const located = parseAppDeckProfile(profile);
   const none = (state: "not-yet" | "invalid", path?: string) => ({
     project: { state, profile, ...(path === undefined ? {} : { path }) },
     plugins: [] as PluginReport[],
   });
   if (workLine.kind === "invalid") {
     notes.push({ level: "fail", text: `the work line is invalid: ${workLine.reason}` });
+    return none("invalid");
+  }
+  if (!located.ok) {
+    notes.push({ level: "fail", text: `app deck profile ${located.reason}` });
     return none("invalid");
   }
   const path = workLine.stable;
@@ -358,8 +390,9 @@ function projectOf(
     return none("invalid", path);
   }
   const head = gitHead(path);
-  const base = requestsOf(join(path, "ai-plugin.json"));
-  const profileRoot = join(path, ".ai", "profiles", profile);
+  const appDir = join(path, located.root);
+  const base = requestsOf(join(appDir, "ai-plugin.json"));
+  const profileRoot = join(appDir, ".ai", "profiles", located.name);
   const own = requestsOf(join(profileRoot, "ai-plugin.json"));
   const promptText = readText(join(profileRoot, "prompt.md"))?.trim();
   const project: NonNullable<RoleReport["project"]> = {
@@ -372,7 +405,7 @@ function projectOf(
       : { promptFile: join(profileRoot, "prompt.md"), promptText }),
   };
   const plugins: PluginReport[] = [];
-  const baseLock = join(path, "ai-plugin.lock.json");
+  const baseLock = join(appDir, "ai-plugin.lock.json");
   const profileLock = join(profileRoot, "ai-plugin.lock.json");
   const unpinned = [
     ...unpinnedIn(base, baseLock).map((why) => ({ why, at: "the project" })),
@@ -484,7 +517,7 @@ function explainRole(
   const plugins: PluginReport[] = allValues(agent, "--plugin-dir").map((dir) =>
     homePlugin(dir, notes),
   );
-  const profile = firstValue(agent, "--profile");
+  const profile = firstValue(agent, "--app-deck-profile");
   let project: RoleReport["project"];
   if (profile !== undefined) {
     const read = projectOf(profile, workLine, notes);

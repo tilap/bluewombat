@@ -120,7 +120,7 @@ export const AGENT_OPTIONS: OptionSpec = {
   "--pass-env": { many: true },
   "--deny-shell": { many: true },
   "--plugin-dir": { many: true },
-  "--profile": {},
+  "--app-deck-profile": {},
   "--plugins-out": {},
   "--deck-bin": {},
   "--id": {},

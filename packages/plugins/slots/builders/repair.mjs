@@ -38,6 +38,10 @@ This was asked in the first place, and still holds:
 
 {{task}}
 
+When the latest commit of this checkout is titled "Tests: …", the tests of this task were
+written before the code and committed. They are the specification: make them pass as they
+are. Do not edit, delete or rename them.
+
 {{history}}
 
 ## When you cannot act

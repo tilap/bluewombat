@@ -36,7 +36,7 @@ import { extrasFromCursor } from "./cursor-extras.mjs";
 //   --deny-shell NAME     with --agent-home: also refuse this command to the
 //                         vendor (`gh`, `vercel`…). Repeatable. ssh and scp are
 //                         always refused
-//   --plugin-dir / --profile / --plugins-out / --deck-bin   plugin folders,
+//   --plugin-dir / --app-deck-profile / --plugins-out / --deck-bin   plugin folders,
 //                         see agent-plugins.mjs
 //   --id / --attempt / --context   how a transcript is filed
 

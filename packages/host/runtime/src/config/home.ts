@@ -15,6 +15,8 @@ export const HOME_LAYOUT = {
   workspaces: "workspaces",
   ledger: "ledger",
   workLine: "work-line",
+  targetLine: "target-line",
+  featureWorkspaces: "feature-workspaces",
 } as const;
 
 export function homeOf(configDir: string, home: string | undefined): string {

@@ -8,7 +8,12 @@
 // reduced to its last state, spinner and progress lines dropped.
 
 // CSI sequences (colors, erase line, cursor moves) and OSC sequences (titles, links).
-const ESCAPES = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+const ESC = String.fromCharCode(0x1b);
+const BEL = String.fromCharCode(0x07);
+const ESCAPES = new RegExp(
+  `${ESC}\\[[0-9;?]*[ -/]*[@-~]|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)`,
+  "g",
+);
 // A braille glyph is a spinner frame; "[✓] …..." is the line a spinner settles on.
 const SPINNER_FRAME = /[⠀-⣿]/;
 const SPINNER_DONE = /\[[✓✔]\].*\.\.\.\s*$/;

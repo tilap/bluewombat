@@ -24,6 +24,7 @@ export {
 } from "./options.js";
 export type {
   AdaptResult,
+  BehindResult,
   Delivery,
   EventFields,
   EventName,

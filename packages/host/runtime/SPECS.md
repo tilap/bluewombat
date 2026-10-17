@@ -212,22 +212,22 @@ and the Gate sequence starts empty. Example Gates live in
 `@bluewombat/slots/gates/` (`parent-clean`, `sensitive-path`,
 `workspace-changed`, `ci-green`).
 
-Four independent Gate sequences, one per role — `builder.producer.gates`, `builder.repair.gates`, `assembly.fix.gates`,
-`assembly.validate.gates` — plus `assembly.gates` for the one judgement-only
-pass with no producer of its own. No sequence is shared and nothing is
-dispatched between buckets: a check that is right for one pass can be wrong
+Four Gate sequences: `builder.gates`, shared by `builder.producer` and
+`builder.repair`, then `ticket.fix.gates`, `ticket.validate.gates` and
+`ticket.gates` for the one judgement-only pass with no producer of its own.
+The assembly sequences are not shared and nothing is dispatched between buckets: a check that is right for one pass can be wrong
 for another, even within the same stage — `workspace-changed` says an Attempt
 that changed nothing did nothing, which is true of `builder.producer`/`repair`
-and false of `assembly.gates`'s pass, whose correct outcome is that nothing
-was left to do. `builder.repair` does not inherit `builder.producer.gates`: a
-repair Attempt with no Gate of its own runs ungated. The assembly's
+and false of `ticket.gates`'s pass, whose correct outcome is that nothing
+was left to do. A repair Attempt is judged by `builder.gates`, the same list as the
+producer's (Host hands Implementer that list as both `gates` and `repairGates`). The assembly's
 judgement-only pass produces nothing unless something refused it first: it is
-a judgement, and a refusal is `assembly.fix`, not a second first-pass. Two
-things may judge it: `assembly.gates` (and an Authority's own checks on what
-was published) and, optionally, `assembly.validate` — a local, read-only pass
-that runs before either, judged by its own `assembly.validate.gates`, not
-`assembly.gates`. Both send a refusal to the same `fix` and spend the same
-`maxRefusals` budget.
+a judgement, and a refusal is `ticket.fix`, not a second first-pass. Two
+things may judge it: `ticket.gates` (and an Authority's own checks on what
+was published) and, optionally, `ticket.validate` — a local, read-only pass
+that runs before either, judged by its own `ticket.validate.gates`, not
+`ticket.gates`. Both send a refusal to the same `fix` and spend the same
+`ticket.maxRefusals` budget.
 
 Every child of a Task carries its own ceiling and no other. Every `cmd` names
 its own `timeoutMs`, and none is inherited from a neighbour — nothing else
@@ -236,7 +236,7 @@ or its sequence's `defaultTimeoutMs`, and a Gate that would end up with neither
 is refused when the config loads. Nothing is derived from what another child
 left behind, so what bounds a whole Task is arithmetic the Project can do:
 the builder's `maxAttempts` times its producer's ceiling plus the sum of its Gates'.
-An assembly fix is bounded the same way from `assembly.maxAttempts` and `assembly.fix`.
+An assembly fix is bounded the same way from `ticket.maxAttempts` and `ticket.fix`.
 Root `timeoutMs` bounds what is outside a Task — the manager, the
 isolations. Host has no flag named after a tracker (`--repo` is not a Host
 flag): tracker fields come from that package.

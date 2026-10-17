@@ -1,17 +1,19 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { listOption, textOption } from "@bluewombat/slot-kit";
 
 // The plugin folders an agent starts with, shared by every vendor wrapper.
 //
 //   --plugin-dir DIR      a folder of the operator's own (the Mason home's
 //                         core plugins). Repeatable, loaded first, in order
-//   --profile NAME        the project's deck profile for this role: the base
-//                         and that profile, as the project's locks pin them
+//   --app-deck-profile PATH
+//                         the app's deck profile for this role, as a path in the
+//                         checkout: `[<app dir>/].ai/profiles/<name>`. The base
+//                         and that profile, as the app's locks pin them
 //   --plugins-out DIR     where the profile is materialized, one folder per
-//                         profile. Required with --profile: never the
+//                         profile. Required with --app-deck-profile: never the
 //                         workspace, whose tree the Gates read
 //   --deck-bin PATH       the deck CLI. Default: the @pinkpuma/deck this
 //                         package depends on
@@ -22,6 +24,37 @@ import { listOption, textOption } from "@bluewombat/slot-kit";
 // which is why one folder per profile is enough.
 
 const PROFILE_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * Where a deck profile is, from the path the config gives: the app folder that
+ * holds `.ai/` (empty for the checkout itself) and the profile's name. deck
+ * keeps its profiles in `<app>/.ai/profiles/<name>`, so that is the shape; the
+ * app folder is what a Project can place elsewhere.
+ *
+ * The same rule as the config's own reading of the key (`parseAppDeckProfile`
+ * in the runtime), written again because a slot depends on neither.
+ *
+ * @param {string} given
+ * @returns {{ ok: true, root: string, name: string } | { ok: false, reason: string }}
+ */
+export function parseAppDeckProfile(given) {
+  const matched = /^(?:(.*?)\/)?\.ai\/profiles\/([^/]+)\/?$/.exec(given.trim());
+  const name = matched?.[2];
+  if (matched === null || name === undefined || !PROFILE_NAME.test(name) || name === "current") {
+    return {
+      ok: false,
+      reason: `The --app-deck-profile "${given}" is not a deck profile path: [<app dir>/].ai/profiles/<name>.`,
+    };
+  }
+  const root = matched[1] ?? ".";
+  if (isAbsolute(root) || root.split("/").includes("..")) {
+    return {
+      ok: false,
+      reason: `The --app-deck-profile "${given}" must stay inside the checkout.`,
+    };
+  }
+  return { ok: true, root, name };
+}
 
 /**
  * @typedef {import("@bluewombat/slot-kit").AgentPlugin} AgentPlugin
@@ -44,29 +77,34 @@ export function loadPlugins(options, cwd) {
     }
     plugins.push({ id: pluginId(path), path, from: "local", integrity: null });
   }
-  const profile = textOption(options, "profile");
-  if (profile === undefined) {
+  const given = textOption(options, "appDeckProfile");
+  if (given === undefined) {
     return { ok: true, plugins, prompt: undefined, notes: [] };
   }
-  if (!PROFILE_NAME.test(profile) || profile === "current") {
-    return { ok: false, reason: `The --profile "${profile}" is not a deck profile name.` };
+  const located = parseAppDeckProfile(given);
+  if (!located.ok) {
+    return located;
   }
+  const { root, name: profile } = located;
   const out = textOption(options, "pluginsOut");
   if (out === undefined) {
     return {
       ok: false,
-      reason: "--profile needs --plugins-out: the profile is built outside the workspace.",
+      reason: "--app-deck-profile needs --plugins-out: the profile is built outside the workspace.",
     };
   }
-  const hasBase = existsSync(join(cwd, "ai-plugin.json"));
+  // The app is where deck is run: the checkout, or a folder of it that holds
+  // its own `.ai/` (an app of a monorepo).
+  const appDir = resolve(cwd, root);
+  const hasBase = existsSync(join(appDir, "ai-plugin.json"));
   // deck's own rule: a profile is a folder of .ai/profiles that holds a request.
-  const hasProfile = existsSync(join(cwd, ".ai", "profiles", profile, "ai-plugin.json"));
+  const hasProfile = existsSync(join(appDir, ".ai", "profiles", profile, "ai-plugin.json"));
   if (!hasBase && !hasProfile) {
     return {
       ok: true,
       plugins,
       prompt: undefined,
-      notes: [`The project has no deck setup: no plugin for profile ${profile}.`],
+      notes: [`The app has no deck setup: no plugin for profile ${given}.`],
     };
   }
   const deck = deckBin(options);
@@ -77,7 +115,7 @@ export function loadPlugins(options, cwd) {
     deck.path,
     "materialize",
     "-C",
-    cwd,
+    appDir,
     "--out",
     resolve(cwd, out, profile),
     "--json",
@@ -104,7 +142,7 @@ export function loadPlugins(options, cwd) {
     ok: true,
     plugins,
     prompt: profilePrompt(result.prompt),
-    notes: hasProfile ? [] : [`The project has no deck profile ${profile}: base plugins only.`],
+    notes: hasProfile ? [] : [`The app has no deck profile ${given}: base plugins only.`],
   };
 }
 

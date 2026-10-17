@@ -47,7 +47,8 @@ if (git(["rev-parse", "--is-inside-work-tree"]).stdout.trim() !== "true") {
   process.exit(0);
 }
 
-if (stageOf(process.argv) !== "assembly") {
+const stage = stageOf(process.argv);
+if (stage !== "ticket" && stage !== "feature") {
   emitVerdict("pass");
   process.exit(0);
 }

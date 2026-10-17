@@ -98,6 +98,12 @@ export type SubmissionRecord = {
   last_report?: string;
   /** What refused it, when the refusal came with a name. */
   last_refused_by?: string;
+  /**
+   * How many times the line moved on while this Submission waited, and the work
+   * was sent back to be brought up to date with it. Not a refusal: nothing was
+   * wrong with the work. Shares the `maxRefusals` budget as a ceiling of its own.
+   */
+  realigns?: number;
 };
 
 export type InvalidRecord = {
@@ -194,6 +200,13 @@ export type FeatureIntention = {
 export type FeatureSubmissionRecord = {
   reference: string;
   submitted_at: number;
+  /** Times the Authority's judgement sent the line back. */
+  refusals?: number;
+  /** Times the line it is offered to moved on under the Submission. */
+  realigns?: number;
+  /** Why it was last sent back; kept until a realign says nothing was wrong. */
+  last_report?: string;
+  last_refused_by?: string;
 };
 
 export type FeatureAggregate = {
@@ -206,6 +219,10 @@ export type FeatureAggregate = {
   /** Keys of the Tickets admitted when the Feature opened. */
   tickets: string[];
   submission?: FeatureSubmissionRecord;
+  /** A check refused the line before it was offered: why, for the fix. Cleared once the line is checked again. */
+  parked_refusal?: { report: string; refused_by?: string };
+  /** Corrective rounds the parked refusals used. Kept when one is cleared: it is budget spent. */
+  parked_refusals?: number;
   /** Why it stopped, in the words of whatever refused it. */
   escalation?: { report?: string };
   /** How many times a human's resume was taken. */

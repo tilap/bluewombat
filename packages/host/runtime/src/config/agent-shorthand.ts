@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 /**
  * The short way to write an agent pass: which agent, which prompt, which
@@ -9,13 +9,14 @@ import { resolve } from "node:path";
  *               transcripts: ./.mason/transcripts, pluginsOut: ./.mason/plugins }
  *   builder:
  *     producer: { agent: cursor, prompt: ./prompts/builder.md,
- *                 plugins: [./ai-plugins/core/builder], profile: builder, timeoutMs: … }
+ *                 homePlugins: [./ai-plugins/core/builder],
+ *                 appDeckProfile: .ai/profiles/builder, timeoutMs: … }
  *
  * expands to
  *
  *   node <slots>/builders/producer.mjs --prompt-file <prompt> --
  *     node <slots>/agents/cursor.mjs --transcript-dir … --agent-home … --api-key-env …
- *       --plugin-dir <core> --profile builder --plugins-out …
+ *       --plugin-dir <core> --app-deck-profile .ai/profiles/builder --plugins-out …
  *
  * The expansion is the whole ticket: nothing downstream knows a pass was
  * written short, so `cmd` stays the one shape the rest of Host reads, and a
@@ -29,8 +30,11 @@ const SLOTS_PACKAGE = "node_modules/@bluewombat/slots";
 export const ROLE_SCRIPTS = {
   "builder.producer": "builders/producer.mjs",
   "builder.repair": "builders/repair.mjs",
-  "assembly.fix": "assembly/fix.mjs",
-  "assembly.validate": "assembly/validate.mjs",
+  "builder.tests": "builders/tests.mjs",
+  "ticket.fix": "ticket/fix.mjs",
+  "ticket.validate": "ticket/validate.mjs",
+  "feature.fix": "feature/fix.mjs",
+  "feature.validate": "feature/validate.mjs",
   "authority.describe": "messages/git-producer.mjs",
 } as const;
 
@@ -51,7 +55,14 @@ const AGENT_KEYS = new Set([
 ]);
 
 /** The keys a pass written short may carry, besides its own (`timeoutMs`, `gates`). */
-export const SHORT_PASS_KEYS = new Set(["agent", "prompt", "rules", "plugins", "profile", "args"]);
+export const SHORT_PASS_KEYS = new Set([
+  "agent",
+  "prompt",
+  "rules",
+  "homePlugins",
+  "appDeckProfile",
+  "args",
+]);
 
 /** One agent as `agents.<name>` declares it, paths already resolved. */
 export type AgentDecl = {
@@ -210,19 +221,25 @@ export function expandAgentPass(
   if (rules.ok === false) {
     return rules;
   }
-  const plugins = stringList(object.plugins, `${key}.plugins`);
+  const plugins = stringList(object.homePlugins, `${key}.homePlugins`);
   if (plugins.ok === false) {
     return plugins;
   }
-  const profile = object.profile;
-  if (profile !== undefined && (typeof profile !== "string" || profile.trim().length === 0)) {
-    return { ok: false, reason: `Config "${key}.profile" must be a deck profile name.` };
-  }
-  if (profile !== undefined && agent.pluginsOut === undefined) {
-    return {
-      ok: false,
-      reason: `Config "${key}" names a deck profile, so "agents.${name}.pluginsOut" must say where it is built.`,
-    };
+  const profile = object.appDeckProfile;
+  if (profile !== undefined) {
+    if (typeof profile !== "string") {
+      return { ok: false, reason: `Config "${key}.appDeckProfile" must be a path.` };
+    }
+    const located = parseAppDeckProfile(profile);
+    if (!located.ok) {
+      return { ok: false, reason: `Config "${key}.appDeckProfile": ${located.reason}` };
+    }
+    if (agent.pluginsOut === undefined) {
+      return {
+        ok: false,
+        reason: `Config "${key}" names an app deck profile, so "agents.${name}.pluginsOut" must say where it is built.`,
+      };
+    }
   }
   const args = stringList(object.args, `${key}.args`);
   if (args.ok === false) {
@@ -259,7 +276,7 @@ export function expandAgentPass(
     argv.push("--plugin-dir", resolve(configDir, dir));
   }
   if (profile !== undefined && agent.pluginsOut !== undefined) {
-    argv.push("--profile", profile as string, "--plugins-out", agent.pluginsOut);
+    argv.push("--app-deck-profile", profile as string, "--plugins-out", agent.pluginsOut);
   }
   for (const arg of [...agent.args, ...args.value]) {
     argv.push("--agent-arg", arg);
@@ -267,15 +284,47 @@ export function expandAgentPass(
   return { ok: true, value: argv };
 }
 
+/**
+ * Where an app's deck profile is, from the path the config gives it: the app
+ * folder that holds `.ai/` (`.` for the checkout itself) and the profile's name.
+ * deck keeps its profiles in `<app>/.ai/profiles/<name>`, so that is the shape;
+ * the app folder is what a Project may place elsewhere in its checkout.
+ *
+ * The slot that builds the profile reads the path by the same rule
+ * (`parseAppDeckProfile` in `agent-plugins.mjs`); neither depends on the other.
+ */
+export function parseAppDeckProfile(
+  given: string,
+): { ok: true; root: string; name: string } | { ok: false; reason: string } {
+  const matched = /^(?:(.*?)\/)?\.ai\/profiles\/([^/]+)\/?$/.exec(given.trim());
+  const name = matched?.[2];
+  if (
+    matched === null ||
+    name === undefined ||
+    !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(name) ||
+    name === "current"
+  ) {
+    return {
+      ok: false,
+      reason: `"${given}" is not a deck profile path: [<app dir>/].ai/profiles/<name>.`,
+    };
+  }
+  const root = matched[1] ?? ".";
+  if (isAbsolute(root) || root.split("/").includes("..")) {
+    return { ok: false, reason: `"${given}" must stay inside the checkout.` };
+  }
+  return { ok: true, root, name };
+}
+
 /** The agent and profile a pass's argv names, written short or not; for `doctor`. */
 export function agentPartOf(argv: readonly string[]): {
-  profile?: string;
+  appDeckProfile?: string;
   pluginsOut?: string;
   pluginDirs: string[];
 } {
   const split = argv.indexOf("--");
   const agent = split === -1 ? [] : argv.slice(split + 1);
-  const found: { profile?: string; pluginsOut?: string; pluginDirs: string[] } = {
+  const found: { appDeckProfile?: string; pluginsOut?: string; pluginDirs: string[] } = {
     pluginDirs: [],
   };
   agent.forEach((token, at) => {
@@ -283,8 +332,8 @@ export function agentPartOf(argv: readonly string[]): {
     if (value === undefined) {
       return;
     }
-    if (token === "--profile") {
-      found.profile = value;
+    if (token === "--app-deck-profile") {
+      found.appDeckProfile = value;
     } else if (token === "--plugins-out") {
       found.pluginsOut = value;
     } else if (token === "--plugin-dir") {

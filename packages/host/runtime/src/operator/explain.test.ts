@@ -107,17 +107,18 @@ function sandbox(options: Options = {}): string {
         },
       },
       builder: {
+        tests: { agent: false },
         producer: {
           agent: "cursor",
           args: ["--model", "composer-2.5"],
           prompt: "./roles/producer/prompt.md",
-          plugins: ["./roles/producer/plugin"],
-          profile: "builder",
+          homePlugins: ["./roles/producer/plugin"],
+          appDeckProfile: ".ai/profiles/builder",
           timeoutMs: 600_000,
-          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
           ...options.producer,
         },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
+        gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
       },
       timeoutMs: 1000,
       ...options.config,
@@ -190,7 +191,17 @@ describe("runExplain", () => {
         ticketTracker: github,
         workLine: { isolation: "@bluewombat/isolation-git" },
         authority: { enabled: true, publish: [node, gate], refresh: [node, gate] },
-        assembly: {
+        feature: {
+          fix: { cmd: [node, builder], timeoutMs: 600_000 },
+          validate: {
+            cmd: [node, builder],
+            timeoutMs: 600_000,
+            gates: { gates: [{ id: "tests", argv: [node, gate], timeoutMs: 10_000 }] },
+          },
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
+        ticket: {
+          validate: { agent: false },
           fix: { cmd: [node, builder], timeoutMs: 600_000 },
           gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
@@ -213,7 +224,9 @@ describe("runExplain", () => {
       report.plugins.map((plugin) => plugin.id),
       ["producer-box", "alpha"],
     );
-    assert.ok(report.notes.some((note) => /no deck profile "builder"/.test(note.text)));
+    assert.ok(
+      report.notes.some((note) => /no deck profile "\.ai\/profiles\/builder"/.test(note.text)),
+    );
     assert.equal(
       report.notes.every((note) => note.level === "warn"),
       true,
@@ -297,8 +310,9 @@ describe("the placeholders each role fills", () => {
     const files: Record<string, string> = {
       "builder.producer": "builders/producer.mjs",
       "builder.repair": "builders/repair.mjs",
-      "assembly.fix": "assembly/fix.mjs",
-      "assembly.validate": "assembly/validate.mjs",
+      "ticket.fix": "ticket/fix.mjs",
+      "ticket.validate": "ticket/validate.mjs",
+      "feature.fix": "feature/fix.mjs",
       "authority.describe": "messages/git-producer.mjs",
     };
     for (const [role, file] of Object.entries(files)) {

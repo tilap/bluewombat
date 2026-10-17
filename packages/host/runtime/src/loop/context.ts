@@ -2,7 +2,9 @@ import type {
   AuthorityPort,
   Conductor,
   ConductorMoment,
+  Delivery,
   TransformerPort,
+  WarmPort,
 } from "@bluewombat/conductor";
 import type { EventName, FeatureTrackerPort, TicketTrackerPort } from "@bluewombat/manager-kit";
 import type { WorkLedger } from "@bluewombat/work-ledger";
@@ -33,6 +35,19 @@ export type HostRunInput = {
   trace: Trace;
   /** Present when the Project declared an Authority and the manager can submit. */
   authority?: AuthorityPort;
+  /**
+   * How a Feature's line is delivered to the line it is folded into. Present
+   * with an Authority, and absent without one: nothing folds a line then.
+   */
+  featureDelivery?: {
+    delivery: Delivery;
+    /** The copy of the line the Feature is folded into, merged into the Feature's work. */
+    targetStable: string;
+    /** Where the Feature's work is done, outside the Tickets' workspaces. */
+    workspaces: string;
+    /** Prepares that workspace the way a Ticket's is prepared, when the Project asked for it. */
+    warm?: WarmPort & { durationMs: number };
+  };
   /**
    * Where Conductor's moments land during a pass. A tick points it at its own
    * report function before driving, so what is said mid-pass counts as that

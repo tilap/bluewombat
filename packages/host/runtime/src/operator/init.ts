@@ -174,25 +174,30 @@ async function init(input: InitInput): Promise<InitResult> {
     // No `home`, `workspaceRoot` or `ledger`: the defaults put all of it under
     // `.mason`, and a key that repeats a default is one more thing to keep true.
     // Both passes name the same stub, and both are written out: a repair runs
-    // its own agent or it runs nothing, never the first pass by default. Each
-    // carries its own Gate sequence — a repair with none of its own runs
-    // ungated, even once the producer's is filled in.
+    // its own agent or it runs nothing, never the first pass by default. They
+    // share one Gate list, `builder.gates`: a repair is judged by exactly what
+    // judged the producer.
     builder: {
+      // The tests written before the code: off until a Project gives them an agent.
+      tests: { agent: false },
       producer: {
         cmd: ["node", `./${BUILDER_FILENAME}`],
         timeoutMs: BUILDER_TIMEOUT_MS,
-        gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
       },
       repair: {
         cmd: ["node", `./${BUILDER_FILENAME}`],
         timeoutMs: BUILDER_TIMEOUT_MS,
-        gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
       },
+      gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
       maxAttempts: 3,
     },
     // No fix here: that command only runs on a Submission an Authority sent
     // back, and this Project offers nothing yet.
-    assembly: { gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] } },
+    ticket: {
+      // The review of an assembled ticket: off until a Project gives it an agent or gates.
+      validate: { agent: false },
+      gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
+    },
     authority: { enabled: false },
     timeoutMs: DURATION_MS,
     pollIntervalMs: 30_000,
@@ -606,7 +611,7 @@ function addManagerOption(
 function hostNextSteps(config: string): string[] {
   return [
     `${BUILDER_FILENAME} — your producer; or point builder.producer at @bluewombat/slots/builders/producer.mjs and builder.repair at builders/repair.mjs, with an agent after --`,
-    `builder.producer.gates.gates in ${config} — start with workspace-changed (examples in @bluewombat/slots/gates/); builder.repair.gates is separate and runs ungated until you add one`,
-    `authority.enabled in ${config} — true to offer the assembled ticket outside, which then needs assembly.fix (assembly.validate is another way to send work back to it, local and optional)`,
+    `builder.gates.gates in ${config} — start with workspace-changed (examples in @bluewombat/slots/gates/); one list, judging the producer and the repair alike`,
+    `authority.enabled in ${config} — true to offer the assembled ticket outside, which then needs ticket.fix (ticket.validate is another way to send work back to it, local and optional) and a "feature" block (its own gates and fix for the whole line)`,
   ];
 }

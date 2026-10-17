@@ -15,7 +15,7 @@ import {
 } from "@bluewombat/slot-kit";
 import { attemptOf } from "../lib/fill.mjs";
 
-const NAME = "assembly validate";
+const NAME = "ticket validate";
 
 const DEFAULT_TEMPLATE = `You are a coding agent working unattended in a checkout of the project.
 
@@ -67,7 +67,7 @@ const report = (take(process.argv, "--report") ?? "").trim();
 if (report.length > 0) {
   emitFailure(
     "fail-blocking",
-    "assembly.validate is a read-only review; it does not take --report — that is assembly.fix's job.",
+    "ticket.validate is a read-only review; it does not take --report — that is ticket.fix's job.",
   );
   process.exit(1);
 }
@@ -149,7 +149,7 @@ function answer(run, bin, name) {
     // next round gets the same prompt again.
     emitFailure(
       "fail-retryable",
-      `assembly.validate found no MASON_VERDICT: line in the answer: ${
+      `ticket.validate found no MASON_VERDICT: line in the answer: ${
         said.length > 0 ? said.slice(0, 500) : "(no answer)"
       }`,
     );
@@ -160,9 +160,7 @@ function answer(run, bin, name) {
     const why = verdict.slice(refused[0].length).trim();
     emitFailure(
       "fail-retryable",
-      why.length > 0
-        ? why
-        : "assembly.validate refused the assembled ticket, with no reason given.",
+      why.length > 0 ? why : "ticket.validate refused the assembled ticket, with no reason given.",
     );
     process.exit(1);
   }
@@ -171,7 +169,7 @@ function answer(run, bin, name) {
   }
   emitFailure(
     "fail-retryable",
-    `assembly.validate's MASON_VERDICT: line was neither VALIDATED nor REFUSED: ${verdict.slice(0, 500)}`,
+    `ticket.validate's MASON_VERDICT: line was neither VALIDATED nor REFUSED: ${verdict.slice(0, 500)}`,
   );
   process.exit(1);
 }

@@ -29,7 +29,11 @@ describe("doctor: agent plugins", () => {
     write(join(dir, ".ai/profiles/builder/ai-plugin.lock.json"), {
       plugins: [pinned("impeccable")],
     });
-    const [finding] = agentPluginFindings("Builder", argv("--profile", "builder"), dir);
+    const [finding] = agentPluginFindings(
+      "Builder",
+      argv("--app-deck-profile", ".ai/profiles/builder"),
+      dir,
+    );
     assert.equal(finding?.level, "ok");
     assert.match(finding?.detail ?? "", /2 plugin\(s\) pinned/);
   });
@@ -41,7 +45,11 @@ describe("doctor: agent plugins", () => {
     write(join(dir, ".ai/profiles/builder/ai-plugin.lock.json"), {
       plugins: [{ id: "impeccable" }],
     });
-    const [finding] = agentPluginFindings("Builder", argv("--profile", "builder"), dir);
+    const [finding] = agentPluginFindings(
+      "Builder",
+      argv("--app-deck-profile", ".ai/profiles/builder"),
+      dir,
+    );
     assert.equal(finding?.level, "fail");
     assert.match(finding?.detail ?? "", /no committed ai-plugin.lock.json/);
     assert.match(finding?.detail ?? "", /impeccable not pinned by .ai\/profiles\/builder/);
@@ -50,10 +58,18 @@ describe("doctor: agent plugins", () => {
   it("warns when the project has no such profile, and says nothing is loaded without deck", () => {
     const dir = workLine();
     write(join(dir, "ai-plugin.json"), { plugins: [] });
-    const [baseOnly] = agentPluginFindings("Validate", argv("--profile", "reviewer"), dir);
+    const [baseOnly] = agentPluginFindings(
+      "Validate",
+      argv("--app-deck-profile", ".ai/profiles/reviewer"),
+      dir,
+    );
     assert.equal(baseOnly?.level, "warn");
     assert.match(baseOnly?.detail ?? "", /base plugins only/);
-    const [none] = agentPluginFindings("Validate", argv("--profile", "reviewer"), workLine());
+    const [none] = agentPluginFindings(
+      "Validate",
+      argv("--app-deck-profile", ".ai/profiles/reviewer"),
+      workLine(),
+    );
     assert.equal(none?.level, "ok");
     assert.match(none?.detail ?? "", /no deck setup/);
   });
@@ -79,7 +95,7 @@ describe("doctor: agent plugins", () => {
   it("looks only after the agent's --, never at the role's own flags", () => {
     const findings = agentPluginFindings(
       "Planner",
-      ["node", "role.mjs", "--profile", "x", "--", "node", "cursor.mjs"],
+      ["node", "role.mjs", "--app-deck-profile", ".ai/profiles/x", "--", "node", "cursor.mjs"],
       workLine(),
     );
     assert.deepEqual(findings, []);

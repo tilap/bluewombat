@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Finding } from "@bluewombat/manager-kit";
-import { agentPartOf } from "../config/agent-shorthand.js";
+import { agentPartOf, parseAppDeckProfile } from "../config/agent-shorthand.js";
 
 /**
  * What an agent pass will start its agent with, checked from the files alone.
@@ -24,8 +24,8 @@ export function agentPluginFindings(
   for (const dir of part.pluginDirs) {
     findings.push(pluginDirFinding(label, dir));
   }
-  if (part.profile !== undefined) {
-    findings.push(profileFinding(label, part.profile, workLine));
+  if (part.appDeckProfile !== undefined) {
+    findings.push(profileFinding(label, part.appDeckProfile, workLine));
   }
   return findings;
 }
@@ -48,8 +48,13 @@ function pluginDirFinding(label: string, dir: string): Finding {
   return { level: "ok", label: at, detail: dir };
 }
 
-function profileFinding(label: string, profile: string, workLine: string | undefined): Finding {
-  const at = `${label} profile`;
+function profileFinding(label: string, given: string, workLine: string | undefined): Finding {
+  const at = `${label} app deck profile`;
+  const located = parseAppDeckProfile(given);
+  if (!located.ok) {
+    return { level: "fail", label: at, detail: located.reason };
+  }
+  const profile = given;
   if (workLine === undefined || !isDirectory(workLine)) {
     return {
       level: "ok",
@@ -57,8 +62,9 @@ function profileFinding(label: string, profile: string, workLine: string | undef
       detail: `${profile} — read from the project once the work line exists`,
     };
   }
-  const base = requestsOf(join(workLine, "ai-plugin.json"));
-  const profileRoot = join(workLine, ".ai", "profiles", profile);
+  const appDir = join(workLine, located.root);
+  const base = requestsOf(join(appDir, "ai-plugin.json"));
+  const profileRoot = join(appDir, ".ai", "profiles", located.name);
   const own = requestsOf(join(profileRoot, "ai-plugin.json"));
   if (base === undefined && own === undefined) {
     return {
@@ -68,7 +74,7 @@ function profileFinding(label: string, profile: string, workLine: string | undef
     };
   }
   const unpinned = [
-    ...unpinnedIn(base, join(workLine, "ai-plugin.lock.json")),
+    ...unpinnedIn(base, join(appDir, "ai-plugin.lock.json")),
     ...unpinnedIn(own, join(profileRoot, "ai-plugin.lock.json")),
   ];
   if (unpinned.length > 0) {

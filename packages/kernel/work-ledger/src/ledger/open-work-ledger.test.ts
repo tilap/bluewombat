@@ -541,6 +541,57 @@ describe("a Submission offered again", () => {
   });
 });
 
+describe("recordRealign", () => {
+  it("sends a submitted ticket back to integrating, counts it, and keeps the reference", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+
+    assert.deepEqual(await ledger.recordRealign({ key: "fake:42" }), { ok: true });
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.state, "integrating");
+    assert.equal(aggregate.submission?.reference, "ref-1");
+    assert.equal(aggregate.submission?.realigns, 1);
+    // Not a refusal: the budget of refusals is untouched.
+    assert.equal(aggregate.submission?.refusals, 0);
+  });
+
+  it("drops the report of an earlier refusal: it was repaired, and must not be repaired again", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRefusal({ key: "fake:42", report: "still red", refusedBy: "ci-green" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRealign({ key: "fake:42" });
+
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.submission?.last_report, undefined);
+    assert.equal(aggregate.submission?.last_refused_by, undefined);
+    assert.equal(aggregate.submission?.refusals, 1);
+  });
+
+  it("counts again each time, and the count survives an offer again", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRealign({ key: "fake:42" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRealign({ key: "fake:42" });
+
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.submission?.realigns, 2);
+  });
+
+  it("is refused from any state but submitted", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    assert.deepEqual(await ledger.recordRealign({ key: "fake:42" }), {
+      ok: false,
+      code: "illegal-transition",
+    });
+  });
+});
+
 describe("recordParkedRefusal / clearParkedRefusal", () => {
   it("legal from integrating: parks the report and increments the counter", async () => {
     const ledger = ledgerAt({ value: 1_000 });
@@ -841,5 +892,66 @@ describe("Features", () => {
       code: "too-late",
     });
     assert.deepEqual(await ledger.cancelFeature("fake:none"), { ok: false, code: "not-found" });
+  });
+});
+
+describe("claiming several Tickets of a Project", () => {
+  it("claims up to the limit, then says the Project is busy", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    for (const n of [1, 2, 3]) {
+      await ledger.admit(ticket({ key: `fake:${n}`, fingerprint: `fp-${n}`, priority: 10 - n }));
+    }
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: true, key: "fake:1" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: true, key: "fake:2" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: false, code: "project-busy" });
+    assert.equal((await ledger.activeTickets("proj")).length, 2);
+  });
+
+  it("holds a place for an escalated Ticket", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket({ key: "fake:1", fingerprint: "fp-1" }));
+    await ledger.admit(ticket({ key: "fake:2", fingerprint: "fp-2", priority: 0 }));
+    await ledger.claim("proj", 2);
+    await ledger.recordAttempt({ key: "fake:1", number: 1, trace: { ended: "fail-blocking" } });
+    await ledger.escalate({ key: "fake:1", kind: "unit" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: true, key: "fake:2" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: false, code: "project-busy" });
+  });
+
+  it("never hands the same Ticket to two claims made together", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    for (const n of [1, 2, 3]) {
+      await ledger.admit(ticket({ key: `fake:${n}`, fingerprint: `fp-${n}`, priority: 10 - n }));
+    }
+    const claims = await Promise.all([1, 2, 3].map(() => ledger.claim("proj", 3)));
+    const keys = claims.map((claim) => ("key" in claim ? claim.key : undefined));
+    assert.deepEqual([...keys].sort(), ["fake:1", "fake:2", "fake:3"]);
+  });
+
+  it("does not go past the limit when claims are made together", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    for (const n of [1, 2, 3]) {
+      await ledger.admit(ticket({ key: `fake:${n}`, fingerprint: `fp-${n}` }));
+    }
+    const claims = await Promise.all([1, 2, 3].map(() => ledger.claim("proj", 2)));
+    assert.equal(claims.filter((claim) => "key" in claim).length, 2);
+    assert.equal((await ledger.activeTickets("proj")).length, 2);
+  });
+
+  it("starts a Ticket only once every Ticket it waits on is done", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket({ key: "fake:a", fingerprint: "fp-a" }));
+    await ledger.admit(
+      ticket({ key: "fake:c", fingerprint: "fp-c", priority: 99, blocked_by: ["fake:a"] }),
+    );
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, key: "fake:a" });
+    // The dependent has the higher priority, and still waits.
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, empty: true });
+    await ledger.recordAttempt({ key: "fake:a", number: 1, trace: { ended: "validated" } });
+    await ledger.markIntegrating("fake:a");
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, empty: true });
+    await ledger.markMerging("fake:a");
+    await ledger.markDone("fake:a");
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, key: "fake:c" });
   });
 });

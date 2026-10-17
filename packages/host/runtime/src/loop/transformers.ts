@@ -6,7 +6,13 @@ import {
 } from "@bluewombat/implementer";
 import { type FoldBackend, runIntegrator } from "@bluewombat/integrator";
 import { type IsolationBackend, runIsolator } from "@bluewombat/isolator";
-import type { AssemblySpec, StageSpec } from "../config/types.js";
+import {
+  type FeatureSpec,
+  hasAgent,
+  type ReviewSpec,
+  type StageSpec,
+  type TicketSpec,
+} from "../config/types.js";
 import type { Journal } from "./journal.js";
 import type { Streams } from "./streams.js";
 import { failureNote, type Trace } from "./trace.js";
@@ -24,7 +30,9 @@ export type TransformerSlots = {
   /** Making the unit of work, and the Gates judging what came out of it. */
   builder: StageSpec;
   /** Judging the assembled ticket, and the command that fixes a refusal. */
-  assembly: AssemblySpec;
+  ticket: TicketSpec;
+  /** Judging the whole Feature, and its own fix. Present whenever there is an Authority to fold it. */
+  feature?: FeatureSpec;
   /** How Isolator produces the Child. Host chooses; Isolator does not sniff. */
   isolation: IsolationBackend;
   /** How Integrator folds. Must match `isolation`. */
@@ -40,6 +48,14 @@ export type TransformerSlots = {
 };
 
 const DEFAULT_MAX_ATTEMPTS = 3;
+
+/** The Feature's config; a Feature is only judged when an Authority exists, and Host refuses to open without it. */
+function featureOf(slots: TransformerSlots): FeatureSpec {
+  if (slots.feature === undefined) {
+    throw new Error('A Feature was judged, but no "feature" is configured.');
+  }
+  return slots.feature;
+}
 
 const silent = (): void => {};
 
@@ -110,18 +126,30 @@ function reasonOf(trace: ImplementerTrace): { report: string; from?: string } | 
 /**
  * How long the agent of this pass may run.
  *
- * The unit names its producer. An assembly names a fix, and only when something
- * already refused the whole — or, before that, a validate.
+ * The unit names its producer. A Ticket or a Feature names a fix, and only when
+ * something already refused the whole — or, for a Ticket, before that, a validate.
  */
 function commandTimeoutMs(
   input: { stage?: string; validate?: boolean },
   slots: TransformerSlots,
 ): number {
-  if (input.validate === true) {
-    return slots.assembly.validate?.timeoutMs ?? slots.timeoutMs;
+  if (input.stage === "feature") {
+    const feature = featureOf(slots);
+    if (input.validate === true) {
+      return hasAgent(feature.validate) ? feature.validate.timeoutMs : slots.timeoutMs;
+    }
+    return feature.fix.timeoutMs;
   }
-  if (input.stage === "assembly") {
-    return slots.assembly.fix?.timeoutMs ?? slots.timeoutMs;
+  if (input.stage === "tests") {
+    const tests = slots.builder.tests;
+    return tests !== undefined && hasAgent(tests) ? tests.timeoutMs : slots.timeoutMs;
+  }
+  if (input.validate === true) {
+    const validate = slots.ticket.validate;
+    return validate !== undefined && hasAgent(validate) ? validate.timeoutMs : slots.timeoutMs;
+  }
+  if (input.stage === "ticket") {
+    return slots.ticket.fix?.timeoutMs ?? slots.timeoutMs;
   }
   return slots.builder.producer.timeoutMs;
 }
@@ -133,7 +161,10 @@ function attemptBudget(
   if (input.produce === false || input.validate === true) {
     return 1;
   }
-  const stage = input.stage === "assembly" ? slots.assembly : slots.builder;
+  if (input.stage === "feature") {
+    return featureOf(slots).maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  }
+  const stage = input.stage === "ticket" ? slots.ticket : slots.builder;
   return stage.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 }
 
@@ -146,35 +177,68 @@ type RoleWiring = {
   repairGates: GateSpec[];
 };
 
+/** A review runs its agent and then its Gates; with no agent, the Gates alone. */
+function reviewWiring(review: ReviewSpec): RoleWiring {
+  return hasAgent(review)
+    ? { builderArgv: review.cmd, gates: review.gates, repairGates: [] }
+    : { gates: review.gates, repairGates: [] };
+}
+
 /**
  * Which command runs, and which Gate sequence judges it — decided together,
  * so the two can never fall out of sync (see DECISIONS.md: every role gated
  * independently, no shared list, no dispatch choosing between two buckets).
  */
 function roleWiring(
-  input: { stage?: string; produce?: boolean; validate?: boolean },
+  input: {
+    stage?: string;
+    produce?: boolean;
+    validate?: boolean;
+    recheck?: boolean;
+  },
   slots: TransformerSlots,
 ): RoleWiring {
-  if (input.validate === true) {
-    const validate = slots.assembly.validate;
-    return validate === undefined
+  if (input.stage === "tests") {
+    // The tests are written by their own agent, judged by their own Gates.
+    const tests = slots.builder.tests;
+    return tests === undefined || !hasAgent(tests)
       ? { gates: [], repairGates: [] }
-      : { builderArgv: validate.cmd, gates: validate.gates, repairGates: [] };
+      : { builderArgv: tests.cmd, gates: tests.gates, repairGates: [] };
+  }
+  if (input.stage === "feature") {
+    // The Feature's own sequences and its own fix, and nothing of a Ticket's.
+    const feature = featureOf(slots);
+    if (input.validate === true) {
+      return reviewWiring(feature.validate);
+    }
+    if (input.produce === false) {
+      return { gates: feature.gates, repairGates: [] };
+    }
+    return { builderArgv: feature.fix.cmd, gates: feature.fix.gates, repairGates: [] };
+  }
+  if (input.validate === true) {
+    const validate = slots.ticket.validate;
+    return validate === undefined ? { gates: [], repairGates: [] } : reviewWiring(validate);
+  }
+  if (input.recheck === true) {
+    // The unit's own checks again, once the work has been aligned with the line:
+    // `builder.gates`, the one list that says the code stands. Nothing is produced.
+    return { gates: slots.builder.producer.gates, repairGates: [] };
   }
   if (input.produce === false) {
     // The one remaining judgement-only pass: re-checking the assembled
     // ticket with no producer of its own. No named role maps to it; it is
-    // judged by `assembly.gates`, its own sequence, untouched by any of the
-    // five roles' own lists (see AssemblySpec's doc comment).
-    return { gates: slots.assembly.gates, repairGates: [] };
+    // judged by `ticket.gates`, its own sequence, untouched by any of the
+    // roles' own lists (see TicketSpec's doc comment).
+    return { gates: slots.ticket.gates, repairGates: [] };
   }
-  if (input.stage === "assembly") {
-    const fix = slots.assembly.fix;
+  if (input.stage === "ticket") {
+    const fix = slots.ticket.fix;
     if (fix === undefined) {
       return { gates: [], repairGates: [] };
     }
     // Implementer picks repairArgv only when a report is present, and Conductor
-    // never produces at assembly without one. The fix command is the producer.
+    // never produces for a ticket without one. The fix command is the producer.
     return { builderArgv: fix.cmd, gates: fix.gates, repairGates: [] };
   }
   const { producer, repair } = slots.builder;
@@ -279,7 +343,10 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
         write,
         ...interrupt,
       });
-      return { outcome: result.outcome };
+      return {
+        outcome: result.outcome,
+        ...(result.changed === undefined ? {} : { changed: result.changed }),
+      };
     },
   };
 }

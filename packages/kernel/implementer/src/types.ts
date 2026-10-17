@@ -146,12 +146,13 @@ export type Invocation = {
   /** Which Gate produced `report`, when a Gate did. */
   reportFrom?: string;
   /**
-   * One piece of work, or the whole that pieces assemble into.
+   * One piece of work, or a whole that pieces assemble into: a Ticket, or a
+   * Feature made of Tickets.
    *
    * A check written for one can be wrong for the other, so each is told which
    * it is looking at rather than left to guess. Absent: a piece of work.
    */
-  stage?: "unit" | "assembly";
+  stage?: "unit" | "tests" | "ticket" | "feature";
   /**
    * What this Task belongs to, passed to the producer and used for nothing else.
    *

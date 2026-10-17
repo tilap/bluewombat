@@ -493,8 +493,8 @@ describe("agent plugin folders", () => {
     const result = runCursor(cwd, [
       "--plugin-dir",
       core,
-      "--profile",
-      "builder",
+      "--app-deck-profile",
+      ".ai/profiles/builder",
       "--plugins-out",
       out,
     ]);
@@ -537,7 +537,12 @@ describe("agent plugin folders", () => {
     const root = sandbox();
     const cwd = project(root, { base: true, profile: "builder" });
     const out = join(root, "plugins");
-    const empty = runCursor(cwd, ["--profile", "builder", "--plugins-out", out]);
+    const empty = runCursor(cwd, [
+      "--app-deck-profile",
+      ".ai/profiles/builder",
+      "--plugins-out",
+      out,
+    ]);
     assert.equal(empty.status, 0, empty.stderr);
     let argv = JSON.parse(readFileSync(join(cwd, "argv.json"), "utf8")) as string[];
     assert.equal(argv.at(-1), "do the task");
@@ -546,7 +551,12 @@ describe("agent plugin folders", () => {
       join(cwd, ".ai", "profiles", "builder", "prompt.md"),
       "Use /impeccable polish.\n",
     );
-    const said = runCursor(cwd, ["--profile", "builder", "--plugins-out", out]);
+    const said = runCursor(cwd, [
+      "--app-deck-profile",
+      ".ai/profiles/builder",
+      "--plugins-out",
+      out,
+    ]);
     assert.equal(said.status, 0, said.stderr);
     argv = JSON.parse(readFileSync(join(cwd, "argv.json"), "utf8")) as string[];
     assert.equal(
@@ -559,18 +569,77 @@ describe("agent plugin folders", () => {
     const root = sandbox();
     const cwd = project(root, { base: true });
     const out = join(root, "plugins");
-    const result = runCursor(cwd, ["--profile", "reviewer", "--plugins-out", out]);
+    const result = runCursor(cwd, [
+      "--app-deck-profile",
+      ".ai/profiles/reviewer",
+      "--plugins-out",
+      out,
+    ]);
     assert.equal(result.status, 0, result.stderr);
     const deckArgs = JSON.parse(readFileSync(join(cwd, "deck-args.json"), "utf8")) as string[];
     assert.equal(deckArgs.includes("--profile"), false);
     assert.deepEqual(pluginDirs(cwd), [join(out, "reviewer", "git-workflow")]);
-    assert.match(result.stderr, /no deck profile reviewer: base plugins only/);
+    assert.match(result.stderr, /no deck profile \.ai\/profiles\/reviewer: base plugins only/);
+  });
+
+  it("builds the profile of an app that sits in a folder of the checkout", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: false });
+    const app = join(cwd, "apps", "web");
+    mkdirSync(join(app, ".ai", "profiles", "builder"), { recursive: true });
+    writeFileSync(join(app, "ai-plugin.json"), JSON.stringify({ plugins: [] }));
+    writeFileSync(
+      join(app, ".ai", "profiles", "builder", "ai-plugin.json"),
+      JSON.stringify({ plugins: [] }),
+    );
+    const out = join(root, "plugins");
+    const result = runCursor(cwd, [
+      "--app-deck-profile",
+      "apps/web/.ai/profiles/builder",
+      "--plugins-out",
+      out,
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    // deck runs in the app folder, not at the root of the checkout.
+    const deckArgs = JSON.parse(readFileSync(join(app, "deck-args.json"), "utf8")) as string[];
+    assert.equal(deckArgs[deckArgs.indexOf("-C") + 1], realpathSync(app));
+    assert.equal(deckArgs[deckArgs.indexOf("--profile") + 1], "builder");
+    assert.equal(existsSync(join(cwd, "deck-args.json")), false);
+    assert.deepEqual(pluginDirs(cwd), [
+      join(out, "builder", "git-workflow"),
+      join(out, "builder", "builder-kit"),
+    ]);
+  });
+
+  it("refuses an app deck profile that leaves the checkout, or is not a deck path", () => {
+    const root = sandbox();
+    const cwd = project(root, { base: true, profile: "builder" });
+    for (const given of [
+      "builder",
+      "profiles/builder",
+      "../x/.ai/profiles/builder",
+      "/abs/.ai/profiles/b",
+    ]) {
+      const result = runCursor(cwd, [
+        "--app-deck-profile",
+        given,
+        "--plugins-out",
+        join(root, "plugins"),
+      ]);
+      assert.notEqual(result.status, 0, given);
+      assert.equal(existsSync(join(cwd, "argv.json")), false, given);
+    }
   });
 
   it("loads no project plugin when the project has no deck setup", () => {
     const root = sandbox();
     const cwd = project(root, { base: false });
-    const result = runCursor(cwd, ["--profile", "builder", "--plugins-out", join(root, "plugins")]);
+    const result = runCursor(cwd, [
+      "--app-deck-profile",
+      ".ai/profiles/builder",
+      "--plugins-out",
+      join(root, "plugins"),
+    ]);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(join(cwd, "deck-args.json")), false);
     assert.deepEqual(pluginDirs(cwd), []);
@@ -582,7 +651,7 @@ describe("agent plugin folders", () => {
     const cwd = project(root, { base: true, profile: "builder" });
     const result = runCursor(
       cwd,
-      ["--profile", "builder", "--plugins-out", join(root, "plugins")],
+      ["--app-deck-profile", ".ai/profiles/builder", "--plugins-out", join(root, "plugins")],
       {
         ...process.env,
         DECK_FAKE_MODE: "fail",
@@ -595,13 +664,18 @@ describe("agent plugin folders", () => {
     assert.equal(existsSync(join(cwd, "argv.json")), false);
   });
 
-  it("refuses --profile without --plugins-out, and a name that is not a profile's", () => {
+  it("refuses --app-deck-profile without --plugins-out, and a path that is not a profile's", () => {
     const root = sandbox();
     const cwd = project(root, { base: true, profile: "builder" });
-    const noOut = runCursor(cwd, ["--profile", "builder"]);
+    const noOut = runCursor(cwd, ["--app-deck-profile", ".ai/profiles/builder"]);
     assert.notEqual(noOut.status, 0);
     assert.match((JSON.parse(noOut.stdout.trim()) as { error: string }).error, /--plugins-out/);
-    const traversal = runCursor(cwd, ["--profile", "../x", "--plugins-out", join(root, "plugins")]);
+    const traversal = runCursor(cwd, [
+      "--app-deck-profile",
+      "../x",
+      "--plugins-out",
+      join(root, "plugins"),
+    ]);
     assert.notEqual(traversal.status, 0);
     assert.match(
       (JSON.parse(traversal.stdout.trim()) as { error: string }).error,
@@ -638,8 +712,8 @@ describe("agent plugin folders", () => {
         agentEchoArgv,
         "--prompt",
         "hi",
-        "--profile",
-        "planner",
+        "--app-deck-profile",
+        ".ai/profiles/planner",
         "--plugins-out",
         join(root, "plugins"),
       ],

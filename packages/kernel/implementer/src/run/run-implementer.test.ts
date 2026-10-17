@@ -193,13 +193,13 @@ describe("runImplementer acceptance", () => {
             { id: "echo", argv: [node, join(fixtures, "gate-echo-argv.mjs")], timeoutMs: 5_000 },
           ],
         }),
-        stage: "assembly",
+        stage: "ticket",
       },
       write: () => {},
     });
     assert.equal(result.outcome, "validated");
     const argv = JSON.parse(readFileSync(join(ws, "gate-argv.json"), "utf8")) as string[];
-    assert.deepEqual(argv.slice(-2), ["--stage", "assembly"]);
+    assert.deepEqual(argv.slice(-2), ["--stage", "ticket"]);
   });
 
   it("2d. a Gate is told the ceiling it will be killed at", async () => {

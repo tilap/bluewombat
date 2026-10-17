@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import { stringify as stringifyYaml } from "yaml";
 import { agentPartOf } from "./agent-shorthand.js";
 import { loadConfig } from "./load-config.js";
+import { hasAgent } from "./types.js";
 
 function load(config: Record<string, unknown>) {
   const dir = mkdtempSync(join(tmpdir(), "host-shorthand-"));
@@ -27,19 +28,29 @@ describe("agent passes written short", () => {
     const { dir, loaded } = load({
       agents: { cursor: cursorAgent },
       builder: {
+        tests: { agent: false },
         producer: {
           agent: "cursor",
           prompt: "./prompts/builder.md",
-          plugins: ["./ai-plugins/core/builder"],
-          profile: "builder",
+          homePlugins: ["./ai-plugins/core/builder"],
+          appDeckProfile: ".ai/profiles/builder",
           args: ["--plan"],
           timeoutMs: 1200000,
         },
         repair: { agent: "cursor", prompt: "./prompts/builder-repair.md", timeoutMs: 1200000 },
       },
-      assembly: {
+      ticket: {
         fix: { agent: "cursor", timeoutMs: 600000 },
         validate: { agent: "cursor", args: ["--mode", "ask"], timeoutMs: 600000 },
+      },
+      feature: {
+        fix: { agent: "cursor", timeoutMs: 600000 },
+        validate: {
+          agent: "cursor",
+          timeoutMs: 600000,
+          gates: { gates: [{ id: "tests", argv: ["node", "tests.mjs"], timeoutMs: 1000 }] },
+        },
+        gates: { gates: [{ id: "check", argv: ["node", "check.mjs"], timeoutMs: 1000 }] },
       },
       authority: {
         enabled: true,
@@ -73,8 +84,8 @@ describe("agent passes written short", () => {
       ...agentHead,
       "--plugin-dir",
       join(dir, "ai-plugins/core/builder"),
-      "--profile",
-      "builder",
+      "--app-deck-profile",
+      ".ai/profiles/builder",
       "--plugins-out",
       join(dir, ".mason/plugins"),
       "--agent-arg",
@@ -87,20 +98,17 @@ describe("agent passes written short", () => {
       "--prompt-file",
       join(dir, "prompts/builder-repair.md"),
     ]);
-    assert.equal(invocation.assembly?.fix?.cmd[1], join(slots, "assembly/fix.mjs"));
-    assert.deepEqual(invocation.assembly?.validate?.cmd.slice(-4), [
-      "--agent-arg",
-      "--mode",
-      "--agent-arg",
-      "ask",
-    ]);
+    assert.equal(invocation.ticket?.fix?.cmd[1], join(slots, "ticket/fix.mjs"));
+    const validate = invocation.ticket?.validate;
+    assert.ok(validate !== undefined && hasAgent(validate));
+    assert.deepEqual(validate.cmd.slice(-4), ["--agent-arg", "--mode", "--agent-arg", "ask"]);
     assert.deepEqual(invocation.authority?.describeArgv, [
       "node",
       join(slots, "messages/git-producer.mjs"),
       ...agentHead,
     ]);
     assert.deepEqual(agentPartOf(invocation.builder?.producer.cmd ?? []), {
-      profile: "builder",
+      appDeckProfile: ".ai/profiles/builder",
       pluginsOut: join(dir, ".mason/plugins"),
       pluginDirs: [join(dir, "ai-plugins/core/builder")],
     });
@@ -109,6 +117,7 @@ describe("agent passes written short", () => {
   it("keeps cmd as it was, and resolves --plugin-dir and --plugins-out next to the config", () => {
     const { dir, loaded } = load({
       builder: {
+        tests: { agent: false },
         producer: {
           cmd: [
             "node",
@@ -141,6 +150,7 @@ describe("agent passes written short", () => {
     const { loaded } = load({
       agents: { cursor: cursorAgent },
       builder: {
+        tests: { agent: false },
         producer: { agent: "cursor", cmd: ["node", "x.mjs"], timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
@@ -152,6 +162,7 @@ describe("agent passes written short", () => {
   it("refuses an agent that agents does not declare", () => {
     const { loaded } = load({
       builder: {
+        tests: { agent: false },
         producer: { agent: "cursor", timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
@@ -164,6 +175,7 @@ describe("agent passes written short", () => {
     const read = load({
       agents: { cursor: cursorAgent },
       builder: {
+        tests: { agent: false },
         producer: { agent: "cursor", read: "./x", timeoutMs: 1000 },
         repair: { agent: "cursor", timeoutMs: 1000 },
       },
@@ -175,19 +187,21 @@ describe("agent passes written short", () => {
     );
     const profile = load({
       builder: {
-        producer: { cmd: ["node", "x.mjs"], profile: "p", timeoutMs: 1000 },
+        tests: { agent: false },
+        producer: { cmd: ["node", "x.mjs"], appDeckProfile: ".ai/profiles/p", timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
     });
     assert.equal(profile.loaded.ok, false);
-    assert.match(profile.loaded.ok ? "" : profile.loaded.reason, /unknown key "profile"/);
+    assert.match(profile.loaded.ok ? "" : profile.loaded.reason, /unknown key "appDeckProfile"/);
   });
 
   it("refuses a profile when the agent has nowhere to build it", () => {
     const { loaded } = load({
       agents: { cursor: { adapter: "cursor" } },
       builder: {
-        producer: { agent: "cursor", profile: "builder", timeoutMs: 1000 },
+        tests: { agent: false },
+        producer: { agent: "cursor", appDeckProfile: ".ai/profiles/builder", timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
     });
@@ -214,6 +228,7 @@ describe("agent passes written short", () => {
         },
       },
       builder: {
+        tests: { agent: false },
         producer: { agent: "cursor", prompt: "./prompts/builder.md", timeoutMs: 600000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },

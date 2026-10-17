@@ -57,7 +57,7 @@ not read configuration from the workspace.
 | `--report`                    | Optional. Failure report passed to the producer on Attempt 1 (and kept for retries).                                        |
 | `--report-from`               | Optional. Which Gate produced `--report`, when a Gate did.                                                                  |
 | `--context`                   | Optional. Larger piece of work this Task belongs to. Passed through to the producer, and named as `key` on every progress line. |
-| `--stage`                     | Optional. `unit` or `assembly`. Passed to Gates. Absent: Gates receive `unit`.                                              |
+| `--stage`                     | Optional. `unit` or `ticket`. Passed to Gates. Absent: Gates receive `unit`.                                              |
 | `--on-status -- <argv…>`      | Optional. Command to run each time Status changes. Omitted: Status still goes to stdout.                                    |
 
 No other argument is read.
@@ -238,7 +238,7 @@ command. No `--report`: the Gate judges the workspace.
 | `--gate-id`            | This Gate's `id`                      |
 | `--intention`          | Same as the Builder                   |
 | `--timeout-ms`         | The ceiling this Gate is killed at, in milliseconds. A Gate that waits on others (a CI) uses it to answer before the kill, because a kill reads as a refusal of the work |
-| `--stage`              | `unit` or `assembly` (default `unit`) |
+| `--stage`              | `unit` or `ticket` (default `unit`) |
 
 Stdout: one JSON object.
 

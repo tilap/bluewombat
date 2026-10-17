@@ -16,9 +16,19 @@ export async function driveProject(
   input: HostDeliveryInput,
   project: string,
   fallbackKey: string,
+  /**
+   * Drive exactly `fallbackKey`, which the Project already holds, instead of
+   * whoever is active: several Tickets are then driven at once, and the
+   * reconciling that would disturb the others is the caller's, once, before.
+   */
+  exactly = false,
 ): Promise<ProjectRunResult> {
-  await input.conductor.reconcile(project);
-  const run = await input.conductor.runProject(project);
+  if (!exactly) {
+    await input.conductor.reconcile(project);
+  }
+  const run = exactly
+    ? await input.conductor.runTicket(fallbackKey)
+    : await input.conductor.runProject(project);
   // idle / refused name no Ticket; the delivered key is the only one we have.
   const key = "key" in run && run.key !== undefined ? run.key : fallbackKey;
   const got = await input.ledger.get(key);
@@ -60,7 +70,7 @@ export async function driveProject(
  * next pass. Waiting a poll interval for that next pass is empty time: the
  * work is local. Re-drive in the same Host tick until that case is gone — a
  * new `submitted`, an escalation, or any non-`paused` outcome (e.g.
- * align-conflict).
+ * interrupted).
  *
  * Do not continue from `submitted`: judging the Authority waits on the outside
  * and must leave room for listen / probe between ticks.
@@ -69,8 +79,9 @@ export async function driveUntilBlocked(
   input: HostDeliveryInput,
   project: string,
   fallbackKey: string,
+  exactly = false,
 ): Promise<ProjectRunResult> {
-  let last = await driveProject(input, project, fallbackKey);
+  let last = await driveProject(input, project, fallbackKey, exactly);
   const interruptFlag = input.options.interruptFlag ?? { interrupted: false };
   while (!interruptFlag.interrupted && last.outcome === "paused") {
     const key = "key" in last && last.key !== undefined ? last.key : fallbackKey;
@@ -83,7 +94,7 @@ export async function driveUntilBlocked(
     ) {
       break;
     }
-    last = await driveProject(input, project, key);
+    last = await driveProject(input, project, key, exactly);
   }
   return last;
 }

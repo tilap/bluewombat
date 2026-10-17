@@ -165,10 +165,12 @@ describe("openConductor", () => {
     assert.equal(calls.filter((c) => c.op === "integrate").length, 2);
     // The unit produces; the assembled work is judged and makes nothing.
     // With no Authority that judgement is the only one it gets.
+    // Between them, the unit's own checks again on the aligned work.
     const implements_ = calls.filter((c) => c.op === "implement");
-    assert.equal(implements_.length, 2);
+    assert.equal(implements_.length, 3);
     assert.equal(implements_[0]?.id, "fake:42");
-    assert.equal(implements_[1]?.id, "fake:42:judgement");
+    assert.equal(implements_[1]?.id, "fake:42:recheck");
+    assert.equal(implements_[2]?.id, "fake:42:judgement");
   });
 
   it("4. a failed Isolation refuses, holds no lease and never runs the Builder", async () => {
@@ -521,6 +523,128 @@ describe("openConductor", () => {
     assert.equal(calls.filter((c) => c.op === "integrate" && c.parent === stable).length, 0);
   });
 
+  describe("when the line moved on while the Submission waited", () => {
+    function movingAuthority(
+      calls: string[],
+      answers: ("current" | "behind" | "unavailable")[],
+    ): AuthorityPort {
+      return {
+        async submit(input) {
+          calls.push(`submit ${input.ref}`);
+          return { outcome: "submitted", reference: "ref-1" };
+        },
+        async behind() {
+          const next = answers.shift() ?? "current";
+          calls.push(`behind ${next}`);
+          return next === "behind" ? { outcome: "behind", commits: 2 } : { outcome: next };
+        },
+        async fold() {
+          calls.push("fold");
+          return { outcome: "folded" };
+        },
+      };
+    }
+
+    it("aligns again and judges again, and folds only once the line has not moved", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(ticket());
+      const acted: string[] = [];
+      const ran: string[] = [];
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          ran.push(input.id);
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+        async integrate(input) {
+          ran.push(input.id);
+          return { outcome: "integrated" };
+        },
+      });
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        authority: movingAuthority(acted, ["behind", "current"]),
+        workLineTarget: "dev",
+      });
+
+      let last = await conductor.runProject("proj");
+      for (let pass = 0; pass < 6 && last.outcome !== "done"; pass += 1) {
+        last = await conductor.runProject("proj");
+      }
+      assert.equal(last.outcome, "done");
+      // Offered, judged, found behind: no fold. Aligned and offered again (the same
+      // Submission), judged again, found current: fold.
+      assert.deepEqual(acted, [
+        "submit fake:42",
+        "behind behind",
+        "submit fake:42",
+        "behind current",
+        "fold",
+      ]);
+      assert.equal(ran.filter((id) => id === "fake:42:align").length, 2);
+      assert.equal(ran.filter((id) => id === "fake:42:judgement").length, 2);
+      // Nothing was refused, so no producer is asked to repair anything.
+      assert.equal(ran.filter((id) => id === "fake:42:fix").length, 0);
+    });
+
+    it("does not fold while it cannot tell", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(ticket());
+      const acted: string[] = [];
+      const { transformers } = recordingTransformers();
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        authority: movingAuthority(acted, ["unavailable"]),
+        workLineTarget: "dev",
+      });
+
+      await conductor.runProject("proj");
+      const second = await conductor.runProject("proj");
+      assert.equal(second.outcome, "paused");
+      assert.equal(acted.includes("fold"), false);
+      const got = await ledger.get("fake:42");
+      assert.ok(got.ok);
+      assert.equal(got.aggregate.state, "submitted");
+    });
+
+    it("escalates when the line keeps moving, instead of aligning forever", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(ticket());
+      const acted: string[] = [];
+      const { transformers } = recordingTransformers();
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        authority: movingAuthority(acted, ["behind", "behind", "behind", "behind"]),
+        workLineTarget: "dev",
+        maxRefusals: 1,
+      });
+
+      for (let pass = 0; pass < 8; pass += 1) {
+        await conductor.runProject("proj");
+        const got = await ledger.get("fake:42");
+        if (got.ok && got.aggregate.state === "escalated") {
+          break;
+        }
+      }
+      const got = await ledger.get("fake:42");
+      assert.ok(got.ok);
+      assert.equal(got.aggregate.state, "escalated");
+      assert.match(got.aggregate.escalation?.report ?? "", /line moved on/);
+      assert.equal(acted.includes("fold"), false);
+    });
+  });
+
   it("sends a Gate's refusal into the next round, on the same Submission", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });
@@ -538,7 +662,7 @@ describe("openConductor", () => {
           }
           return { outcome: "validated", traces: [{ ended: "validated" }] };
         }
-        if (input.id.endsWith(":assembly")) {
+        if (input.id.endsWith(":fix")) {
           reports.push(input.report);
         }
         return { outcome: "validated", traces: [{ ended: "validated" }] };
@@ -582,7 +706,7 @@ describe("openConductor", () => {
               }
             : { outcome: "validated", traces: [{ ended: "validated" }] };
         }
-        if (input.id.endsWith(":assembly")) {
+        if (input.id.endsWith(":fix")) {
           order.push("produce");
         }
         return { outcome: "validated", traces: [{ ended: "validated" }] };
@@ -707,7 +831,7 @@ describe("openConductor", () => {
               }
             : { outcome: "validated", traces: [{ ended: "validated" }] };
         }
-        if (input.id.endsWith(":assembly")) {
+        if (input.id.endsWith(":fix")) {
           from.push(input.reportFrom);
         }
         return { outcome: "validated", traces: [{ ended: "validated" }] };
@@ -735,7 +859,7 @@ describe("openConductor", () => {
     await ledger.admit(ticket());
     const { transformers } = recordingTransformers({
       async implement(input) {
-        if (input.id.endsWith(":assembly") || input.id.endsWith(":judgement")) {
+        if (input.id.endsWith(":fix") || input.id.endsWith(":judgement")) {
           return {
             outcome: "escalated",
             traces: [{ ended: "fail-blocking", report: "the whole thing", refusedBy: "npm-test" }],
@@ -868,9 +992,9 @@ describe("openConductor", () => {
       workspaceRoot: root,
     });
     await conductor.runProject("proj");
-    // The unit, then the work assembled: two situations, and
-    // whoever wires the Gates must be able to tell them apart.
-    assert.deepEqual(stages, [undefined, "assembly"]);
+    // The unit, then the work assembled (checked again, then judged): two
+    // situations, and whoever wires the Gates must be able to tell them apart.
+    assert.deepEqual(stages, [undefined, "ticket", "ticket"]);
   });
 
   it("judges the assembled ticket without producing anything", async () => {
@@ -892,7 +1016,7 @@ describe("openConductor", () => {
     });
     await conductor.runProject("proj");
     // The unit produces; the assembly of already-validated work does not.
-    assert.deepEqual(produced, [undefined, false]);
+    assert.deepEqual(produced, [undefined, false, false]);
   });
 
   it("escalates after the unit when a newer fingerprint arrived in flight", async () => {
@@ -984,7 +1108,7 @@ describe("openConductor", () => {
         transformers,
         workLineStable: stable,
         workspaceRoot: root,
-        assemblyValidate: true,
+        validate: true,
       });
       const result = await conductor.runProject("proj");
       assert.equal(result.outcome, "done");
@@ -1028,7 +1152,7 @@ describe("openConductor", () => {
         workspaceRoot: root,
         authority,
         workLineTarget: "dev",
-        assemblyValidate: true,
+        validate: true,
       });
       const result = await conductor.runProject("proj");
       assert.equal(result.outcome, "paused");
@@ -1059,7 +1183,7 @@ describe("openConductor", () => {
                 }
               : { outcome: "validated", traces: [{ ended: "validated" }] };
           }
-          if (input.id.endsWith(":assembly")) {
+          if (input.id.endsWith(":fix")) {
             fixed.push(input.report);
           }
           return { outcome: "validated", traces: [{ ended: "validated" }] };
@@ -1081,8 +1205,8 @@ describe("openConductor", () => {
         workspaceRoot: root,
         authority,
         workLineTarget: "dev",
-        assemblyValidate: true,
-        assemblyFixDeclared: true,
+        validate: true,
+        fixDeclared: true,
       });
 
       const first = await conductor.runProject("proj");
@@ -1126,8 +1250,8 @@ describe("openConductor", () => {
         transformers,
         workLineStable: stable,
         workspaceRoot: root,
-        assemblyValidate: true,
-        assemblyFixDeclared: false,
+        validate: true,
+        fixDeclared: false,
       });
       const result = await conductor.runProject("proj");
       assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
@@ -1159,8 +1283,8 @@ describe("openConductor", () => {
         transformers,
         workLineStable: stable,
         workspaceRoot: root,
-        assemblyValidate: true,
-        assemblyFixDeclared: true,
+        validate: true,
+        fixDeclared: true,
       });
       const result = await conductor.runProject("proj");
       assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
@@ -1199,8 +1323,8 @@ describe("openConductor", () => {
         workspaceRoot: root,
         authority,
         workLineTarget: "dev",
-        assemblyValidate: true,
-        assemblyFixDeclared: true,
+        validate: true,
+        fixDeclared: true,
         maxRefusals: 2,
       });
 
@@ -1358,6 +1482,548 @@ describe("warm", () => {
   });
 });
 
+describe("openConductor corrective loops", () => {
+  function authorityWith(acted: string[], folds: ("conflict" | "folded")[] = ["folded"]) {
+    const queue = [...folds];
+    return {
+      async submit(input: { ref: string }) {
+        acted.push(`submit ${input.ref}`);
+        return { outcome: "submitted" as const, reference: "ref-1" };
+      },
+      async fold() {
+        const next = queue.shift() ?? "folded";
+        acted.push(`fold ${next}`);
+        return next === "conflict"
+          ? { outcome: "conflict" as const, reason: "base branch was modified" }
+          : { outcome: "folded" as const };
+      },
+    };
+  }
+
+  async function runUntil(
+    conductor: ReturnType<typeof openConductor>,
+    stop: (outcome: string) => boolean,
+  ): Promise<string> {
+    let outcome = "";
+    for (let pass = 0; pass < 12 && !stop(outcome); pass += 1) {
+      outcome = (await conductor.runProject("proj")).outcome;
+    }
+    return outcome;
+  }
+
+  async function rechecksWith(options: {
+    changed: boolean | undefined;
+    refuseJudgementOnce?: boolean;
+  }): Promise<{ outcome: string; rechecks: number }> {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    let rechecks = 0;
+    let refused = false;
+    const { transformers } = recordingTransformers({
+      async integrate() {
+        return options.changed === undefined
+          ? { outcome: "integrated" }
+          : { outcome: "integrated", changed: options.changed };
+      },
+      async implement(input) {
+        if (input.id.endsWith(":recheck")) {
+          rechecks += 1;
+        }
+        if (input.id.endsWith(":judgement") && options.refuseJudgementOnce && !refused) {
+          refused = true;
+          return {
+            outcome: "escalated",
+            traces: [{ ended: "fail-retryable", report: "ci red", refusedBy: "ci-green" }],
+          };
+        }
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith([]),
+      workLineTarget: "dev",
+      fixDeclared: true,
+      maxRefusals: 3,
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    return { outcome, rechecks };
+  }
+
+  it("skips the recheck when nothing was repaired and the line brought nothing in", async () => {
+    const ran = await rechecksWith({ changed: false });
+    assert.deepEqual(ran, { outcome: "done", rechecks: 0 });
+  });
+
+  it("rechecks when the line brought something in", async () => {
+    const ran = await rechecksWith({ changed: true });
+    assert.deepEqual(ran, { outcome: "done", rechecks: 1 });
+  });
+
+  it("rechecks when the fold cannot say whether it changed anything", async () => {
+    const ran = await rechecksWith({ changed: undefined });
+    assert.deepEqual(ran, { outcome: "done", rechecks: 1 });
+  });
+
+  it("rechecks after a fix even though the line brought nothing in", async () => {
+    const ran = await rechecksWith({ changed: false, refuseJudgementOnce: true });
+    assert.deepEqual(ran, { outcome: "done", rechecks: 1 });
+  });
+
+  it("sends a failed recheck to the fix, then checks again", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    let rechecks = 0;
+    const fixed: { report?: string | undefined; from?: string | undefined }[] = [];
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        if (input.id.endsWith(":recheck")) {
+          rechecks += 1;
+          return rechecks === 1
+            ? {
+                outcome: "escalated",
+                traces: [
+                  {
+                    ended: "fail-retryable",
+                    report: "TS2322: not assignable",
+                    refusedBy: "typecheck",
+                  },
+                ],
+              }
+            : { outcome: "validated", traces: [{ ended: "validated" }] };
+        }
+        if (input.id.endsWith(":fix")) {
+          fixed.push({ report: input.report, from: input.reportFrom });
+        }
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    });
+    const acted: string[] = [];
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith(acted),
+      workLineTarget: "dev",
+      fixDeclared: true,
+      maxRefusals: 3,
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    assert.equal(outcome, "done");
+    assert.equal(rechecks, 2);
+    assert.deepEqual(fixed, [{ report: "TS2322: not assignable", from: "typecheck" }]);
+    // Nothing reached the Authority before the checks passed.
+    assert.equal(acted[0], "submit fake:42");
+  });
+
+  it("sends an align conflict to the fix instead of stopping", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    let aligns = 0;
+    const reports: (string | undefined)[] = [];
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        if (input.id.endsWith(":fix")) {
+          reports.push(input.report);
+        }
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+      async integrate(input) {
+        if (input.id.endsWith(":align")) {
+          aligns += 1;
+          return aligns === 1 ? { outcome: "conflict" } : { outcome: "integrated" };
+        }
+        return { outcome: "integrated" };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith([]),
+      workLineTarget: "dev",
+      fixDeclared: true,
+      maxRefusals: 3,
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    assert.equal(outcome, "done");
+    assert.equal(aligns, 2);
+    assert.equal(reports.length, 1);
+    assert.match(reports[0] ?? "", /conflicts/);
+  });
+
+  it("turns a fold the Authority refuses into a new alignment", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    const ran: string[] = [];
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        ran.push(input.id);
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+      async integrate(input) {
+        ran.push(input.id);
+        return { outcome: "integrated" };
+      },
+    });
+    const acted: string[] = [];
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith(acted, ["conflict", "folded"]),
+      workLineTarget: "dev",
+      fixDeclared: true,
+      maxRefusals: 3,
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    assert.equal(outcome, "done");
+    assert.deepEqual(
+      acted.filter((a) => a.startsWith("fold")),
+      ["fold conflict", "fold folded"],
+    );
+    assert.equal(ran.filter((id) => id === "fake:42:align").length, 2);
+    assert.equal(ran.filter((id) => id === "fake:42:recheck").length, 2);
+  });
+
+  it("stops for a person when nothing can fix a failed recheck", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        return input.id.endsWith(":recheck")
+          ? {
+              outcome: "escalated",
+              traces: [{ ended: "fail-retryable", report: "tests red", refusedBy: "tests" }],
+            }
+          : { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith([]),
+      workLineTarget: "dev",
+      // no fix declared
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    assert.equal(outcome, "escalated");
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.escalation?.kind, "assembly");
+    assert.match(got.aggregate.escalation?.report ?? "", /tests: tests red/);
+  });
+
+  it("draws every loop on one budget: a recheck fixed once leaves less for the next refusal", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    let rechecks = 0;
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        if (input.id.endsWith(":recheck")) {
+          rechecks += 1;
+          return rechecks === 1
+            ? { outcome: "escalated", traces: [{ ended: "fail-retryable", report: "first" }] }
+            : { outcome: "validated", traces: [{ ended: "validated" }] };
+        }
+        if (input.id.endsWith(":judgement")) {
+          return { outcome: "escalated", traces: [{ ended: "fail-retryable", report: "CI red" }] };
+        }
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith([]),
+      workLineTarget: "dev",
+      fixDeclared: true,
+      maxRefusals: 2,
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    // One round went to the recheck, so the first refusal after publishing is already
+    // the last one the budget allows.
+    assert.equal(outcome, "escalated");
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.escalation?.kind, "submitted");
+    assert.match(got.aggregate.escalation?.report ?? "", /CI red/);
+  });
+});
+
+describe("openConductor with several Tickets at once", () => {
+  function pair(): { stable: string; root: string } {
+    return tempPair();
+  }
+
+  async function runToEnd(
+    conductor: ReturnType<typeof openConductor>,
+    key: string,
+  ): Promise<string> {
+    let outcome = "";
+    for (let pass = 0; pass < 12 && outcome !== "done" && outcome !== "escalated"; pass += 1) {
+      outcome = (await conductor.runTicket(key)).outcome;
+    }
+    return outcome;
+  }
+
+  const authority = {
+    async submit(input: { ref: string }) {
+      return { outcome: "submitted" as const, reference: `ref-${input.ref}` };
+    },
+    async fold() {
+      return { outcome: "folded" as const };
+    },
+  };
+
+  function instrumented() {
+    const stats = { units: 0, mostUnits: 0, onLine: 0, mostOnLine: 0, refreshed: [] as string[] };
+    const nap = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 15));
+    const onLine = async <T>(job: () => Promise<T>): Promise<T> => {
+      stats.onLine += 1;
+      stats.mostOnLine = Math.max(stats.mostOnLine, stats.onLine);
+      try {
+        await nap();
+        return await job();
+      } finally {
+        stats.onLine -= 1;
+      }
+    };
+    const { transformers } = recordingTransformers({
+      async isolate(input) {
+        return await onLine(async () => {
+          mkdirSync(input.child, { recursive: true });
+          return { outcome: "isolated" as const };
+        });
+      },
+      async integrate() {
+        return await onLine(async () => ({ outcome: "integrated" as const }));
+      },
+      async implement(input) {
+        if (/:(recheck|judgement|assembly|validate)$/.test(input.id)) {
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        }
+        stats.units += 1;
+        stats.mostUnits = Math.max(stats.mostUnits, stats.units);
+        await nap();
+        await nap();
+        stats.units -= 1;
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    });
+    const line = {
+      async refresh(target: string) {
+        stats.refreshed.push(target);
+        return { ok: true as const };
+      },
+    };
+    return { stats, transformers, line };
+  }
+
+  it("works on two Tickets together, one at a time on the shared line", async () => {
+    const { stable, root } = pair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket({ key: "fake:1", fingerprint: "fp-1" }));
+    await ledger.admit(ticket({ key: "fake:2", fingerprint: "fp-2" }));
+    const { stats, transformers, line } = instrumented();
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority,
+      workLineTarget: "dev",
+      maxParallel: 2,
+      line,
+    });
+    const first = await conductor.claimNext("proj");
+    const second = await conductor.claimNext("proj");
+    assert.deepEqual([first?.key, second?.key], ["fake:1", "fake:2"]);
+    assert.equal(await conductor.claimNext("proj"), undefined);
+
+    const ended = await Promise.all([runToEnd(conductor, "fake:1"), runToEnd(conductor, "fake:2")]);
+
+    assert.deepEqual(ended, ["done", "done"]);
+    assert.equal(stats.mostUnits, 2, "both units ran at the same time");
+    assert.equal(stats.mostOnLine, 1, "the shared line was never used by two at once");
+    // Each Ticket's line is refreshed before it is cut and before it is aligned.
+    assert.deepEqual(stats.refreshed, ["dev", "dev", "dev", "dev"]);
+  });
+
+  it("starts a dependent Ticket only after the one it waits on has landed", async () => {
+    const { stable, root } = pair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket({ key: "fake:a", fingerprint: "fp-a" }));
+    await ledger.admit(
+      ticket({ key: "fake:c", fingerprint: "fp-c", priority: 99, blocked_by: ["fake:a"] }),
+    );
+    const { transformers, line } = instrumented();
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority,
+      workLineTarget: "dev",
+      maxParallel: 3,
+      line,
+    });
+    assert.equal((await conductor.claimNext("proj"))?.key, "fake:a");
+    assert.equal(await conductor.claimNext("proj"), undefined);
+    assert.equal(await runToEnd(conductor, "fake:a"), "done");
+    assert.equal((await conductor.claimNext("proj"))?.key, "fake:c");
+  });
+
+  it("refuses to start a Ticket when the line cannot be brought up to date", async () => {
+    const { stable, root } = pair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    const { transformers } = instrumented();
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority,
+      workLineTarget: "dev",
+      line: { refresh: async () => ({ ok: false as const }) },
+    });
+    const key = (await conductor.claimNext("proj"))?.key ?? "";
+    assert.deepEqual(await conductor.runTicket(key), {
+      outcome: "refused",
+      code: "line-refresh-failed",
+    });
+  });
+});
+
+describe("openConductor with the tests written first", () => {
+  function testsFirst(over: Partial<TransformerPort> = {}, calls: string[] = []) {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        calls.push(`implement ${input.id}${input.stage === undefined ? "" : ` (${input.stage})`}`);
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+      async integrate(input) {
+        calls.push(
+          `integrate ${input.id}${input.parent === input.child ? " (itself)" : ""}${
+            input.subject === undefined ? "" : ` "${input.subject}"`
+          }`,
+        );
+        return { outcome: "integrated" };
+      },
+      ...over,
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      tests: true,
+    });
+    return { ledger, conductor };
+  }
+
+  it("writes the tests, commits them, then makes the code", async () => {
+    const calls: string[] = [];
+    const { ledger, conductor } = testsFirst({}, calls);
+    await ledger.admit(ticket({ title: "Add slugify" }));
+    const result = await conductor.runProject("proj");
+    assert.equal(result.outcome, "done");
+    assert.deepEqual(calls.slice(0, 3), [
+      "implement fake:42:tests (tests)",
+      'integrate fake:42:tests (itself) "Tests: Add slugify"',
+      "implement fake:42",
+    ]);
+  });
+
+  it("writes none first when the Project asked for none", async () => {
+    const calls: string[] = [];
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        calls.push(input.id);
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+    });
+    await ledger.admit(ticket());
+    await conductor.runProject("proj");
+    assert.equal(calls.includes("fake:42:tests"), false);
+  });
+
+  it("stops for a person, before any code, when the tests cannot be written", async () => {
+    const calls: string[] = [];
+    const { ledger, conductor } = testsFirst(
+      {
+        async implement(input) {
+          calls.push(input.id);
+          return input.stage === "tests"
+            ? {
+                outcome: "escalated",
+                traces: [{ ended: "fail-retryable", report: "they pass", refusedBy: "tests-red" }],
+              }
+            : { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      },
+      [],
+    );
+    await ledger.admit(ticket());
+    const result = await conductor.runProject("proj");
+    assert.deepEqual(result, { outcome: "escalated", key: "fake:42" });
+    assert.deepEqual(calls, ["fake:42:tests"], "the producer never ran");
+    const got = await ledger.get("fake:42");
+    assert.equal(got.ok && got.aggregate.escalation?.kind, "unit");
+    assert.match(
+      got.ok ? (got.aggregate.escalation?.report ?? "") : "",
+      /tests could not be written first\. tests-red: they pass/,
+    );
+  });
+
+  it("stops for a person when what the tests wrote cannot be committed", async () => {
+    const calls: string[] = [];
+    const { ledger, conductor } = testsFirst(
+      {
+        async integrate() {
+          return { outcome: "failed" };
+        },
+        async implement(input) {
+          calls.push(input.id);
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      },
+      [],
+    );
+    await ledger.admit(ticket());
+    const result = await conductor.runProject("proj");
+    assert.equal(result.outcome, "escalated");
+    assert.deepEqual(calls, ["fake:42:tests"]);
+  });
+});
+
 describe("openConductor picks up a pass that was stopped", () => {
   type Implemented = {
     id: string;
@@ -1476,5 +2142,38 @@ describe("openConductor picks up a pass that was stopped", () => {
     assert.equal(isolated.length, 2);
     assert.equal(existsSync(join(path, "half-done.txt")), false);
     assert.equal(implemented[1]?.report, undefined);
+  });
+
+  it("r5. does not write the tests again when they were committed before the stop", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
+    const asked: string[] = [];
+    let first = true;
+    const { transformers } = recordingTransformers({
+      async isolate(input) {
+        mkdirSync(input.child, { recursive: true });
+        writeFileSync(join(input.child, "seed.txt"), "from the line");
+        return { outcome: "isolated" };
+      },
+      async implement(input) {
+        asked.push(`${input.id}${input.stage === undefined ? "" : ` (${input.stage})`}`);
+        if (input.stage !== "tests" && first) {
+          first = false;
+          return { outcome: "interrupted", traces: [{ ended: "interrupted" }] };
+        }
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      tests: true,
+    });
+    await ledger.admit(ticket());
+    await conductor.runProject("proj");
+    await conductor.runProject("proj");
+    assert.deepEqual(asked.slice(0, 3), ["fake:42:tests (tests)", "fake:42", "fake:42"]);
   });
 });

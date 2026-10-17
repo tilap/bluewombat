@@ -27,6 +27,22 @@ export type FeatureCommands = {
   openFeature(input: { key: string; line?: string; tickets: string[] }): Promise<CommandResult>;
   /** `open` → `submitted`: the line is with the Authority. */
   markFeatureSubmitted(input: { key: string; reference: string }): Promise<CommandResult>;
+  /** The Authority's judgement sent the line back: `submitted` → `open`, with why, for the next fix. */
+  recordFeatureRefusal(input: {
+    key: string;
+    report: string;
+    refusedBy?: string;
+  }): Promise<CommandResult>;
+  /** The line it is offered to moved on: `submitted` → `open`, to be aligned again. No fix is owed. */
+  recordFeatureRealign(key: string): Promise<CommandResult>;
+  /** A check refused the line before it was offered: kept, with the round it costs. */
+  recordFeatureParkedRefusal(input: {
+    key: string;
+    report: string;
+    refusedBy?: string;
+  }): Promise<CommandResult>;
+  /** Whatever sent the line back is repaired and checked. */
+  clearFeatureParkedRefusal(key: string): Promise<CommandResult>;
   /** `submitted` → `done`. */
   markFeatureDone(key: string, input?: { reference?: string | undefined }): Promise<CommandResult>;
   /** `open` or `submitted` → `escalated`, for a human. Consumes a pending edit. */
@@ -192,8 +208,75 @@ export function openFeatureCommands(options: {
     async markFeatureSubmitted(input) {
       return await transition(input.key, ["open"], (aggregate) => {
         aggregate.state = "submitted";
-        aggregate.submission = { reference: input.reference, submitted_at: now() };
+        // Rebuilt field by field so what was spent on the line is carried on
+        // purpose: offered again, it is the same delivery with new content.
+        const previous = aggregate.submission;
+        aggregate.submission = {
+          reference: input.reference,
+          submitted_at: previous?.submitted_at ?? now(),
+          ...(previous?.refusals === undefined ? {} : { refusals: previous.refusals }),
+          ...(previous?.realigns === undefined ? {} : { realigns: previous.realigns }),
+          ...(previous?.last_report === undefined ? {} : { last_report: previous.last_report }),
+          ...(previous?.last_refused_by === undefined
+            ? {}
+            : { last_refused_by: previous.last_refused_by }),
+        };
       });
+    },
+
+    async recordFeatureRefusal(input) {
+      return await transition(input.key, ["submitted"], (aggregate) => {
+        if (aggregate.submission === undefined) {
+          return;
+        }
+        aggregate.submission = {
+          ...aggregate.submission,
+          refusals: (aggregate.submission.refusals ?? 0) + 1,
+          last_report: input.report,
+          ...(input.refusedBy === undefined ? {} : { last_refused_by: input.refusedBy }),
+        };
+        aggregate.state = "open";
+        // A parked refusal from before the line was offered is stale the moment
+        // a Submission has its own: two reports would leave the fix guessing.
+        delete aggregate.parked_refusal;
+      });
+    },
+
+    async recordFeatureRealign(key) {
+      return await transition(key, ["submitted"], (aggregate) => {
+        if (aggregate.submission === undefined) {
+          return;
+        }
+        // What an earlier refusal said was repaired already; left in place it
+        // would send the next round to repair it again.
+        const { last_report: _report, last_refused_by: _by, ...kept } = aggregate.submission;
+        aggregate.submission = { ...kept, realigns: (kept.realigns ?? 0) + 1 };
+        aggregate.state = "open";
+        delete aggregate.parked_refusal;
+      });
+    },
+
+    async recordFeatureParkedRefusal(input) {
+      return await transition(input.key, ["open"], (aggregate) => {
+        aggregate.parked_refusal = {
+          report: input.report,
+          ...(input.refusedBy === undefined ? {} : { refused_by: input.refusedBy }),
+        };
+        aggregate.parked_refusals = (aggregate.parked_refusals ?? 0) + 1;
+      });
+    },
+
+    async clearFeatureParkedRefusal(key) {
+      const found = await loadFeature(key);
+      if (found === undefined) {
+        return refused("not-found");
+      }
+      if (found.parked_refusal === undefined) {
+        return { ok: true };
+      }
+      const next = structuredClone(found);
+      delete next.parked_refusal;
+      return await write(next);
     },
 
     async markFeatureDone(key, input) {

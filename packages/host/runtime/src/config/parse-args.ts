@@ -5,7 +5,15 @@ import { DEFAULT_PERSIST, ISOLATION_GIT } from "./defaults.js";
 import { findConfig } from "./find-config.js";
 import { homeOf, inHome } from "./home.js";
 import { loadConfig } from "./load-config.js";
-import type { AssemblySpec, GatedPassSpec, HostDraft, HostInvocation, PassSpec } from "./types.js";
+import {
+  type GatedPassSpec,
+  type HostDraft,
+  type HostInvocation,
+  hasAgent,
+  type PassSpec,
+  type ReviewSpec,
+  type TicketSpec,
+} from "./types.js";
 
 const HOST_FLAGS = new Set([
   "--config",
@@ -32,42 +40,42 @@ const HOST_FLAGS = new Set([
   "--builder-gate-timeout-ms",
   "--builder-repair-gate",
   "--builder-repair-gate-timeout-ms",
-  "--assembly-fix",
-  "--assembly-fix-timeout-ms",
-  "--assembly-fix-gate",
-  "--assembly-fix-gate-timeout-ms",
-  "--assembly-validate",
-  "--assembly-validate-timeout-ms",
-  "--assembly-validate-gate",
-  "--assembly-validate-gate-timeout-ms",
-  "--assembly-max-attempts",
-  "--assembly-gate",
-  "--assembly-gate-timeout-ms",
+  "--ticket-fix",
+  "--ticket-fix-timeout-ms",
+  "--ticket-fix-gate",
+  "--ticket-fix-gate-timeout-ms",
+  "--ticket-validate",
+  "--ticket-validate-timeout-ms",
+  "--ticket-validate-gate",
+  "--ticket-validate-gate-timeout-ms",
+  "--ticket-max-attempts",
+  "--ticket-gate",
+  "--ticket-gate-timeout-ms",
 ]);
 
-/** The gate-id and gate-timeout-ms flags, each landing on a GatedPassBag or on AssemblyBag's own top-level pocket (the produce:false judgement pass). */
+/** The gate-id and gate-timeout-ms flags, each landing on a GatedPassBag or on TicketBag's own top-level pocket (the produce:false judgement pass). */
 const GATE_FLAGS = new Set([
   "--builder-gate",
   "--builder-gate-timeout-ms",
   "--builder-repair-gate",
   "--builder-repair-gate-timeout-ms",
-  "--assembly-gate",
-  "--assembly-gate-timeout-ms",
-  "--assembly-fix-gate",
-  "--assembly-fix-gate-timeout-ms",
-  "--assembly-validate-gate",
-  "--assembly-validate-gate-timeout-ms",
+  "--ticket-gate",
+  "--ticket-gate-timeout-ms",
+  "--ticket-fix-gate",
+  "--ticket-fix-gate-timeout-ms",
+  "--ticket-validate-gate",
+  "--ticket-validate-gate-timeout-ms",
 ]);
 
 /** Flags that take a command after `--`, and where each one lands. */
 const COMMAND_FLAGS = new Map<
   string,
-  { stage: "builder"; pass: Pass } | "assembly-fix" | "assembly-validate"
+  { stage: "builder"; pass: Pass } | "ticket-fix" | "ticket-validate"
 >([
   ["--builder", { stage: "builder", pass: "producer" }],
   ["--builder-repair", { stage: "builder", pass: "repair" }],
-  ["--assembly-fix", "assembly-fix"],
-  ["--assembly-validate", "assembly-validate"],
+  ["--ticket-fix", "ticket-fix"],
+  ["--ticket-validate", "ticket-validate"],
 ]);
 
 type Pass = "producer" | "repair";
@@ -101,7 +109,7 @@ type StageBag = {
   maxAttempts?: number;
 };
 
-type AssemblyBag = {
+type TicketBag = {
   fix: GatedPassBag;
   validate: GatedPassBag;
   maxAttempts?: number;
@@ -124,7 +132,7 @@ type FlagBag = {
   ledgerRoot?: string;
   persist?: string;
   builder: StageBag;
-  assembly: AssemblyBag;
+  ticket: TicketBag;
   timeoutMs?: number;
   pollIntervalMs?: number;
   streamsDir?: string;
@@ -138,7 +146,7 @@ function emptyStage(): StageBag {
   return { producer: emptyGatedPass(), repair: emptyGatedPass() };
 }
 
-function emptyAssembly(): AssemblyBag {
+function emptyTicket(): TicketBag {
   return { fix: emptyGatedPass(), validate: emptyGatedPass(), gates: [] };
 }
 
@@ -151,16 +159,16 @@ function gatePocket(bag: FlagBag, token: string): GatePocket {
     case "--builder-repair-gate":
     case "--builder-repair-gate-timeout-ms":
       return bag.builder.repair;
-    case "--assembly-gate":
-    case "--assembly-gate-timeout-ms":
-      return bag.assembly;
-    case "--assembly-fix-gate":
-    case "--assembly-fix-gate-timeout-ms":
-      return bag.assembly.fix;
+    case "--ticket-gate":
+    case "--ticket-gate-timeout-ms":
+      return bag.ticket;
+    case "--ticket-fix-gate":
+    case "--ticket-fix-gate-timeout-ms":
+      return bag.ticket.fix;
     default:
-      // --assembly-validate-gate / --assembly-validate-gate-timeout-ms: the
+      // --ticket-validate-gate / --ticket-validate-gate-timeout-ms: the
       // only remaining member of GATE_FLAGS, by construction of its callers.
-      return bag.assembly.validate;
+      return bag.ticket.validate;
   }
 }
 
@@ -247,7 +255,7 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
     featureTrackerOptions: {},
     ticketTrackerOptions: {},
     builder: emptyStage(),
-    assembly: emptyAssembly(),
+    ticket: emptyTicket(),
   };
   let i = 0;
   while (i < argv.length) {
@@ -262,10 +270,10 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       if (!command) {
         return { ok: false, reason: `Missing non-empty command after ${token} --.` };
       }
-      if (lands === "assembly-fix") {
-        bag.assembly.fix.cmd = command.command;
-      } else if (lands === "assembly-validate") {
-        bag.assembly.validate.cmd = command.command;
+      if (lands === "ticket-fix") {
+        bag.ticket.fix.cmd = command.command;
+      } else if (lands === "ticket-validate") {
+        bag.ticket.validate.cmd = command.command;
       } else {
         bag[lands.stage][lands.pass].cmd = command.command;
       }
@@ -380,12 +388,12 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
       case "--builder-max-attempts":
       case "--builder-gate-timeout-ms":
       case "--builder-repair-gate-timeout-ms":
-      case "--assembly-fix-timeout-ms":
-      case "--assembly-fix-gate-timeout-ms":
-      case "--assembly-validate-timeout-ms":
-      case "--assembly-validate-gate-timeout-ms":
-      case "--assembly-max-attempts":
-      case "--assembly-gate-timeout-ms": {
+      case "--ticket-fix-timeout-ms":
+      case "--ticket-fix-gate-timeout-ms":
+      case "--ticket-validate-timeout-ms":
+      case "--ticket-validate-gate-timeout-ms":
+      case "--ticket-max-attempts":
+      case "--ticket-gate-timeout-ms": {
         const value = parsePositiveInt(taken.value);
         if (value === null) {
           return { ok: false, reason: `${token} must be a positive integer.` };
@@ -400,18 +408,18 @@ function parseFlags(argv: string[]): { ok: true; bag: FlagBag } | { ok: false; r
           case "--builder-max-attempts":
             bag.builder.maxAttempts = value;
             break;
-          case "--assembly-fix-timeout-ms":
-            bag.assembly.fix.timeoutMs = value;
+          case "--ticket-fix-timeout-ms":
+            bag.ticket.fix.timeoutMs = value;
             break;
-          case "--assembly-validate-timeout-ms":
-            bag.assembly.validate.timeoutMs = value;
+          case "--ticket-validate-timeout-ms":
+            bag.ticket.validate.timeoutMs = value;
             break;
-          case "--assembly-max-attempts":
-            bag.assembly.maxAttempts = value;
+          case "--ticket-max-attempts":
+            bag.ticket.maxAttempts = value;
             break;
           default:
             // The six --*-gate-timeout-ms flags: each a one-shot ceiling
-            // staged on its own GatedPassBag/AssemblyBag pocket.
+            // staged on its own GatedPassBag/TicketBag pocket.
             gatePocket(bag, token).nextGateTimeoutMs = value;
             break;
         }
@@ -485,9 +493,9 @@ function overlay(base: HostDraft, bag: FlagBag, cwd: string): HostDraft {
   if (builder !== undefined) {
     merged.builder = builder;
   }
-  const assembly = overlayAssembly(merged.assembly, bag.assembly);
-  if (assembly !== undefined) {
-    merged.assembly = assembly;
+  const ticket = overlayTicket(merged.ticket, bag.ticket);
+  if (ticket !== undefined) {
+    merged.ticket = ticket;
   }
   if (bag.timeoutMs !== undefined) {
     merged.timeoutMs = bag.timeoutMs;
@@ -530,6 +538,20 @@ function overlayGatedPass(
   return { ...pass, gates: overlayGates(base?.gates, bag) };
 }
 
+/**
+ * A review with no agent keeps its Gates; flags that name an agent make it a
+ * review with one. Gate flags replace the Gate list wholesale, as everywhere.
+ */
+function overlayReview(base: ReviewSpec | undefined, bag: GatedPassBag): ReviewSpec | undefined {
+  if (base !== undefined && !hasAgent(base)) {
+    if (bag.cmd === undefined) {
+      return { agent: false, gates: overlayGates(base.gates, bag) };
+    }
+    return overlayGatedPass(undefined, bag);
+  }
+  return overlayGatedPass(base, bag);
+}
+
 function overlayBuilder(
   base: HostInvocation["builder"] | undefined,
   bag: StageBag,
@@ -544,18 +566,16 @@ function overlayBuilder(
     return base;
   }
   return {
+    ...(base?.tests === undefined ? {} : { tests: base.tests }),
     producer,
     repair,
     ...(maxAttempts === undefined ? {} : { maxAttempts }),
   };
 }
 
-function overlayAssembly(
-  base: AssemblySpec | undefined,
-  bag: AssemblyBag,
-): AssemblySpec | undefined {
+function overlayTicket(base: TicketSpec | undefined, bag: TicketBag): TicketSpec | undefined {
   const fix = overlayGatedPass(base?.fix, bag.fix);
-  const validate = overlayGatedPass(base?.validate, bag.validate);
+  const validate = overlayReview(base?.validate, bag.validate);
   const maxAttempts = bag.maxAttempts ?? base?.maxAttempts;
   const gates = overlayGates(base?.gates, bag);
   if (
@@ -567,6 +587,8 @@ function overlayAssembly(
     return base;
   }
   return {
+    ...(base?.maxParallel === undefined ? {} : { maxParallel: base.maxParallel }),
+    ...(base?.maxRefusals === undefined ? {} : { maxRefusals: base.maxRefusals }),
     ...(fix === undefined ? {} : { fix }),
     ...(validate === undefined ? {} : { validate }),
     ...(maxAttempts === undefined ? {} : { maxAttempts }),
@@ -637,6 +659,13 @@ function finalize(merged: HostDraft, cwd: string, checkPaths: boolean): ParseRes
   if (merged.timeoutMs === undefined) {
     return { ok: false, reason: "Missing required --timeout-ms." };
   }
+  if (merged.authority?.enabled === true && merged.feature === undefined) {
+    return {
+      ok: false,
+      reason:
+        'Missing required "feature" (its "gates" and its "fix"). With an Authority, a Feature\'s line is judged and repaired by its own config before it is folded.',
+    };
+  }
 
   const stable =
     merged.workLineStable === undefined ? undefined : resolve(cwd, merged.workLineStable);
@@ -663,11 +692,17 @@ function finalize(merged: HostDraft, cwd: string, checkPaths: boolean): ParseRes
     ledgerRoot: resolve(cwd, merged.ledgerRoot ?? inHome(home, "ledger")),
     persist: merged.persist ?? DEFAULT_PERSIST,
     builder: merged.builder,
-    assembly: merged.assembly ?? { gates: [] },
+    ticket: merged.ticket ?? { gates: [] },
     timeoutMs: merged.timeoutMs,
   };
+  if (merged.feature !== undefined) {
+    invocation.feature = merged.feature;
+  }
   if (stable !== undefined) {
     invocation.workLineStable = stable;
+  }
+  if (merged.workLineTargetStable !== undefined) {
+    invocation.workLineTargetStable = resolve(cwd, merged.workLineTargetStable);
   }
   if (merged.workLineBranch !== undefined) {
     invocation.workLineBranch = merged.workLineBranch;
@@ -677,9 +712,6 @@ function finalize(merged: HostDraft, cwd: string, checkPaths: boolean): ParseRes
   }
   if (merged.observability !== undefined) {
     invocation.observability = merged.observability;
-  }
-  if (merged.maxRefusals !== undefined) {
-    invocation.maxRefusals = merged.maxRefusals;
   }
   if (merged.pollIntervalMs !== undefined) {
     invocation.pollIntervalMs = merged.pollIntervalMs;
