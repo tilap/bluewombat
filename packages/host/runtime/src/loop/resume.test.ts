@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
@@ -84,6 +91,24 @@ function journal(paths: Paths): Record<string, unknown>[] {
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+async function waitFor(done: () => boolean, ms = 30_000): Promise<void> {
+  const until = Date.now() + ms;
+  while (!done()) {
+    assert.ok(Date.now() < until, "the producer never wrote its half");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** Whether a file called `name` exists anywhere under `root`. */
+function holds(root: string, name: string): boolean {
+  if (!existsSync(root)) {
+    return false;
+  }
+  return readdirSync(root, { withFileTypes: true }).some((entry) =>
+    entry.isDirectory() ? holds(join(root, entry.name), name) : entry.name === name,
+  );
+}
+
 describe("the Host with a producer that overruns, and with a run that is stopped", () => {
   it("e1. a producer killed at its clock after it delivered is judged by the Gates, and the ticket lands", async () => {
     const paths = sandbox();
@@ -106,11 +131,9 @@ describe("the Host with a producer that overruns, and with a run that is stopped
     const flag = { interrupted: false };
     const first = await hostFor(paths, "hang-after-half", { interruptFlag: flag });
     const pending = first.runOnce();
-    // The producer wrote half of the work and waits: this is the moment Mason is stopped.
-    for (let i = 0; i < 200 && !readdirSync(paths.workspaces).length; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    // The producer wrote half of the work and waits: this is the moment Mason is stopped. Waited
+    // for, not slept for: a loaded machine takes seconds to start the producer.
+    await waitFor(() => holds(paths.workspaces, "half.txt"));
     flag.interrupted = true;
     const stopped = await pending;
     await first.close();
