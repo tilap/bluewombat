@@ -57,14 +57,21 @@ these all use it. How Host wires a slot into a run:
 | ----------------------------- | --------- | ------------------------------------------------------------------------------------------ |
 | `agents/cursor.mjs`           | Agent     | Runs Cursor CLI with a filled prompt                                                       |
 | `agents/claude.mjs`           | Agent     | Runs Claude Code with a filled prompt                                                      |
+| `builders/tests.mjs`          | Builder   | The tests of the task, written before its code: one test per case of its "Tests" section, stubs for a missing interface, tests that fail now. No agent runs for a task that says `Tests: none` |
 | `builders/producer.mjs`       | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                             |
 | `builders/repair.mjs`         | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                               |
-| `assembly/fix.mjs`            | Builder   | A judgement refused the assembled work: fill `{{task}}` and `{{report}}`                |
-| `assembly/validate.mjs`       | Builder   | Read-only review of the assembled work: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …` |
+| `ticket/fix.mjs`              | Builder   | A judgement refused the assembled ticket: fill `{{task}}` and `{{report}}`              |
+| `feature/validate.mjs`        | Builder   | Read-only review of the whole feature against its request: fill `{{task}}`; same verdict line as `ticket/validate.mjs` |
+| `feature/fix.mjs`             | Builder   | A judgement refused the whole feature: fill `{{task}}` and `{{report}}`                 |
+| `ticket/validate.mjs`         | Builder   | Read-only review of the assembled work: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …` |
 | `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
 | `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
 | `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
+| `gates/workspace-unchanged.mjs` | Gate    | A read-only pass changed nothing at all (a file modified, deleted or added)                |
 | `gates/gitignore-leak.mjs`    | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                            |
+| `gates/project-checks.mjs`    | Gate      | One command of the Project's own (typecheck, tests, lint, build) exits 0 in the workspace  |
+| `gates/tests-red.mjs`         | Gate      | The tests just written fail, and not on a missing import or a syntax error (`--cmd` with `{files}`, `--test-glob`, `--not-red-when`). Passes for `Tests: none` |
+| `gates/tests-frozen.mjs`      | Gate      | A test file held by the "Tests: " checkpoint was not modified, deleted or renamed (`--test-glob`, `--subject-prefix`) |
 | `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
 | `publishers/git.mjs`          | Publisher | Pushes the ticket's branch to the work line's own remote                                  |
 | `refreshers/git.mjs`          | Refresher | Fast-forwards the work line copy onto what the Authority holds                             |
@@ -116,8 +123,8 @@ isolated yet, and starting it would keep the operator's own config.
 | `--pass-env NAME`                  | With `--agent-home`, also hand the vendor this environment variable. Repeatable |
 | `--deny-shell NAME`                | With `--agent-home`, also refuse this command to the vendor (`gh`, `vercel`…). `ssh` and `scp` always are. Repeatable |
 | `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first |
-| `--profile NAME`                   | The project's deck profile for this role, read in the working directory. Cursor only; Claude refuses |
-| `--plugins-out DIR`                | Where `--profile` is built, one folder per profile. Required with `--profile`; never the workspace |
+| `--app-deck-profile PATH`          | The app's deck profile for this role, as a path in the checkout: `[<app dir>/].ai/profiles/<name>`. Cursor only; Claude refuses |
+| `--plugins-out DIR`                | Where the profile is built, one folder per profile. Required with `--app-deck-profile`; never the workspace |
 | `--deck-bin PATH`                  | The deck CLI. Default: the `@pinkpuma/deck` this package depends on |
 | `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                 |
 
@@ -127,7 +134,7 @@ An agent starts with plugin folders, each passed to the vendor as
 `--plugin-dir`: first the `--plugin-dir` folders, in order, then what the
 project's [deck](https://github.com/tilap/pinkpuma-deck) profile resolves to.
 
-`--profile builder` runs `deck materialize -C <cwd> --profile builder --out
+`--app-deck-profile .ai/profiles/builder` runs `deck materialize -C <app dir> --profile builder --out
 <plugins-out>/builder --json` before the vendor starts. The working directory
 is the checkout the agent works on, so a role gets what the project committed
 at that commit — the base `ai-plugin.json` and `.ai/profiles/builder/`, as their
@@ -156,7 +163,7 @@ deck's cache (`~/.cache/pinkpuma-deck`, or `DECK_CACHE`) has no lock, and
 `--plugins-out` holds one folder per profile: both rely on a Mason run starting
 one agent at a time, which it does.
 
-`claude.mjs` takes `--plugin-dir` but refuses `--profile`: not isolated, Claude
+`claude.mjs` takes `--plugin-dir` but refuses `--app-deck-profile`: not isolated, Claude
 also loads the operator's plugins and the project's `.claude/settings.json`, so
 a role's profile would not be all it gets.
 
@@ -242,8 +249,10 @@ never places, is `fail-blocking`.
 | ------------------- | ------------------------------------- | ---------------------------------------------------------- |
 | `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{id}}`, `{{attempt}}`                     |
 | `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`    |
-| `assembly/fix`      | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
-| `assembly/validate` | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
+| `ticket/fix`        | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
+| `feature/validate`  | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
+| `feature/fix`       | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
+| `ticket/validate`   | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
 
 A first-pass command that receives `--report` is `fail-blocking`: that report
 belongs to the repair command. A repair or fix command without `--report` is the same.
@@ -260,7 +269,7 @@ given is not enough to act on, it changes nothing and ends its final message wit
 one line, `MASON_BLOCKED: <what is missing>`. The slot reads the last such line
 in the agent's final message, and answers `fail-blocking` with that reason, so the
 Task stops as `escalated` and a person reads it instead of another Attempt
-inventing a change. This is the same kind of signal as `assembly/validate`'s
+inventing a change. This is the same kind of signal as `ticket/validate`'s
 `MASON_VERDICT:` line, and it is not tied to any refuser. A clean exit prints
 `{ "said": "<the agent's final message, clipped>" }` on stdout, which the Task
 keeps for its History. A Project's own template should keep a paragraph that
@@ -279,12 +288,12 @@ a run spent on nothing. A command that arrives with a report and no
 ### The fix prompt
 
 A judgement of the assembled work that refused it is not a retry of the unit.
-The unit already passed. `assembly/fix.mjs` tells the agent to change what the
+The unit already passed. `ticket/fix.mjs` tells the agent to change what the
 refusal names and leave the rest. Same placeholders as repair.
 
 ### The validate prompt
 
-`assembly/validate.mjs` is a different kind of Builder: it never writes. It
+`ticket/validate.mjs` is a different kind of Builder: it never writes. It
 fills only `{{task}}` and `{{rules}}` — there is nothing to fix yet, so no
 `{{report}}` — and asks the agent to end its final message with one line:
 `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: <one paragraph>`. Its
@@ -384,7 +393,7 @@ builder:
 `workspace-changed` fail-retries when the workspace has no uncommitted change —
 the Attempt produced nothing, or committed and hid it. It takes no option. Put
 it first: every Gate after it then judges work that exists. It passes at
-`--stage assembly`, where "nothing changed" is a correct outcome rather than a
+`--stage ticket` (or `feature`), where "nothing changed" is a correct outcome rather than a
 producer to send back.
 
 `parent-clean` fail-blocks if Isolator's Parent working files changed
@@ -396,13 +405,56 @@ the workspace — tracked paths, and new ones `.gitignore` does not exclude — 
 what an install left under an ignored directory (a dependency's own `.github/`)
 is not a change to guard.
 
+`project-checks --cmd COMMAND` runs one command of the Project's own in the workspace
+and answers on its exit code. It is the Gate that makes a machine, not the Builder,
+say that the code typechecks and the tests pass. The command goes through the shell,
+so it is written as the Project writes it; it knows no stack.
+The report carries the end of the output, cleaned as it arrives: escape codes removed, a line redrawn with `\r` reduced to its last state, and spinner or progress lines (`[⣷] Pulling schema...`) dropped, so thousands of redraws cannot push the real error out of the tail. `tests-red` reads its output the same way.
+
+```yaml
+- id: typecheck
+  timeoutMs: 300000
+  argv: [node, ./node_modules/@bluewombat/slots/gates/project-checks.mjs, --cmd, "pnpm typecheck"]
+- id: tests
+  timeoutMs: 600000
+  argv: [node, ./node_modules/@bluewombat/slots/gates/project-checks.mjs, --cmd, "pnpm test"]
+```
+
+One command per entry: the report then names the check that failed, and the first red
+one stops the sequence before a slower one starts. Put the cheap ones first.
+
+- `0` passes.
+- A non-zero exit is `fail-retryable`: the producer gets the end of the output
+  (the last ~12 KB, where the error is), not the start.
+- Exit 126 or 127 (the shell cannot find or run the command) is `fail-blocking`: no
+  change to the work fixes it.
+- A run that outlives the Gate's ceiling is stopped, with its whole process group, a few
+  seconds before the ceiling (`--timeout-ms`, which Implementer passes), and is
+  `fail-blocking` too. A hung check and a ceiling that is too short look the same from
+  here, so a person decides. Give a test suite a `timeoutMs` of its own.
+- It sets `CI=true` so a watcher does not wait for a terminal.
+- It runs at both stages. In `ticket.gates` it is the local answer on the assembled
+  ticket, so a Project with no CI of its own is still judged by a machine, and one with
+  CI gets the answer before waiting for it.
+
+The workspace needs its dependencies, which `workLine.warm` installs once on the Feature.
+
+`workspace-unchanged` fail-blocks when the workspace holds any change: a file modified,
+deleted, or added that `.gitignore` does not exclude. It is for a pass that must not
+write (`ticket.validate`), whose other Gates each look at a part: `sensitive-path` at
+some globs, `parent-clean` at the Parent. It is meant to run where everything is
+committed (after the align), so whatever git shows was written since. `--allow GLOB`,
+repeatable, lets a path through: use it for what an earlier check leaves behind and the
+Project does not ignore (a coverage report). Blocking, not retryable: what the pass
+wrote would be committed by the next align, so a person looks.
+
 `gitignore-leak --base REF` fail-retries if the ticket's commits add a path the
 workspace's own `.gitignore` excludes — a Builder's `node_modules/`, a build's
 `dist/`, a generated file. `REF` is the work line the ticket is offered to
 (`main`): only what the ticket adds since it left that line is judged, and
 only what is committed, so a path tracked on purpose before the ticket began
 is not blamed on it, and a removal staged but not committed does not pass. The
-report is written for `assembly.fix`: untrack the paths, or change `.gitignore`
+report is written for `ticket.fix`: untrack the paths, or change `.gitignore`
 if tracking one is the point. It passes at `--stage unit`, where no commit
 holds a the unit's work yet.
 
@@ -413,7 +465,7 @@ assembly Gate, with an Authority it judges what was published, so it stops the
 fold into the work line, not the push.
 
 ```yaml
-assembly:
+ticket:
   gates:
     defaultTimeoutMs: 900000
     gates:
@@ -539,7 +591,8 @@ type in JSDoc.
 README.md      this file
 agents/        vendor CLIs: filled prompt in, serialized run out
 builders/      first-pass and repair roles for the unit of work
-assembly/      the same two roles for the assembled work
+ticket/        fix and validate for an assembled ticket
+feature/       fix for a whole feature
 lib/           what the shipped templates say, shared by the roles
 gates/         checks on the workspace, and on the work line
 messages/      what a commit says: a rule, or an agent under the team's guideline

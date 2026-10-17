@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,6 +15,10 @@ const sensitivePath = join(gates, "sensitive-path.mjs");
 const workspaceChanged = join(gates, "workspace-changed.mjs");
 const ciGreen = join(gates, "ci-green.mjs");
 const gitignoreLeak = join(gates, "gitignore-leak.mjs");
+const projectChecks = join(gates, "project-checks.mjs");
+const workspaceUnchanged = join(gates, "workspace-unchanged.mjs");
+const testsRed = join(gates, "tests-red.mjs");
+const testsFrozen = join(gates, "tests-frozen.mjs");
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "host-gate-"));
@@ -193,7 +197,7 @@ describe("ci-green", () => {
       const path = request.url ?? "";
       let body: unknown;
       if (path.startsWith("/repos/o/r/pulls?")) {
-        body = [{ number: 7, head: { sha: "abc" } }];
+        body = [{ number: 7, head: { sha: "abc" }, base: { ref: "dev" } }];
       } else if (path.startsWith("/repos/o/r/commits/abc/check-runs")) {
         body = { total_count: checkRuns.length, check_runs: checkRuns };
       } else if (path.startsWith("/repos/o/r/commits/abc/status")) {
@@ -325,6 +329,9 @@ describe("ci-green", () => {
       assert.match(result.report, /stopped waiting after \d+ s: no check has appeared on abc/);
       assert.match(result.report, /pull request #7/);
       assert.match(result.report, /not a refusal of the work/);
+      // The three causes, so nobody has to guess which one this is.
+      assert.match(result.report, /has no CI \(then take ci-green out/);
+      assert.match(result.report, /do not run on pull requests into "dev"/);
     } finally {
       github.close();
     }
@@ -480,7 +487,7 @@ describe("sensitive-path", () => {
 });
 
 describe("gitignore-leak", () => {
-  const assembly = (...own: string[]) => [...own, "--stage", "assembly"];
+  const assembly = (...own: string[]) => [...own, "--stage", "ticket"];
 
   /** A work line on `main` that ignores node_modules/ and dist/, and a ticket branch off it. */
   function ticketOff(baseFiles: Record<string, string> = {}): string {
@@ -636,14 +643,14 @@ describe("workspace-changed", () => {
     assert.match(result.report, /produced nothing/);
   });
 
-  it("says nothing about an assembly that needed no change", () => {
+  it("says nothing about a ticket that needed no change", () => {
     const cwd = sandbox();
     gitInit(cwd);
     writeFileSync(join(cwd, "seed.txt"), "ok\n");
     gitCommit(cwd, "seed");
     // Refusing here does not send a producer back to work — it sends it back to
     // find something to change, and it obliges.
-    assert.equal(verdictOf(run(workspaceChanged, cwd, ["--stage", "assembly"])).verdict, "pass");
+    assert.equal(verdictOf(run(workspaceChanged, cwd, ["--stage", "ticket"])).verdict, "pass");
     assert.equal(
       verdictOf(run(workspaceChanged, cwd, ["--stage", "unit"])).verdict,
       "fail-retryable",
@@ -678,5 +685,327 @@ describe("workspace-changed", () => {
     const result = verdictOf(run(workspaceChanged, cwd));
     assert.equal(result.verdict, "fail-retryable");
     assert.match(result.report, /do not commit/i);
+  });
+});
+
+describe("project-checks", () => {
+  it("refuses to run without a command", () => {
+    const result = verdictOf(run(projectChecks, sandbox()));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /--cmd/);
+  });
+
+  it("refuses an option it does not know", () => {
+    const result = verdictOf(run(projectChecks, sandbox(), ["--cmd", "true", "--bogus", "x"]));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /--bogus/);
+  });
+
+  it("passes when the command exits 0", () => {
+    const result = verdictOf(run(projectChecks, sandbox(), ["--cmd", "true"]));
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("runs the command in the workspace", () => {
+    const cwd = sandbox();
+    writeFileSync(join(cwd, "marker.txt"), "here\n");
+    const result = verdictOf(run(projectChecks, cwd, ["--cmd", "test -f marker.txt"]));
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("fail-retryable on a red check, with the end of its output", () => {
+    const result = verdictOf(
+      run(projectChecks, sandbox(), [
+        "--cmd",
+        "echo first; echo 'TS2322: not assignable' >&2; exit 2",
+      ]),
+    );
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /exit 2/);
+    assert.match(result.report, /TS2322: not assignable/);
+  });
+
+  it("keeps the end of a long output, not the start", () => {
+    const result = verdictOf(
+      run(projectChecks, sandbox(), ["--cmd", "seq 1 20000; echo THE-REAL-ERROR; exit 1"]),
+    );
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /THE-REAL-ERROR/);
+    assert.doesNotMatch(result.report, /^1$/m);
+    assert.ok(result.report.length < 20_000);
+  });
+
+  it("keeps the error when a spinner redraws thousands of lines after it", () => {
+    // What drizzle-kit does under turbo: the error is followed by progress lines from other packages.
+    const spinner = String.raw`printf 'web:test: \033[2K\033[1G[\342\243\267] Pulling schema from database...\n'`;
+    const done = String.raw`printf 'auth:test: [\342\234\223] Pulling schema from database...\n'`;
+    const result = verdictOf(
+      run(projectChecks, sandbox(), [
+        "--cmd",
+        `echo 'Error: Test timed out in 30000ms.'; i=0; while [ $i -lt 3000 ]; do ${spinner}; ${done}; i=$((i+1)); done; exit 1`,
+      ]),
+    );
+    assert.equal(result.verdict, "fail-retryable");
+    const output = result.report.split("End of its output:")[1] ?? "";
+    assert.match(output, /Test timed out in 30000ms/);
+    assert.doesNotMatch(output, /Pulling schema/);
+  });
+
+  it("reduces a line redrawn with a carriage return to its last state", () => {
+    const result = verdictOf(
+      run(projectChecks, sandbox(), ["--cmd", String.raw`printf 'step 1\rstep 2\r\033[2Kdone 3\n'; exit 1`]),
+    );
+    const output = result.report.split("End of its output:")[1] ?? "";
+    assert.match(output, /done 3/);
+    assert.doesNotMatch(output, /step 1|step 2/);
+  });
+
+  it("fail-blocking when the command does not exist: no change to the work fixes it", () => {
+    const result = verdictOf(
+      run(projectChecks, sandbox(), ["--cmd", "no-such-tool-xyz --version"]),
+    );
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /could not be run/);
+  });
+
+  it("fail-blocking when the command outlives the ceiling, and stops it", () => {
+    const cwd = sandbox();
+    const started = Date.now();
+    const result = verdictOf(
+      run(projectChecks, cwd, ["--cmd", "echo started; sleep 30", "--timeout-ms", "1500"]),
+    );
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /did not finish/);
+    assert.match(result.report, /started/);
+    assert.ok(Date.now() - started < 15_000, "the command was not stopped");
+  });
+
+  it("judges the same way for a ticket", () => {
+    const red = verdictOf(run(projectChecks, sandbox(), ["--cmd", "exit 1", "--stage", "ticket"]));
+    assert.equal(red.verdict, "fail-retryable");
+    const green = verdictOf(run(projectChecks, sandbox(), ["--cmd", "true", "--stage", "ticket"]));
+    assert.equal(green.verdict, "pass");
+  });
+});
+
+describe("workspace-unchanged", () => {
+  function committed(): string {
+    const cwd = sandbox();
+    gitInit(cwd);
+    writeFileSync(join(cwd, "a.txt"), "a\n");
+    writeFileSync(join(cwd, ".gitignore"), "ignored.log\n");
+    gitCommit(cwd, "seed");
+    return cwd;
+  }
+
+  it("passes on a workspace where everything is committed", () => {
+    assert.equal(verdictOf(run(workspaceUnchanged, committed())).verdict, "pass");
+  });
+
+  it("blocks on a modified file, and names it", () => {
+    const cwd = committed();
+    writeFileSync(join(cwd, "a.txt"), "changed\n");
+    const result = verdictOf(run(workspaceUnchanged, cwd));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /a\.txt/);
+    assert.match(result.report, /read-only/);
+  });
+
+  it("blocks on a new file, and on a deleted one", () => {
+    const added = committed();
+    writeFileSync(join(added, "new.txt"), "x\n");
+    const one = verdictOf(run(workspaceUnchanged, added));
+    assert.equal(one.verdict, "fail-blocking");
+    assert.match(one.report, /new\.txt/);
+
+    const removed = committed();
+    unlinkSync(join(removed, "a.txt"));
+    const two = verdictOf(run(workspaceUnchanged, removed));
+    assert.equal(two.verdict, "fail-blocking");
+    assert.match(two.report, /a\.txt/);
+  });
+
+  it("does not see what .gitignore excludes", () => {
+    const cwd = committed();
+    writeFileSync(join(cwd, "ignored.log"), "noise\n");
+    assert.equal(verdictOf(run(workspaceUnchanged, cwd)).verdict, "pass");
+  });
+
+  it("lets a path through when it is named with --allow", () => {
+    const cwd = committed();
+    mkdirSync(join(cwd, "coverage"));
+    writeFileSync(join(cwd, "coverage", "lcov.info"), "x\n");
+    writeFileSync(join(cwd, "a.txt"), "changed\n");
+    const result = verdictOf(run(workspaceUnchanged, cwd, ["--allow", "coverage/**"]));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /a\.txt/);
+    assert.doesNotMatch(result.report, /lcov/);
+
+    unlinkSync(join(cwd, "a.txt"));
+    execFileSync("git", ["-C", cwd, "checkout", "--", "a.txt"]);
+    assert.equal(
+      verdictOf(run(workspaceUnchanged, cwd, ["--allow", "coverage/**"])).verdict,
+      "pass",
+    );
+  });
+
+  it("refuses an option it does not know, and a directory that is not git", () => {
+    assert.equal(
+      verdictOf(run(workspaceUnchanged, committed(), ["--bogus"])).verdict,
+      "fail-blocking",
+    );
+    const plain = sandbox();
+    assert.match(verdictOf(run(workspaceUnchanged, plain)).report, /git workspace/);
+  });
+});
+
+describe("tests-red", () => {
+  function repoWithTest(): string {
+    const dir = sandbox();
+    gitInit(dir);
+    writeFileSync(join(dir, "code.txt"), "base\n");
+    gitCommit(dir, "init");
+    writeFileSync(join(dir, "a.test.ts"), "test\n");
+    return dir;
+  }
+
+  it("passes when the new tests fail on what they check", () => {
+    const dir = repoWithTest();
+    const result = verdictOf(
+      run(testsRed, dir, ["--cmd", "echo 'AssertionError: expected 1 to be 2'; exit 1"]),
+    );
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("refuses tests that pass before the behaviour exists", () => {
+    const dir = repoWithTest();
+    const result = verdictOf(run(testsRed, dir, ["--cmd", "exit 0"]));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report ?? "", /test nothing that is missing/);
+  });
+
+  it("refuses tests that fail for a wrong reason, and says which", () => {
+    const dir = repoWithTest();
+    const result = verdictOf(
+      run(testsRed, dir, ["--cmd", "echo \"Error: Cannot find module './slugify'\"; exit 1"]),
+    );
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report ?? "", /not on the missing behaviour: .*Cannot find module/);
+  });
+
+  it("takes the wrong reasons the Project names, in place of the defaults", () => {
+    const dir = repoWithTest();
+    const named = run(testsRed, dir, [
+      "--cmd",
+      "echo 'boom: setup failed'; exit 1",
+      "--not-red-when",
+      "setup failed",
+    ]);
+    assert.equal(verdictOf(named).verdict, "fail-retryable");
+    const defaults = run(testsRed, dir, [
+      "--cmd",
+      "echo \"Cannot find module 'x'\"; exit 1",
+      "--not-red-when",
+      "setup failed",
+    ]);
+    assert.equal(verdictOf(defaults).verdict, "pass");
+  });
+
+  it("asks for a test file when the pass wrote none", () => {
+    const dir = sandbox();
+    gitInit(dir);
+    writeFileSync(join(dir, "code.txt"), "base\n");
+    gitCommit(dir, "init");
+    writeFileSync(join(dir, "code.txt"), "changed\n");
+    const result = verdictOf(run(testsRed, dir, ["--cmd", "exit 1"]));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report ?? "", /No test file was added or changed/);
+  });
+
+  it("runs the command on the test files of the pass only, where {files} says", () => {
+    const dir = repoWithTest();
+    writeFileSync(join(dir, "other.test.ts"), "more\n");
+    const seen = join(dir, "seen.txt");
+    const result = verdictOf(
+      run(testsRed, dir, ["--cmd", `echo {files} > '${seen}'; echo 'AssertionError'; exit 1`]),
+    );
+    assert.equal(result.verdict, "pass");
+    const said = readFileSync(seen, "utf8");
+    assert.match(said, /a\.test\.ts/);
+    assert.match(said, /other\.test\.ts/);
+    assert.doesNotMatch(said, /code\.txt/);
+  });
+
+  it("passes at once when the task says Tests: none", () => {
+    const dir = sandbox();
+    const result = spawnSync(
+      node,
+      [testsRed, "--cmd", "exit 0", "--intention", "Do it.\n\nTests: none — styling only."],
+      { cwd: dir, encoding: "utf8" },
+    );
+    assert.equal(verdictOf(result).verdict, "pass");
+  });
+
+  it("is blocking when the command cannot run", () => {
+    const dir = repoWithTest();
+    const result = verdictOf(run(testsRed, dir, ["--cmd", "no-such-command-anywhere"]));
+    assert.equal(result.verdict, "fail-blocking");
+  });
+});
+
+describe("tests-frozen", () => {
+  function checkpoint(subject = "Tests: add slugify"): string {
+    const dir = sandbox();
+    gitInit(dir);
+    writeFileSync(join(dir, "code.txt"), "base\n");
+    gitCommit(dir, "init");
+    writeFileSync(join(dir, "a.test.ts"), "test\n");
+    gitCommit(dir, subject);
+    return dir;
+  }
+
+  it("passes when the tests of the checkpoint are as they were left", () => {
+    const dir = checkpoint();
+    writeFileSync(join(dir, "code.txt"), "the producer's work\n");
+    assert.equal(verdictOf(run(testsFrozen, dir)).verdict, "pass");
+  });
+
+  it("refuses a test file that was modified, deleted, or both", () => {
+    const edited = checkpoint();
+    writeFileSync(join(edited, "a.test.ts"), "edited until it passes\n");
+    const editedVerdict = verdictOf(run(testsFrozen, edited));
+    assert.equal(editedVerdict.verdict, "fail-retryable");
+    assert.match(editedVerdict.report ?? "", /a\.test\.ts/);
+    assert.match(editedVerdict.report ?? "", /not yours to change/);
+
+    const removed = checkpoint();
+    unlinkSync(join(removed, "a.test.ts"));
+    assert.equal(verdictOf(run(testsFrozen, removed)).verdict, "fail-retryable");
+  });
+
+  it("allows a new test file beside the frozen ones", () => {
+    const dir = checkpoint();
+    writeFileSync(join(dir, "b.test.ts"), "the producer adds a test\n");
+    assert.equal(verdictOf(run(testsFrozen, dir)).verdict, "pass");
+  });
+
+  it("freezes nothing when HEAD is not a checkpoint of the tests pass", () => {
+    const dir = checkpoint("Add slugify");
+    writeFileSync(join(dir, "a.test.ts"), "edited\n");
+    assert.equal(verdictOf(run(testsFrozen, dir)).verdict, "pass");
+  });
+
+  it("takes the test globs and the subject prefix the Project names", () => {
+    const dir = checkpoint("Specs: add slugify");
+    writeFileSync(join(dir, "a.test.ts"), "edited\n");
+    const unknown = run(testsFrozen, dir, [
+      "--subject-prefix",
+      "Specs: ",
+      "--test-glob",
+      "**/*.nope",
+    ]);
+    assert.equal(verdictOf(unknown).verdict, "pass");
+    const named = run(testsFrozen, dir, ["--subject-prefix", "Specs: "]);
+    assert.equal(verdictOf(named).verdict, "fail-retryable");
   });
 });
