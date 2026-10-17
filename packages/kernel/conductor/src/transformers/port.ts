@@ -43,6 +43,11 @@ export type ImplementInput = {
   /** What produced `report`, when it has a name. */
   reportFrom?: string;
   /**
+   * The number of the first Attempt of this pass, when earlier passes of the same unit already
+   * made some: they count against the budget and the numbers go on from them.
+   */
+  firstAttempt?: number;
+  /**
    * The larger piece of work this Task serves.
    *
    * The Task's own id names the unit; this names what the unit is part of.

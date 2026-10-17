@@ -96,10 +96,12 @@ export type WorkLedger = FeatureCommands & {
   cancel(key: string): Promise<CommandResult>;
   declareWorkspace(input: DeclareWorkspaceInput): Promise<CommandResult>;
   clearWorkspace(key: string): Promise<CommandResult>;
+  /** The stage made before the producer is complete in the declared workspace. */
+  markFirstStageDone(key: string): Promise<CommandResult>;
   expireBail(key: string): Promise<CommandResult>;
   /**
-   * Drop a held unit without waiting for the bail clock. Same ledger outcome
-   * as an expired bail on a running Ticket.
+   * Drop a held unit without waiting for the bail clock. Unlike an expired bail it spends no
+   * Attempt: the unit stopped on purpose and recorded the Attempts it finished.
    */
   releaseBail(key: string): Promise<CommandResult>;
   renewBail(key: string): Promise<CommandResult>;
@@ -170,12 +172,18 @@ function projectIsBusy(summaries: TicketSummary[], project: string): boolean {
  * A held unit starts over from zero: its directory is forgotten, the Attempt
  * it was in is spent, and the lease is gone. Returns whether one was held.
  */
-function releaseRunningUnit(aggregate: TicketAggregate): boolean {
+/**
+ * The held unit stops. Its workspace stays declared: it is a directory the ledger knows nothing
+ * of, and what it holds is the next run's to look at. Whoever wants it gone says so (`clearWorkspace`).
+ * `spend`: an unit that ended without recording its Attempts spent one.
+ */
+function releaseRunningUnit(aggregate: TicketAggregate, spend: boolean): boolean {
   if (aggregate.state !== "running" || aggregate.bail === undefined) {
     return false;
   }
-  aggregate.attempts_used += 1;
-  delete aggregate.workspace;
+  if (spend) {
+    aggregate.attempts_used += 1;
+  }
   delete aggregate.bail;
   return true;
 }
@@ -575,6 +583,10 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       aggregate.state = kind === "unit" ? "running" : "integrating";
       if (aggregate.state === "integrating") {
         aggregate.bail = { expires_at: now() + bailDurationMs };
+      } else {
+        // A human's resume of a unit starts it from zero: what it left is not picked up.
+        delete aggregate.workspace;
+        delete aggregate.first_stage_done;
       }
       return await write(aggregate);
     },
@@ -609,6 +621,8 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return refused("illegal-transition");
       }
       aggregate.workspace = input.path;
+      // Declared anew: nothing is done in it yet.
+      delete aggregate.first_stage_done;
       return await write(aggregate);
     },
 
@@ -622,6 +636,20 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return { ok: true };
       }
       delete aggregate.workspace;
+      delete aggregate.first_stage_done;
+      return await write(aggregate);
+    },
+
+    async markFirstStageDone(key: string): Promise<CommandResult> {
+      const current = await loadOrRefuse(key);
+      if (!current.ok) {
+        return current;
+      }
+      const { aggregate } = current;
+      if (aggregate.state !== "running" || aggregate.workspace === undefined) {
+        return refused("illegal-transition");
+      }
+      aggregate.first_stage_done = true;
       return await write(aggregate);
     },
 
@@ -634,7 +662,7 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       if (aggregate.bail === undefined || now() < aggregate.bail.expires_at) {
         return refused("illegal-transition");
       }
-      if (!releaseRunningUnit(aggregate)) {
+      if (!releaseRunningUnit(aggregate, true)) {
         delete aggregate.bail;
       }
       return await write(aggregate);
@@ -649,7 +677,7 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       if (aggregate.state !== "running") {
         return refused("illegal-transition");
       }
-      if (!releaseRunningUnit(aggregate)) {
+      if (!releaseRunningUnit(aggregate, false)) {
         // Already free: no unit held, nothing to write.
         return { ok: true };
       }

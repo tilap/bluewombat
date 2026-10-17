@@ -219,6 +219,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           // the producer, and the Attempt repeats blind.
           ...(input.report === undefined ? {} : { report: input.report }),
           ...(input.reportFrom === undefined ? {} : { reportFrom: input.reportFrom }),
+          ...(input.firstAttempt === undefined ? {} : { firstAttempt: input.firstAttempt }),
           ...(input.context === undefined ? {} : { context: input.context }),
           ...(input.stage === undefined ? {} : { stage: input.stage }),
           ...(wiring.builderArgv === undefined ? {} : { builderArgv: wiring.builderArgv }),

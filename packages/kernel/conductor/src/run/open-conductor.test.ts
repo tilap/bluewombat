@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -323,8 +323,6 @@ describe("openConductor", () => {
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
     await ledger.admit(ticket());
     const declaredPath = join(root, "elsewhere", "work");
-    mkdirSync(declaredPath, { recursive: true });
-    writeFileSync(join(declaredPath, "stale.txt"), "gone");
     await ledger.declareWorkspace({ key: "fake:42", path: declaredPath });
     const { transformers, calls } = recordingTransformers();
     const offered: string[] = [];
@@ -353,7 +351,6 @@ describe("openConductor", () => {
       isolations.map((c) => c.child),
       [declaredPath],
     );
-    assert.equal(existsSync(join(declaredPath, "stale.txt")), false, "what was there is replaced");
     assert.deepEqual(offered, [declaredPath], "the Authority is told where the work is");
   });
 
@@ -1223,7 +1220,7 @@ describe("openConductor", () => {
     });
   });
 
-  it("implement interrupted releases the unit so the next run does not wait for the bail", async () => {
+  it("implement interrupted releases the unit, and keeps its workspace, so the next run does not wait for the bail", async () => {
     const { stable, root } = tempPair();
     const { transformers } = recordingTransformers({
       async implement() {
@@ -1244,9 +1241,9 @@ describe("openConductor", () => {
     assert.ok(got.ok);
     assert.equal(got.aggregate.state, "running");
     assert.equal(got.aggregate.bail, undefined);
-    assert.equal(got.aggregate.attempts_used, 1);
-    assert.equal(got.aggregate.workspace, undefined);
-    assert.equal(existsSync(ticketWorkspacePath(root, "fake:42")), false);
+    assert.equal(got.aggregate.attempts_used, 0, "stopping Mason is not an Attempt");
+    assert.equal(got.aggregate.workspace, ticketWorkspacePath(root, "fake:42"));
+    assert.equal(existsSync(ticketWorkspacePath(root, "fake:42")), true, "what it made stays");
   });
 
   it("release on integrating is illegal-transition and leaves the bail", async () => {
@@ -1358,5 +1355,126 @@ describe("warm", () => {
       workspaceRoot: root,
     });
     assert.equal((await conductor.runProject("proj")).outcome, "done");
+  });
+});
+
+describe("openConductor picks up a pass that was stopped", () => {
+  type Implemented = {
+    id: string;
+    stage?: string;
+    report?: string;
+    reportFrom?: string;
+    firstAttempt?: number;
+    workspace: string;
+  };
+
+  function setup(implementations: Array<(input: Implemented) => ImplementResult>) {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
+    const implemented: Implemented[] = [];
+    const isolated: string[] = [];
+    const { transformers } = recordingTransformers({
+      async isolate(input) {
+        isolated.push(input.child);
+        mkdirSync(input.child, { recursive: true });
+        return { outcome: "isolated" };
+      },
+      async implement(input) {
+        implemented.push(input as Implemented);
+        const next = implementations.shift();
+        return next === undefined
+          ? { outcome: "validated", traces: [{ ended: "validated" }] }
+          : next(input as Implemented);
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+    });
+    return { ledger, conductor, root, implemented, isolated };
+  }
+
+  const stopped = (input: Implemented): ImplementResult => {
+    writeFileSync(join(input.workspace, "half-done.txt"), "wip");
+    return { outcome: "interrupted", traces: [{ ended: "interrupted" }] };
+  };
+
+  it("r1. picks up the workspace instead of isolating again, and says so to the producer", async () => {
+    let kept = "";
+    const { ledger, conductor, root, implemented, isolated } = setup([
+      stopped,
+      (input) => {
+        kept = readFileSync(join(input.workspace, "half-done.txt"), "utf8");
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+    ]);
+    await ledger.admit(ticket());
+    await conductor.runProject("proj");
+    const path = ticketWorkspacePath(root, "fake:42");
+    assert.deepEqual(isolated, [path]);
+
+    const again = await conductor.runProject("proj");
+    assert.equal(again.outcome, "done");
+    assert.deepEqual(isolated, [path], "no second isolation");
+    assert.equal(kept, "wip");
+    assert.match(implemented[1]?.report ?? "", /stopped before it finished/);
+    assert.equal(implemented[1]?.firstAttempt, undefined);
+  });
+
+  it("r2. keeps the Attempts the stopped pass finished, and the next one goes on from them", async () => {
+    const { ledger, conductor, implemented } = setup([
+      (input) => {
+        writeFileSync(join(input.workspace, "half-done.txt"), "wip");
+        return {
+          outcome: "interrupted",
+          traces: [
+            { ended: "fail-retryable", report: "3 tests fail", refusedBy: "tests" },
+            { ended: "interrupted" },
+          ],
+        };
+      },
+    ]);
+    await ledger.admit(ticket());
+    await conductor.runProject("proj");
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.attempts.length, 1, "the interrupted Attempt is not one");
+    assert.equal(got.aggregate.attempts_used, 1);
+
+    await conductor.runProject("proj");
+    assert.equal(implemented[1]?.firstAttempt, 2);
+    assert.equal(implemented[1]?.report, "3 tests fail", "the producer gets what refused it");
+    assert.equal(implemented[1]?.reportFrom, "tests");
+  });
+
+  it("r3. starts from zero when the workspace is gone", async () => {
+    const { ledger, conductor, root, implemented, isolated } = setup([stopped]);
+    await ledger.admit(ticket());
+    await conductor.runProject("proj");
+    rmSync(ticketWorkspacePath(root, "fake:42"), { recursive: true, force: true });
+
+    await conductor.runProject("proj");
+    assert.equal(isolated.length, 2);
+    assert.equal(implemented[1]?.report, undefined);
+  });
+
+  it("r4. release is the way to start over: the workspace is dropped, not picked up", async () => {
+    const { ledger, conductor, root, implemented, isolated } = setup([stopped]);
+    await ledger.admit(ticket());
+    await conductor.runProject("proj");
+    const path = ticketWorkspacePath(root, "fake:42");
+
+    assert.deepEqual(await conductor.release("fake:42"), { ok: true });
+    assert.equal(existsSync(path), false);
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.workspace, undefined);
+
+    await conductor.runProject("proj");
+    assert.equal(isolated.length, 2);
+    assert.equal(existsSync(join(path, "half-done.txt")), false);
+    assert.equal(implemented[1]?.report, undefined);
   });
 });

@@ -122,6 +122,10 @@ async function destroy(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
+/** What the next pass is told when it picks up a workspace the earlier one did not finish. */
+const RESUMED_NOTE =
+  "The pass before this one was stopped before it finished. What it made is in this directory: look at it before you write, and do not start over.";
+
 /**
  * Where a Ticket's workspace is: the path the ledger declared when it was
  * made, else the one the layout gives. The declared path wins because a
@@ -133,6 +137,18 @@ function declaredTicketPath(
   aggregate: TicketAggregate | undefined,
 ): string {
   return aggregate?.workspace ?? ticketWorkspacePath(workspaceRoot, key);
+}
+
+/** Whether a workspace the ledger declares is still there with something in it. */
+async function stillThere(path: string | undefined): Promise<boolean> {
+  if (path === undefined) {
+    return false;
+  }
+  try {
+    return (await readdir(path)).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function destroyOrphans(workspaceRoot: string, allowed: Set<string>): Promise<void> {
@@ -298,36 +314,63 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     return await freeze(key, { kind: "unit" });
   }
 
+  /** A unit nobody is on any more: its lease runs out. Its workspace stays, for the next pass. */
   async function expireIfHeld(key: string): Promise<void> {
-    const before = await ledger.get(key);
-    const held =
-      before.ok && before.aggregate.state === "running" ? before.aggregate.workspace : undefined;
-    const expired = await ledger.expireBail(key);
-    if (expired.ok && held !== undefined) {
-      await destroy(held);
-    }
+    await ledger.expireBail(key);
   }
 
   /**
    * A unit was started and a transformer stopped on interrupt. Release the
    * bail now so the next process does not wait an hour for the clock.
+   *
+   * The workspace stays, and so do the Attempts the pass finished: stopping Mason is not a
+   * failure of the work, so the next pass picks it up where it was instead of starting over.
+   * Whoever wants it started over says so (`release`).
    */
-  async function releaseHeldAfterInterrupt(key: string): Promise<ProjectRunResult | undefined> {
+  async function releaseHeldAfterInterrupt(
+    key: string,
+    traces: ImplementTrace[] = [],
+  ): Promise<ProjectRunResult | undefined> {
     const before = await ledger.get(key);
-    const child = before.ok ? before.aggregate.workspace : undefined;
-    const released = await ledger.releaseBail(key);
-    if (!released.ok) {
-      if (released.code === "persist-failed") {
-        return refused("persist-failed");
+    if (before.ok) {
+      let number = before.aggregate.attempts.length + 1;
+      for (const trace of traces) {
+        if (trace.ended === "interrupted") {
+          continue;
+        }
+        const recorded = await recordFinished(key, number, trace);
+        if (recorded !== undefined) {
+          return recorded;
+        }
+        number += 1;
       }
-      // Already free, or a state releaseBail refuses — leave the ledger and
-      // still answer interrupted.
-      return undefined;
     }
-    if (child !== undefined) {
-      await destroy(child);
+    const released = await ledger.releaseBail(key);
+    if (!released.ok && released.code === "persist-failed") {
+      return refused("persist-failed");
     }
+    // Already free, or a state releaseBail refuses — leave the ledger and
+    // still answer interrupted.
     return undefined;
+  }
+
+  async function recordFinished(
+    key: string,
+    number: number,
+    trace: ImplementTrace,
+  ): Promise<ProjectRunResult | undefined> {
+    const recorded = await ledger.recordAttempt({
+      key,
+      number,
+      trace: {
+        ended: trace.ended,
+        ...(trace.report === undefined || trace.report.length === 0
+          ? {}
+          : { report: trace.report }),
+        ...(trace.refusedBy === undefined ? {} : { refusedBy: trace.refusedBy }),
+      },
+    });
+    return fromLedger(recorded);
   }
 
   async function reconcile(project: string): Promise<void> {
@@ -426,9 +469,14 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       // A unit is held: its lease runs out on its own if nobody is on it.
       return { outcome: "paused", key };
     }
-    const isolated = await isolateFresh(key);
-    if (isolated !== undefined) {
-      return isolated;
+    // A pass that was stopped (Mason stopped, or died) leaves its workspace declared: this one
+    // picks it up. A unit that starts with nothing left starts from zero.
+    const resumed = await stillThere(before.aggregate.workspace);
+    if (!resumed) {
+      const isolated = await isolateFresh(key);
+      if (isolated !== undefined) {
+        return isolated;
+      }
     }
     if (paused) {
       return { outcome: "paused", key };
@@ -442,14 +490,24 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (!got.ok) {
       return refused("not-found");
     }
+    // The Attempts the stopped pass finished count, and the next one goes on from them.
+    const earlier = resumed
+      ? got.aggregate.attempts.filter((attempt) => attempt.round === got.aggregate.resumes)
+      : [];
+    const last = earlier[earlier.length - 1]?.trace;
+    const carried = last?.ended === "fail-retryable" ? last : undefined;
+    const report = carried?.report ?? (resumed ? RESUMED_NOTE : undefined);
     const implemented = await transformers.implement({
       id: key,
       context: key,
       intention: got.aggregate.intention.intention,
       workspace: declaredTicketPath(workspaceRoot, key, got.aggregate),
+      ...(report === undefined ? {} : { report }),
+      ...(carried?.refusedBy === undefined ? {} : { reportFrom: carried.refusedBy }),
+      ...(earlier.length === 0 ? {} : { firstAttempt: earlier.length + 1 }),
     });
     if (implemented.outcome === "interrupted") {
-      const failure = await releaseHeldAfterInterrupt(key);
+      const failure = await releaseHeldAfterInterrupt(key, implemented.traces);
       return failure ?? refused("interrupted");
     }
     if (implemented.outcome === "invalid-invocation") {
@@ -916,7 +974,9 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       const child = before.ok ? before.aggregate.workspace : undefined;
       const released = await ledger.releaseBail(key);
       if (released.ok && child !== undefined) {
+        // The way to start a unit over: what a stopped pass left is dropped, not picked up.
         await destroy(child);
+        await ledger.clearWorkspace(key);
       }
       return released;
     },

@@ -161,6 +161,12 @@ export type Invocation = {
    */
   context?: string;
   maxAttempts: number;
+  /**
+   * The number of the first Attempt of this run: 1, unless an earlier run of the same Task
+   * already made some. They count against `maxAttempts` and are the numbers the status and
+   * the journal show, so a Task picked up again goes on instead of starting its count over.
+   */
+  firstAttempt?: number;
   /** How long the producer may run, at most. Required: nothing else bounds it. */
   builderTimeoutMs: number;
   /** The same, for `repairArgv`. Absent: `builderTimeoutMs`. */

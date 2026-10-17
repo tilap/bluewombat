@@ -134,6 +134,12 @@ export type TicketAggregate = {
   bail?: BailRecord;
   /** The isolated directory the work is made in, once Isolation made one. */
   workspace?: string;
+  /**
+   * The stage made before the unit's producer ran (the tests, when they are written first)
+   * is complete in `workspace`, so a unit picked up again there does not make it again.
+   * Gone with the workspace.
+   */
+  first_stage_done?: boolean;
   escalation?: EscalationRecord;
   submission?: SubmissionRecord;
   /** The work line's own name for the fold that made it `done`, when the Authority gave one. Opaque. */

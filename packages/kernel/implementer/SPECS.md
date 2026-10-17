@@ -53,6 +53,7 @@ not read configuration from the workspace.
 | `--repair-gate <id> -- <argv…>` | One Gate judging the Attempt that ran `--repair-builder`, instead of `--gate`'s list. Repeatable; same rules as `--gate`. **May be omitted** (empty sequence) — a repair Attempt with no `--repair-gate` of its own runs ungated, even when `--gate` names Gates. |
 | `--repair-gate-timeout-ms`    | Positive integer. **Required before each `--repair-gate`.** Wall clock of that Gate.                                        |
 | `--max-attempts`              | Positive integer. Attempts this invocation may start.                                                                       |
+| `firstAttempt` (library only) | Number of the first Attempt, default 1, when earlier runs of the same Task already made some: they count against `--max-attempts` and the numbers go on from them. Above `--max-attempts`, the run escalates at once. |
 | `--report`                    | Optional. Failure report passed to the producer on Attempt 1 (and kept for retries).                                        |
 | `--report-from`               | Optional. Which Gate produced `--report`, when a Gate did.                                                                  |
 | `--context`                   | Optional. Larger piece of work this Task belongs to. Passed through to the producer, and named as `key` on every progress line. |

@@ -104,7 +104,7 @@ async function runLoop(input: {
   let previousReport: string | undefined = invocation.report;
   let previousRefusedBy: string | undefined = invocation.reportFrom;
 
-  for (let attempt = 1; attempt <= invocation.maxAttempts; attempt += 1) {
+  for (let attempt = invocation.firstAttempt ?? 1; attempt <= invocation.maxAttempts; attempt += 1) {
     if (shouldInterrupt()) {
       return finishInterrupted({
         cwd: input.cwd,

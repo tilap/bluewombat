@@ -567,3 +567,34 @@ describe("which ticket a Task's progress belongs to", () => {
     );
   });
 });
+
+describe("runImplementer firstAttempt", () => {
+  it("f1. numbers its Attempts from firstAttempt and leaves only what remains of the budget", async () => {
+    const ws = workspace();
+    const sink = collectLines();
+    const result = await runImplementer({
+      invocation: baseInvocation({
+        workspace: ws,
+        builderArgv: [node, join(fixtures, "builder-fail-retryable.mjs")],
+        firstAttempt: 2,
+        maxAttempts: 3,
+      }),
+      write: sink.write,
+    });
+    assert.deepEqual(
+      result.traces.map((trace) => trace.attempt),
+      [2, 3],
+    );
+    assert.equal(result.outcome, "escalated");
+  });
+
+  it("f2. escalates at once when the earlier runs already used the whole budget", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: baseInvocation({ workspace: ws, firstAttempt: 4, maxAttempts: 3 }),
+      write: collectLines().write,
+    });
+    assert.equal(result.outcome, "escalated");
+    assert.deepEqual(result.traces, []);
+  });
+});

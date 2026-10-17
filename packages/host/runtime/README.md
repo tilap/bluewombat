@@ -151,12 +151,16 @@ manager with no `probe`), stop `run` if it holds the ledger lock, then:
 mason cancel github:owner/name#19
 ```
 
-After a crash left a unit `running` with nobody on it, stop `run` if it
-holds the lock, then:
+A unit that was stopped (Ctrl-C, a crash) is picked up where it was by the next
+`mason run`: its workspace is kept, the Attempts it finished still count and the
+numbering goes on. To start a unit over instead (the line moved on, the work took
+a wrong turn), stop `run` if it holds the lock, then:
 
 ```bash
 mason release github:owner/name#19
 ```
+
+`release` destroys the workspace and forgets it; the next `run` isolates a fresh one.
 
 The film is `<ledger>/events.jsonl`, next to `cursor`. It is not truth after a
 crash — the ledger is. The file can grow; there is no rotation yet.

@@ -212,7 +212,7 @@ One TicketStandard, one Project. Pause flag is off.
       workspace; the Integration in 4.3 takes it up.
    3. `escalated` from Implementer → `escalate({ kind: "unit" })` (Trace
       already recorded). Keep the workspace. `resumeTicket` returns the
-      Ticket to `running`, and the unit starts again from zero.
+      Ticket to `running`, forgets the workspace, and the unit starts again from zero.
    4. After `markIntegrating`, if `pending_fingerprint` is set,
       `escalate({ kind: "unit" })` with a report that says the intention was
       edited in flight and what resume does. The ledger consumes the pending
@@ -370,6 +370,18 @@ src/
    then `escalate({ kind: "unit" })`; no `integrate`; the directory is not
    deleted by Conductor. After `resumeTicket` the unit starts from a fresh
    workspace.
+4b. `implement` `interrupted` (the process was stopped) -> the Attempts that
+   finished are `recordAttempt`d (the interrupted one is not an Attempt), then
+   `releaseBail`: no Attempt is spent, the workspace stays declared and on disk.
+   The next pass over the Ticket finds a declared workspace that still holds
+   something and picks it up: no `isolate`, no second `warm`; `implement` is
+   given `firstAttempt` (the Attempts already recorded this round, plus one)
+   and, as `report`, the refusal of the last Attempt, or a note that the pass
+   before was stopped and left its work there. A declared workspace that is
+   gone or empty starts the unit from zero. `release` is the way to start over:
+   it drops the bail, destroys the directory and forgets it. Conductor does not
+   look inside the workspace, nor at the line it was cut from: a Project that
+   cannot pick up a stale one uses `release`.
 5. `cancel` of a `running` Ticket → ledger `cancelled`; declared directories
    destroyed. `cancel` after `markMerging` → ledger `point-of-no-return`;
    WorkLineStable untouched.

@@ -224,8 +224,8 @@ Idempotence is on `key` unless a row says otherwise.
 | `cancel`                | Ticket → `cancelled`                                                                                                                                                                                         | `merging` or `done`; an escalation that was born in `merging`                                                                                                       |
 | `declareWorkspace`      | Record the workspace path **before** glue creates it                                                                                                                                                          | Ticket `done` or `cancelled`                                                                                                                                       |
 | `clearWorkspace`        | Drop the declared path after glue deleted that directory                                                                                                                                                      | —                                                                                                                                                                   |
-| `expireBail`            | Bail past expiry: a `running` Ticket starts the unit over (consume an Attempt, forget the workspace); any other state only loses its bail                                                                    | No bail, or bail not expired                                                                                                                                        |
-| `releaseBail`           | Same ledger outcome as an expired bail on a `running` Ticket, without waiting for the clock. A `running` Ticket with no bail is success with no rewrite                                                    | Ticket not `running`                                                                                                                                               |
+| `expireBail`            | Bail past expiry: a `running` Ticket's unit stops (consume an Attempt; the workspace stays declared); any other state only loses its bail                                                                    | No bail, or bail not expired                                                                                                                                        |
+| `releaseBail`           | A `running` Ticket's unit stops, without waiting for the clock and without consuming an Attempt (the stopped pass recorded its own); the workspace stays declared. A `running` Ticket with no bail is success with no rewrite                                                    | Ticket not `running`                                                                                                                                               |
 | `renewBail`             | Push bail expiry forward by the configured duration. Allowed while a bail is held                                                                                                                             | No bail                                                                                                                                                             |
 
 `resumeTicket` from `invalid` requires `admit` of a corrected TicketStandard
@@ -298,12 +298,17 @@ in this implementation. Glue renews with `startUnit` / `markIntegrating` /
 `markSubmitted`; `renewBail` exists if expiry would otherwise pass during a
 long Attempt.
 
-Expired bail: `expireBail`. A `running` Ticket starts the unit over from zero
-and consumes an Attempt. The declared workspace is forgotten (glue deletes the
-directory). The ledger decides; glue acts.
+Expired bail: `expireBail`. A `running` Ticket's unit stops and consumes an
+Attempt. The declared workspace stays declared, with `first_stage_done` if the
+stage before the producer was complete in it: the next pass picks it up, or
+starts over if the directory is gone (`clearWorkspace`, `releaseBail` + glue).
+A human's `resumeTicket` of a unit forgets both: that unit starts from zero.
+The ledger decides; glue acts.
 
 A clean stop (or an operator) that knows the holder is gone calls
-`releaseBail`: the same `running` outcome, without the clock. It refuses
+`releaseBail`: the same `running` outcome, without the clock and without
+consuming an Attempt (`markFirstStageDone` records that the stage before the
+producer is complete in the declared workspace; `declareWorkspace` resets it). It refuses
 `integrating`, `submitted`, `merging`, and every terminal state — those do not
 hold a unit. A `running` Ticket that holds no bail is success with no rewrite.
 
