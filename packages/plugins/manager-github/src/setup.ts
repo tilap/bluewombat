@@ -167,13 +167,13 @@ export function wantedLabels(settings: {
       shared
         ? {
             name: settings.featureReadyLabel,
-            ...colourOf("admission", ADMISSION_COLOUR),
+            ...colourOf("feature-ready", ADMISSION_COLOUR),
             description:
               "on a Feature: its content is final; on a Ticket: its specification is final",
           }
         : {
             name: settings.featureReadyLabel,
-            ...colourOf("admission", ADMISSION_COLOUR),
+            ...colourOf("feature-ready", ADMISSION_COLOUR),
             description: `on a Feature: its content is final, ${PRODUCT} may build it once its Tickets are ready`,
           },
     );
@@ -181,14 +181,14 @@ export function wantedLabels(settings: {
   if (forTickets) {
     wanted.push({
       name: settings.ticketReadyLabel,
-      ...colourOf("admission", ADMISSION_COLOUR),
+      ...colourOf("ticket-ready", ADMISSION_COLOUR),
       description: "on a Ticket: its specification is final",
     });
   }
   if (forFeatures) {
     wanted.push({
       name: settings.mergeWhenReadyLabel,
-      ...colourOf("admission", ADMISSION_COLOUR),
+      ...colourOf("merge-when-ready", ADMISSION_COLOUR),
       description: `on a Feature: ${PRODUCT} folds its line without a human`,
     });
   }

@@ -417,23 +417,25 @@ describe("label colours", () => {
     assert.equal(colourOfLabel(wanted, "feature-ready")?.colour, "1d76db");
   });
 
-  it("colours a label by what it is for, whatever it is called", () => {
+  it("colours each label by its own identifier, whatever it is called", () => {
     const wanted = wantedLabels({
       ...LABELS,
       resumeLabel: "reprendre",
       defaultProject: "app",
       stateLabels: labelsOf({ done: "termine" }),
       labelColors: colours({
-        admission: "#00AA00",
+        "feature-ready": "#00AA00",
+        "ticket-ready": "00bb00",
+        "merge-when-ready": "00cc00",
         resume: "ff00ff",
         "state-done": "0000ff",
         "state-escalated": "d93f0b",
       }),
     });
-    // One colour for the three ready labels.
-    for (const name of ["feature-ready", "task-ready", "merge-when-ready"]) {
-      assert.deepEqual(colourOfLabel(wanted, name), { colour: "00aa00", chosen: true });
-    }
+    // The three ready labels have one colour each.
+    assert.deepEqual(colourOfLabel(wanted, "feature-ready"), { colour: "00aa00", chosen: true });
+    assert.deepEqual(colourOfLabel(wanted, "task-ready"), { colour: "00bb00", chosen: true });
+    assert.deepEqual(colourOfLabel(wanted, "merge-when-ready"), { colour: "00cc00", chosen: true });
     // Renamed, and still coloured.
     assert.deepEqual(colourOfLabel(wanted, "reprendre"), { colour: "ff00ff", chosen: true });
     assert.deepEqual(colourOfLabel(wanted, "termine"), { colour: "0000ff", chosen: true });
@@ -443,8 +445,20 @@ describe("label colours", () => {
     assert.deepEqual(colourOfLabel(wanted, "project:app"), { colour: "c5def5", chosen: false });
   });
 
+  it("colours one ready label without touching the other two", () => {
+    const wanted = wantedLabels({
+      ...LABELS,
+      defaultProject: undefined,
+      stateLabels: undefined,
+      labelColors: colours({ "ticket-ready": "00bb00" }),
+    });
+    assert.equal(colourOfLabel(wanted, "task-ready")?.chosen, true);
+    assert.equal(colourOfLabel(wanted, "feature-ready")?.chosen, false);
+    assert.equal(colourOfLabel(wanted, "merge-when-ready")?.chosen, false);
+  });
+
   it("refuses a key that is not something a label is for, and a colour that is not six hex digits", () => {
-    const key = resolveLabelColors({ state: "aa0000" });
+    const key = resolveLabelColors({ admission: "aa0000" });
     assert.equal(key.ok, false);
     assert.match(key.ok ? "" : key.reason, /not something a label is for/);
     const colour = resolveLabelColors({ "state-done": "green" });

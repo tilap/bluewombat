@@ -222,15 +222,17 @@ an Event outside the list, leaving one out, or giving a label twice is refused.
 ## Label colours
 
 `mason setup` gives each label a colour so a human can tell them apart. `labelColors`
-chooses them. A key says what a label is for, never its name, so renaming a label
-(`stateLabels`, `resumeLabel`, ...) does not lose its colour. A colour is six hex digits,
-with or without a `#`:
+chooses them, one label at a time. A key is the identifier of a label, never its name, so
+renaming a label (`stateLabels`, `resumeLabel`, ...) does not lose its colour. A colour is
+six hex digits, with or without a `#`:
 
 ```yaml
 options:
   labelColors:
-    admission: "1d76db" # feature-ready, task-ready and merge-when-ready
-    resume: "0e8a16" # the resume label
+    feature-ready: "1d76db"
+    ticket-ready: "1d76db"
+    merge-when-ready: "1d76db"
+    resume: "0e8a16"
     project: "c5def5" # project:<defaultProject>
     state-invalid: "5319e7"
     state-accepted: "5319e7"
@@ -244,11 +246,12 @@ options:
     state-reject_late: "6a737d"
 ```
 
-Every key is optional. A colour the config chose is applied to a label that already
-exists too: `mason setup` says `recolour label …` and `--apply` does it. A label the
-config chose no colour for keeps the default colour when it is created and is never
-touched when it exists, so a colour set by hand on GitHub stays. A key that is not in the
-list above, or a colour that is not six hex digits, is refused by name.
+Every key is optional. When the Feature and the Ticket ready labels are one label (the
+same name), `feature-ready` colours it. A colour the config chose is applied to a label
+that already exists too: `mason setup` says `recolour label …` and `--apply` does it. A
+label the config chose no colour for keeps the default colour when it is created and is
+never touched when it exists, so a colour set by hand on GitHub stays. A key that is not in
+the list above, or a colour that is not six hex digits, is refused by name.
 
 ## Prepare the repository
 

@@ -81,8 +81,8 @@ configuration names against the labels that exist.
 
 Without `apply` it reports a plan and sends no write. With `apply` it creates the
 missing labels, and recolours an existing label whose colour differs from the one the
-config chose for it (`labelColors`, keyed by what the label is for: `admission`, `resume`,
-`project`, `state-<event>`): an existing label is never renamed or deleted, a label with no
+config chose for it (`labelColors`, keyed by the label's identifier: `feature-ready`,
+`ticket-ready`, `merge-when-ready`, `resume`, `project`, `state-<event>`): an existing label is never renamed or deleted, a label with no
 chosen colour keeps whatever colour it has, and a repeated name is created once. A
 second `apply` reports everything `satisfied`.
 
