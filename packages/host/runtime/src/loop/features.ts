@@ -256,6 +256,7 @@ function admissionOf(
   ticket: TicketStandard,
   feature: FeatureAggregate,
   among: ReadonlySet<string>,
+  noTests: boolean,
 ): TicketAdmission {
   return {
     key: ticket.key,
@@ -270,6 +271,7 @@ function admissionOf(
     ...(feature.line === undefined ? {} : { line: feature.line }),
     ...(ticket.title === undefined ? {} : { title: ticket.title }),
     ...(ticket.source === undefined ? {} : { source: ticket.source }),
+    ...(noTests ? { no_tests: true } : {}),
   };
 }
 
@@ -346,7 +348,7 @@ async function openNextFeature(input: HostDeliveryInput, project: string): Promi
   }
   const withLine: FeatureAggregate = { ...feature, ...(line === undefined ? {} : { line }) };
   for (const entry of live) {
-    await input.ledger.admit(admissionOf(entry.ticket, withLine, among));
+    await input.ledger.admit(admissionOf(entry.ticket, withLine, among, entry.no_tests));
   }
   input.journal.append({
     event: "feature-opened",
@@ -447,8 +449,14 @@ async function syncTicket(
   }
   // Only a Ticket that has not started takes the new words: the tracker's
   // fingerprint moves with every comment, and a unit in flight is not rewritten.
-  if (state === "received" && current.aggregate.intention.fingerprint !== ticket.fingerprint) {
-    await input.ledger.admit(admissionOf(ticket, feature, known));
+  // The label that says no tests are written first is not in the words, so it moves no
+  // fingerprint: it is compared on its own.
+  const flagged = current.aggregate.intention.no_tests === true;
+  if (
+    state === "received" &&
+    (current.aggregate.intention.fingerprint !== ticket.fingerprint || flagged !== entry.no_tests)
+  ) {
+    await input.ledger.admit(admissionOf(ticket, feature, known, entry.no_tests));
   }
   if (entry.resume && state === "escalated") {
     await resumeTicketByKey({ key: ticket.key, project: ticket.project }, input);

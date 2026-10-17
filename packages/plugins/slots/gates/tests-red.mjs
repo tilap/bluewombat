@@ -21,7 +21,6 @@ import { createOutputTail } from "../lib/output-tail.mjs";
 // finds the test files the pass added or changed, runs the Project's own test command on
 // them, and answers:
 //
-//   - the task says `Tests: none`        -> pass: nothing is written first
 //   - no test file added or changed      -> fail-retryable: the pass wrote no test
 //   - the tests pass                     -> fail-retryable: they test nothing that is missing
 //   - they fail on a wrong reason        -> fail-retryable: fix imports, syntax, stubs
@@ -78,12 +77,6 @@ try {
     "fail-blocking",
     `tests-red: --not-red-when is not a pattern: ${error instanceof Error ? error.message : error}`,
   );
-  process.exit(0);
-}
-
-// A ticket that says `Tests: none` has nothing to write first.
-if (/^\s*Tests:\s*none\b/im.test(take(process.argv, "--intention") ?? "")) {
-  emitVerdict("pass");
   process.exit(0);
 }
 

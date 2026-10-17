@@ -33,7 +33,6 @@ writes the code afterwards and must make your tests pass without editing them.
   — so that the tests compile and fail on what they check, not on a missing import.
 - The tests must FAIL now, because the behaviour is missing. Run them and see it. A test
   that passes before the code exists tests nothing: make it assert what is not there yet.
-- If the section says "Tests: none", change nothing and say so in your final message.
 - Add or update no other test, and no production code beyond the stubs.
 
 {{history}}
@@ -60,11 +59,6 @@ const intention = (take(process.argv, "--intention") ?? "").trim();
 if (intention.length === 0) {
   emitFailure("fail-blocking", "The Builder received no --intention.");
   process.exit(1);
-}
-
-// A task that says `Tests: none` has nothing to write first: no agent runs for it.
-if (/^\s*Tests:\s*none\b/im.test(intention)) {
-  process.exit(0);
 }
 
 const parsed = parseRole(process.argv, BUILDER_FLAGS, NAME);

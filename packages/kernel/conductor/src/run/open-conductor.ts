@@ -657,7 +657,12 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       return refused("not-found");
     }
     const unitPath = declaredTicketPath(workspaceRoot, key, got.aggregate);
-    if (testsFirst && got.aggregate.first_stage_done !== true) {
+    // The tracker can say a ticket has no tests written first: a label, not a line of its text.
+    if (
+      testsFirst &&
+      got.aggregate.intention.no_tests !== true &&
+      got.aggregate.first_stage_done !== true
+    ) {
       const stopped = await writeTestsFirst(key, got.aggregate, unitPath);
       if (stopped !== undefined) {
         return stopped;

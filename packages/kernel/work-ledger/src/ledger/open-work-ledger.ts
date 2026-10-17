@@ -153,6 +153,9 @@ function cloneIntention(ticket: TicketAdmission): TicketIntention {
   if (ticket.line !== undefined) {
     intention.line = ticket.line;
   }
+  if (ticket.no_tests === true) {
+    intention.no_tests = true;
+  }
   return intention;
 }
 

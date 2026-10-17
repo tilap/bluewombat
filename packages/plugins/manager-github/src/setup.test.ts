@@ -100,6 +100,7 @@ function labelsOf(over: Record<string, string> = {}) {
 const MASON = labelsOf();
 
 const LABELS = {
+  noTestsLabel: "no-tests",
   resumeLabel: "to-resume",
   featureReadyLabel: "feature-ready",
   ticketReadyLabel: "task-ready",
@@ -113,15 +114,16 @@ describe("wantedLabels", () => {
       defaultProject: "app",
       stateLabels: MASON,
     }).map((label) => label.name);
-    assert.deepEqual(names.slice(0, 5), [
+    assert.deepEqual(names.slice(0, 6), [
       "feature-ready",
       "task-ready",
+      "no-tests",
       "merge-when-ready",
       "to-resume",
       "project:app",
     ]);
     assert.ok(names.includes("mason:done"));
-    assert.equal(names.length, 5 + EVENT_NAMES.length);
+    assert.equal(names.length, 6 + EVENT_NAMES.length);
   });
 
   it("names a label once even when two settings ask for it", () => {
@@ -131,7 +133,7 @@ describe("wantedLabels", () => {
       defaultProject: undefined,
       stateLabels: undefined,
     }).map((label) => label.name);
-    assert.deepEqual(names, ["feature-ready", "to-resume", "merge-when-ready"]);
+    assert.deepEqual(names, ["feature-ready", "to-resume", "no-tests", "merge-when-ready"]);
   });
 });
 
@@ -146,7 +148,7 @@ describe("wantedLabels with one name for both roles", () => {
     });
     assert.deepEqual(
       labels.map((label) => label.name),
-      ["ready-for-agent", "merge-when-ready", "to-resume"],
+      ["ready-for-agent", "no-tests", "merge-when-ready", "to-resume"],
     );
     assert.match(labels[0]?.description ?? "", /Feature.*Ticket/);
   });
@@ -159,7 +161,7 @@ describe("wantedLabels with one name for both roles", () => {
       defaultProject: undefined,
       stateLabels: undefined,
     }).map((label) => label.name);
-    assert.deepEqual(names, ["Ready-For-Agent", "merge-when-ready", "to-resume"]);
+    assert.deepEqual(names, ["Ready-For-Agent", "no-tests", "merge-when-ready", "to-resume"]);
   });
 });
 
@@ -168,7 +170,7 @@ describe("wantedLabels for one side", () => {
 
   it("wants only the Ticket label and the resume label for the ticket tracker", () => {
     const names = wantedLabels({ ...rest, sides: ["ticketTracker"] }).map((label) => label.name);
-    assert.deepEqual(names, ["task-ready", "to-resume"]);
+    assert.deepEqual(names, ["task-ready", "no-tests", "to-resume"]);
   });
 
   it("wants only the Feature labels and the resume label for the feature tracker", () => {
@@ -215,7 +217,7 @@ describe("setupManager", () => {
     assert.equal(result.ok, true);
     assert.equal(stateOf(result, "label:to-resume"), "applied");
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
-    assert.deepEqual(created, ["merge-when-ready", "to-resume"]);
+    assert.deepEqual(created, ["no-tests", "merge-when-ready", "to-resume"]);
   });
 
   it("names the labels the configuration chose, not the defaults", async () => {
@@ -231,7 +233,7 @@ describe("setupManager", () => {
       { apply: true },
     );
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
-    assert.deepEqual(created, ["spec-done", "ticket-done", "auto-merge", "go"]);
+    assert.deepEqual(created, ["spec-done", "ticket-done", "no-tests", "auto-merge", "go"]);
   });
 
   it("creates one label on GitHub when both roles share a name", async () => {
@@ -246,14 +248,20 @@ describe("setupManager", () => {
     );
     assert.equal(result.ok, true);
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
-    assert.deepEqual(created, ["ready-for-agent", "merge-when-ready", "to-resume"]);
+    assert.deepEqual(created, ["ready-for-agent", "no-tests", "merge-when-ready", "to-resume"]);
   });
 
   it("defaults to feature-ready on a Feature and task-ready on a Ticket", async () => {
     const { fetch, calls } = githubOf(repositoryOf(), []);
     await setupManager(contextOf({ fetch }), { apply: true });
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
-    assert.deepEqual(created, ["feature-ready", "task-ready", "merge-when-ready", "to-resume"]);
+    assert.deepEqual(created, [
+      "feature-ready",
+      "task-ready",
+      "no-tests",
+      "merge-when-ready",
+      "to-resume",
+    ]);
   });
 
   it("creates only the Ticket label for the ticket tracker, whatever the other side calls its own", async () => {
@@ -264,7 +272,7 @@ describe("setupManager", () => {
     );
     assert.equal(result.ok, true);
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
-    assert.deepEqual(created, ["ticket-done", "to-resume"]);
+    assert.deepEqual(created, ["ticket-done", "no-tests", "to-resume"]);
   });
 
   it("blocks when an option sits under the wrong side", async () => {
@@ -510,6 +518,40 @@ describe("label colours", () => {
     const github = githubOf(repositoryOf(), []);
     const result = await setupManager(
       contextOf({ ...LABELS, fetch: github.fetch, labelColors: { resume: "red" } }),
+      { apply: false },
+    );
+    assert.equal(result.ok, false);
+  });
+});
+
+describe("the no-tests label", () => {
+  it("is created for the Ticket side, under the name the config chose, with its own colour", async () => {
+    const github = githubOf(repositoryOf(), []);
+    await setupManager(
+      contextOf(
+        { noTestsLabel: "sans-tests", labelColors: { "no-tests": "#FFAA00" }, fetch: github.fetch },
+        ["ticketTracker"],
+      ),
+      { apply: true },
+    );
+    const created = github.calls.find((c) => c.method === "POST" && c.body.name === "sans-tests");
+    assert.equal(created?.body.color, "ffaa00");
+  });
+
+  it("is not wanted by the Feature side", () => {
+    const names = wantedLabels({
+      ...LABELS,
+      defaultProject: undefined,
+      stateLabels: undefined,
+      sides: ["featureTracker"],
+    }).map((label) => label.name);
+    assert.equal(names.includes("no-tests"), false);
+  });
+
+  it("is refused under the Feature side, where it means nothing", async () => {
+    const github = githubOf(repositoryOf(), []);
+    const result = await setupManager(
+      contextOf({ noTestsLabel: "sans-tests", fetch: github.fetch }, ["featureTracker"]),
       { apply: false },
     );
     assert.equal(result.ok, false);

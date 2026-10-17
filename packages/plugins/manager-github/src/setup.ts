@@ -17,6 +17,7 @@ const RESUME_COLOUR = "0e8a16";
 const ADMISSION_COLOUR = "1d76db";
 const STATE_COLOUR = "5319e7";
 const PROJECT_COLOUR = "c5def5";
+const NO_TESTS_COLOUR = "fbca04";
 
 export type SetupSettings = {
   repo: Repository;
@@ -25,6 +26,7 @@ export type SetupSettings = {
   resumeLabel: string;
   featureReadyLabel: string;
   ticketReadyLabel: string;
+  noTestsLabel: string;
   mergeWhenReadyLabel: string;
   /** The sides this manager is built for: only their labels are wanted. */
   sides: readonly ManagerSide[];
@@ -141,6 +143,7 @@ export function wantedLabels(settings: {
   resumeLabel: string;
   featureReadyLabel: string;
   ticketReadyLabel: string;
+  noTestsLabel: string;
   mergeWhenReadyLabel: string;
   sides?: readonly ManagerSide[];
   defaultProject: string | undefined;
@@ -183,6 +186,11 @@ export function wantedLabels(settings: {
       name: settings.ticketReadyLabel,
       ...colourOf("ticket-ready", ADMISSION_COLOUR),
       description: "on a Ticket: its specification is final",
+    });
+    wanted.push({
+      name: settings.noTestsLabel,
+      ...colourOf("no-tests", NO_TESTS_COLOUR),
+      description: `on a Ticket: ${PRODUCT} writes no tests before its code`,
     });
   }
   if (forFeatures) {

@@ -45,6 +45,8 @@ export type TicketIntention = {
   feature?: string;
   /** Tickets that must be `done` before this one may start. */
   blocked_by?: string[];
+  /** The tracker says no tests are written before its code. */
+  no_tests?: boolean;
   /** The line this Ticket lands on, when it is not the Project's final one. */
   line?: string;
 };

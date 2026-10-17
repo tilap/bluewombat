@@ -85,6 +85,8 @@ export type TicketEntry = {
   task_ready: boolean;
   /** A human unblocked it after an escalation. */
   resume: boolean;
+  /** No tests are written before its code: the tracker says so, in the words of nobody. */
+  no_tests: boolean;
   /** False once it is closed on the tracker. */
   open: boolean;
 };

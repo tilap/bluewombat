@@ -382,30 +382,6 @@ describe("builder tests", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(echoedPrompt(cwd), /Attempt 1 was refused by tests-red/);
   });
-
-  it("starts no agent when the task says Tests: none", () => {
-    const cwd = sandbox();
-    const result = spawnSync(
-      node,
-      [
-        testsRole,
-        "--",
-        node,
-        cursor,
-        "--bin",
-        agentEchoArgv,
-        "--id",
-        "t",
-        "--attempt",
-        "1",
-        "--intention",
-        "Restyle the header.\n\nTests: none — styling only.",
-      ],
-      { cwd, encoding: "utf8" },
-    );
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(existsSync(join(cwd, "argv.json")), false, "the agent was not started");
-  });
 });
 
 describe("feature fix", () => {

@@ -219,6 +219,7 @@ function stubManager(over: Partial<Stub> = {}): Stub {
               },
               task_ready: t.task_ready ?? true,
               resume: t.resume ?? false,
+              no_tests: false,
               open: t.open ?? true,
             }));
             return { outcome: "listed", tickets: entries };

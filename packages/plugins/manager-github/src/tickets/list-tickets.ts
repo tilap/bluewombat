@@ -16,6 +16,7 @@ export type ListTicketsRequest = {
   priorityLabelPrefix: string;
   resumeLabel: string;
   ticketReadyLabel: string;
+  noTestsLabel: string;
   deadlineMs: number;
   now: () => number;
   shouldInterrupt: () => boolean;
@@ -117,6 +118,7 @@ function entryOf(
     },
     task_ready: payloadHasLabel(issue, request.ticketReadyLabel),
     resume: payloadHasLabel(issue, request.resumeLabel),
+    no_tests: payloadHasLabel(issue, request.noTestsLabel),
     open: issue.state !== "closed",
   };
 }

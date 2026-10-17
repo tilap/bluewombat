@@ -24,7 +24,7 @@ const MARKER = "work done\n";
 
 type Paths = { source: string; target: string; stable: string; workspaces: string; ledger: string };
 
-function sandbox(): Paths {
+function sandbox(ticket: Record<string, unknown> = {}): Paths {
   const root = mkdtempSync(join(tmpdir(), "host-resume-"));
   const stable = join(root, "stable");
   mkdirSync(stable);
@@ -40,7 +40,7 @@ function sandbox(): Paths {
       project: "proj",
       intention: "a feature",
       priority: 75,
-      tickets: [{ id: "42", intention: "deliver the marker file" }],
+      tickets: [{ id: "42", intention: "deliver the marker file", ...ticket }],
     }),
   );
   return {
@@ -62,7 +62,13 @@ const producer = (mode: string): string[] => [
   mode,
 ];
 
-async function hostFor(paths: Paths, mode: string, over: Partial<HostOptions> = {}, ms = 30_000) {
+async function hostFor(
+  paths: Paths,
+  mode: string,
+  over: Partial<HostOptions> = {},
+  ms = 30_000,
+  testsFirst = false,
+) {
   const manager = {
     package: "@bluewombat/manager-fake",
     options: { source: paths.source, target: paths.target },
@@ -76,6 +82,7 @@ async function hostFor(paths: Paths, mode: string, over: Partial<HostOptions> = 
     workspaceRoot: paths.workspaces,
     ledgerRoot: paths.ledger,
     builder: {
+      ...(testsFirst ? { tests: { cmd: producer("finish"), timeoutMs: ms, gates: [] } } : {}),
       producer: { cmd: producer(mode), timeoutMs: ms, gates: passing() },
       repair: { cmd: producer(mode), timeoutMs: ms, gates: passing() },
     },
@@ -155,5 +162,36 @@ describe("the Host with a producer that overruns, and with a run that is stopped
     assert.equal(readFileSync(join(paths.stable, "found-half.txt"), "utf8"), "half of the work\n");
     const told = JSON.parse(readFileSync(join(paths.stable, "told.json"), "utf8")) as string[];
     assert.match(told[told.indexOf("--report") + 1] ?? "", /stopped before it finished/);
+  });
+
+  it("e3. a ticket the tracker labels no-tests has no tests written first; any other has", async () => {
+    const stagesOf = async (ticket: Record<string, unknown>): Promise<string[]> => {
+      const paths = sandbox(ticket);
+      const host = await hostFor(paths, "finish", {}, 30_000, true);
+      await host.runOnce();
+      await host.close();
+      return journal(paths)
+        .filter((line) => line.event === "attempt-started")
+        .map((line) => String(line.task_id));
+    };
+
+    const labelled = await stagesOf({ no_tests: true });
+    assert.equal(
+      labelled.some((id) => id.endsWith(":tests")),
+      false,
+      "no agent writes tests for it",
+    );
+    assert.equal(
+      labelled.some((id) => id === "fake:42"),
+      true,
+      "its code is still made",
+    );
+
+    const ordinary = await stagesOf({});
+    assert.equal(
+      ordinary.some((id) => id.endsWith(":tests")),
+      true,
+      "tests are written first",
+    );
   });
 });

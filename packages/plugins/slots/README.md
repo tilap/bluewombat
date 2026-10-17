@@ -57,7 +57,7 @@ these all use it. How Host wires a slot into a run:
 | ----------------------------- | --------- | ------------------------------------------------------------------------------------------ |
 | `agents/cursor.mjs`           | Agent     | Runs Cursor CLI with a filled prompt                                                       |
 | `agents/claude.mjs`           | Agent     | Runs Claude Code with a filled prompt                                                      |
-| `builders/tests.mjs`          | Builder   | The tests of the task, written before its code: one test per case of its "Tests" section, stubs for a missing interface, tests that fail now. No agent runs for a task that says `Tests: none` |
+| `builders/tests.mjs`          | Builder   | The tests of the task, written before its code: one test per case of its "Tests" section, stubs for a missing interface, tests that fail now. |
 | `builders/producer.mjs`       | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                             |
 | `builders/repair.mjs`         | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                               |
 | `ticket/fix.mjs`              | Builder   | A judgement refused the assembled ticket: fill `{{task}}` and `{{report}}`              |
@@ -70,7 +70,7 @@ these all use it. How Host wires a slot into a run:
 | `gates/workspace-unchanged.mjs` | Gate    | A read-only pass changed nothing at all (a file modified, deleted or added)                |
 | `gates/gitignore-leak.mjs`    | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                            |
 | `gates/project-checks.mjs`    | Gate      | One command of the Project's own (typecheck, tests, lint, build) exits 0 in the workspace  |
-| `gates/tests-red.mjs`         | Gate      | The tests just written fail, and not on a missing import or a syntax error (`--cmd` with `{files}`, `--test-glob`, `--not-red-when`). Passes for `Tests: none` |
+| `gates/tests-red.mjs`         | Gate      | The tests just written fail, and not on a missing import or a syntax error (`--cmd` with `{files}`, `--test-glob`, `--not-red-when`). |
 | `gates/tests-frozen.mjs`      | Gate      | A test file held by the "Tests: " checkpoint was not modified, deleted or renamed (`--test-glob`, `--subject-prefix`) |
 | `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
 | `publishers/git.mjs`          | Publisher | Pushes the ticket's branch to the work line's own remote                                  |

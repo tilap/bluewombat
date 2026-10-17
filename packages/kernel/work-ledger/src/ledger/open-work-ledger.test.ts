@@ -406,6 +406,16 @@ describe("openWorkLedger (test-double Port)", () => {
     assert.equal(after.first_stage_done, undefined);
   });
 
+  it("keeps the tracker's no_tests flag on the Ticket, and nothing when it is not set", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(ticket({ key: "fake:1", no_tests: true }));
+    await ledger.admit(ticket({ key: "fake:2" }));
+    await ledger.admit(ticket({ key: "fake:3", no_tests: false }));
+    assert.equal((await requireAggregate(ledger, "fake:1")).intention.no_tests, true);
+    assert.equal((await requireAggregate(ledger, "fake:2")).intention.no_tests, undefined);
+    assert.equal((await requireAggregate(ledger, "fake:3")).intention.no_tests, undefined);
+  });
+
   it("11. declareWorkspace then listDeclaredWorkspaces includes the path; clearWorkspace removes it", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await ledger.admit(ticket());

@@ -939,16 +939,6 @@ describe("tests-red", () => {
     assert.doesNotMatch(said, /code\.txt/);
   });
 
-  it("passes at once when the task says Tests: none", () => {
-    const dir = sandbox();
-    const result = spawnSync(
-      node,
-      [testsRed, "--cmd", "exit 0", "--intention", "Do it.\n\nTests: none — styling only."],
-      { cwd: dir, encoding: "utf8" },
-    );
-    assert.equal(verdictOf(result).verdict, "pass");
-  });
-
   it("is blocking when the command cannot run", () => {
     const dir = repoWithTest();
     const result = verdictOf(run(testsRed, dir, ["--cmd", "no-such-command-anywhere"]));

@@ -1954,6 +1954,20 @@ describe("openConductor with the tests written first", () => {
     ]);
   });
 
+  it("writes none first for a ticket the tracker marked no_tests, and the code is still made", async () => {
+    const calls: string[] = [];
+    const { ledger, conductor } = testsFirst({}, calls);
+    await ledger.admit(ticket({ no_tests: true }));
+    const result = await conductor.runProject("proj");
+    assert.equal(result.outcome, "done");
+    assert.equal(
+      calls.some((call) => call.includes(":tests")),
+      false,
+      "nothing is written first",
+    );
+    assert.equal(calls.includes("implement fake:42"), true, "the code is made");
+  });
+
   it("writes none first when the Project asked for none", async () => {
     const calls: string[] = [];
     const { stable, root } = tempPair();
