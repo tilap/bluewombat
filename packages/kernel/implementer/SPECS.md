@@ -148,6 +148,13 @@ are cut two seconds later, so a process that still escaped cannot hold the
 outcome back. What is
 still running when the invocation itself exits is killed.
 
+**A producer killed at its clock is not a failed Attempt by itself.** It may have
+finished and been verifying when the clock ran out, and what it left in the workspace is
+the work. The Attempt's Gates judge it as they would a producer that exited 0, and the
+Attempt ends on their verdict: `validated` if they pass, else the refusal of the Gate
+that refused, which is what the next producer is told. With no Gate in the list there is
+nothing to judge it by, and the Attempt stays `fail-retryable`.
+
 **Nothing is derived from what another child left behind.** There is no Attempt
 clock and no Task clock. A budget computed from a deadline is how a producer
 that overran left its Gates a millisecond to answer in — they were killed on
@@ -189,7 +196,8 @@ producer's own last words; Implementer keeps it in the Attempt's trace
 | Stdout is JSON `{ "outcome": "fail-blocking", "report": "..." }`  | `fail-blocking`      | that `report`                          |
 | Stdout is JSON `{ "outcome": "fail-retryable", "report": "..." }` | `fail-retryable`     | that `report`                          |
 | Non-zero exit, no such JSON                                       | `fail-retryable`     | the end of stdout and stderr (8 KiB)                     |
-| Killed by a clock                                                 | `fail-retryable`     | which clock, then what the child wrote                   |
+| Killed by a clock, with Gates to judge it by                      | the Gates' verdict   | none for the kill: the red Gate's report, if one refused |
+| Killed by a clock, with no Gate                                   | `fail-retryable`     | which clock, and that it left no answer (a sentence; what the child wrote stays in the Trace, clipped to its end) |
 | Stop signal                                                       | `interrupted`        | none                                                     |
 | Cannot spawn (not found, not executable)                          | `fail-blocking`      | why                                                      |
 

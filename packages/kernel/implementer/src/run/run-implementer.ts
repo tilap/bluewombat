@@ -188,7 +188,14 @@ async function runLoop(input: {
     const gateEntries: Trace["gates"] = [];
     let ended: AttemptEnded;
 
-    if (builderRun.attemptEnded !== undefined) {
+    // A producer killed at its clock may have finished and been verifying: what it left is the
+    // work, so the Gates judge it before the Attempt is called a failure. With no Gate there is
+    // nothing to judge it by, and it stays one.
+    const judgeAfterTimeout =
+      builderRun.result.kind === "timed_out" &&
+      (usedRepair ? invocation.repairGates : invocation.gates).length > 0;
+
+    if (builderRun.attemptEnded !== undefined && !judgeAfterTimeout) {
       ended = builderRun.attemptEnded;
       if (ended === "fail-retryable" || ended === "fail-blocking") {
         previousReport = builderRun.reportForRetry;
