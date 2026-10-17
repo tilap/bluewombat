@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { EVENT_NAMES, type ManagerContext } from "@bluewombat/manager-kit";
 import { setupManager } from "./index.js";
+import { resolveLabelColors } from "./label-colors.js";
 import { wantedLabels } from "./setup.js";
 import { resolveStateLabels } from "./state-labels.js";
 
@@ -10,8 +11,9 @@ type Call = { method: string; path: string; body: Record<string, unknown> };
 function githubOf(
   repository: Record<string, unknown>,
   labels: string[],
-  over: { repoStatus?: number; branches?: string[] } = {},
+  over: { repoStatus?: number; branches?: string[]; colours?: Record<string, string> } = {},
 ): { fetch: typeof fetch; calls: Call[] } {
+  const colours = over.colours ?? {};
   const branches = over.branches ?? ["main"];
   const calls: Call[] = [];
   const handler = (async (input: unknown, init: { method?: string; body?: unknown } = {}) => {
@@ -33,8 +35,14 @@ function githubOf(
     if (method === "GET" && path === "/repos/tilap/mason/labels") {
       return json(
         200,
-        labels.map((name) => ({ name })),
+        labels.map((name) => ({ name, color: colours[name] ?? "ededed" })),
       );
+    }
+    if (method === "PATCH" && path.startsWith("/repos/tilap/mason/labels/")) {
+      colours[decodeURIComponent(path.slice("/repos/tilap/mason/labels/".length))] = String(
+        body.color,
+      );
+      return json(200, { name: body.name });
     }
     if (method === "POST" && path === "/repos/tilap/mason/labels") {
       labels.push(String(body.name));
@@ -384,5 +392,112 @@ describe("setupManager", () => {
     );
     assert.equal(result.ok, false);
     assert.equal(stateOf(result, "token"), "blocked");
+  });
+});
+
+describe("label colours", () => {
+  const colours = (named?: Record<string, string>) => {
+    const resolved = resolveLabelColors(named);
+    if (!resolved.ok) {
+      throw new Error(resolved.reason);
+    }
+    return resolved.colors;
+  };
+  const colourOfLabel = (wanted: ReturnType<typeof wantedLabels>, name: string) => {
+    const found = wanted.find((label) => label.name === name);
+    return found === undefined ? undefined : { colour: found.colour, chosen: found.chosen };
+  };
+
+  it("keeps the defaults, and chooses nothing, when the config names no colour", () => {
+    const wanted = wantedLabels({ ...LABELS, defaultProject: "app", stateLabels: MASON });
+    assert.equal(
+      wanted.some((label) => label.chosen),
+      false,
+    );
+    assert.equal(colourOfLabel(wanted, "feature-ready")?.colour, "1d76db");
+  });
+
+  it("colours a label by what it is for, whatever it is called", () => {
+    const wanted = wantedLabels({
+      ...LABELS,
+      resumeLabel: "reprendre",
+      defaultProject: "app",
+      stateLabels: labelsOf({ done: "termine" }),
+      labelColors: colours({
+        admission: "#00AA00",
+        resume: "ff00ff",
+        "state-done": "0000ff",
+        "state-escalated": "d93f0b",
+      }),
+    });
+    // One colour for the three ready labels.
+    for (const name of ["feature-ready", "task-ready", "merge-when-ready"]) {
+      assert.deepEqual(colourOfLabel(wanted, name), { colour: "00aa00", chosen: true });
+    }
+    // Renamed, and still coloured.
+    assert.deepEqual(colourOfLabel(wanted, "reprendre"), { colour: "ff00ff", chosen: true });
+    assert.deepEqual(colourOfLabel(wanted, "termine"), { colour: "0000ff", chosen: true });
+    assert.deepEqual(colourOfLabel(wanted, "mason:escalated"), { colour: "d93f0b", chosen: true });
+    // Not named: its default, and not chosen.
+    assert.deepEqual(colourOfLabel(wanted, "mason:accepted"), { colour: "5319e7", chosen: false });
+    assert.deepEqual(colourOfLabel(wanted, "project:app"), { colour: "c5def5", chosen: false });
+  });
+
+  it("refuses a key that is not something a label is for, and a colour that is not six hex digits", () => {
+    const key = resolveLabelColors({ state: "aa0000" });
+    assert.equal(key.ok, false);
+    assert.match(key.ok ? "" : key.reason, /not something a label is for/);
+    const colour = resolveLabelColors({ "state-done": "green" });
+    assert.equal(colour.ok, false);
+    assert.match(colour.ok ? "" : colour.reason, /six hex digits/);
+  });
+
+  it("creates a missing label with the colour the config chose", async () => {
+    const github = githubOf(repositoryOf(), []);
+    const result = await setupManager(
+      contextOf({ ...LABELS, fetch: github.fetch, labelColors: { resume: "ff00ff" } }),
+      { apply: true },
+    );
+    assert.equal(stateOf(result, "label:to-resume"), "applied");
+    const created = github.calls.find((c) => c.method === "POST" && c.body.name === "to-resume");
+    assert.equal(created?.body.color, "ff00ff");
+  });
+
+  it("recolours an existing label only when the config chose a colour for it", async () => {
+    const github = githubOf(repositoryOf(), ["to-resume", "feature-ready", "task-ready"]);
+    const options = { ...LABELS, fetch: github.fetch, labelColors: { resume: "ff00ff" } };
+
+    const planned = await setupManager(contextOf(options), { apply: false });
+    assert.equal(stateOf(planned, "label:to-resume"), "missing");
+    assert.match(detailOf(planned, "label:to-resume"), /ededed.*ff00ff/);
+    assert.equal(
+      stateOf(planned, "label:feature-ready"),
+      "satisfied",
+      "no colour chosen: left alone",
+    );
+    assert.equal(
+      github.calls.some((c) => c.method === "PATCH"),
+      false,
+      "a plan writes nothing",
+    );
+
+    const applied = await setupManager(contextOf(options), { apply: true });
+    assert.equal(stateOf(applied, "label:to-resume"), "applied");
+    const patch = github.calls.find((c) => c.method === "PATCH");
+    assert.equal(patch?.path, "/repos/tilap/mason/labels/to-resume");
+    assert.equal(patch?.body.color, "ff00ff");
+
+    const again = await setupManager(contextOf(options), { apply: true });
+    assert.equal(stateOf(again, "label:to-resume"), "satisfied");
+    assert.equal(github.calls.filter((c) => c.method === "PATCH").length, 1);
+  });
+
+  it("blocks on a colour it cannot read", async () => {
+    const github = githubOf(repositoryOf(), []);
+    const result = await setupManager(
+      contextOf({ ...LABELS, fetch: github.fetch, labelColors: { resume: "red" } }),
+      { apply: false },
+    );
+    assert.equal(result.ok, false);
   });
 });

@@ -79,10 +79,12 @@ run. It reads the repository once — that single response answers reachable,
 issues enabled, and whether the token may write — then lists the labels the
 configuration names against the labels that exist.
 
-Without `apply` it reports a plan and sends no `POST`. With `apply` it creates
-the missing labels and nothing else: an existing label is never renamed,
-recoloured, or deleted, and a repeated name is created once. A second `apply`
-reports everything `satisfied`.
+Without `apply` it reports a plan and sends no write. With `apply` it creates the
+missing labels, and recolours an existing label whose colour differs from the one the
+config chose for it (`labelColors`, keyed by what the label is for: `admission`, `resume`,
+`project`, `state-<event>`): an existing label is never renamed or deleted, a label with no
+chosen colour keeps whatever colour it has, and a repeated name is created once. A
+second `apply` reports everything `satisfied`.
 
 A 404 on the repository is reported as "not found, or this token cannot see
 it", because from here the two are the same answer.

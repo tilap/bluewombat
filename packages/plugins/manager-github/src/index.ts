@@ -13,6 +13,7 @@ import {
   type SetupResult,
   stringOption,
 } from "@bluewombat/manager-kit";
+import { type LabelColors, resolveLabelColors } from "./label-colors.js";
 import {
   createGithubManager,
   DEFAULT_API_BASE,
@@ -113,6 +114,7 @@ export async function setupManager(
       sides: settings.sides,
       defaultProject: settings.defaultProject,
       stateLabels: settings.stateLabels,
+      labelColors: settings.labelColors,
       branch: settings.branch,
       branchConfigured: typeof context.options.branch === "string",
       durationMs: context.durationMs,
@@ -135,6 +137,7 @@ const KNOWN_OPTIONS = [
   "mergeWhenReadyLabel",
   "defaultPriority",
   "stateLabels",
+  "labelColors",
   "branch",
   "remote",
   "commitAuthor",
@@ -191,6 +194,7 @@ type Settings = {
   defaultPriority: number | undefined;
   /** The label each Event lands as; absent: the Events leave no label. */
   stateLabels: StateLabels | undefined;
+  labelColors: LabelColors | undefined;
   branch: string;
   remote: string;
   /** Who the system is on the commits it makes: `Name <email>`. */
@@ -416,6 +420,14 @@ function readOptions(context: ManagerContext): Read {
   if (!stateLabels.ok) {
     return stateLabels;
   }
+  const namedColours = namesOption(context.options, "labelColors");
+  if (!namedColours.ok) {
+    return namedColours;
+  }
+  const labelColors = resolveLabelColors(namedColours.value);
+  if (!labelColors.ok) {
+    return labelColors;
+  }
   const branch = stringOption(context.options, "branch");
   if (!branch.ok) {
     return branch;
@@ -455,6 +467,7 @@ function readOptions(context: ManagerContext): Read {
       defaultProject: defaultProject.value,
       defaultPriority: defaultPriority.value,
       stateLabels: stateLabels.labels,
+      labelColors: labelColors.colors,
       branch: branch.value ?? DEFAULT_BRANCH,
       remote: remote.value ?? `https://${DEFAULT_GIT_HOST}/${repo.owner}/${repo.name}.git`,
       commitAuthor: author?.value,

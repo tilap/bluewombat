@@ -110,6 +110,7 @@ you mean it.
 | `defaultProject`   | no       | none                            | The Project of a Feature that has no `project:` label. Without it, such a Feature is refused as invalid (`missing-project`). `mason setup` creates the label `project:<defaultProject>` |
 | `defaultPriority`  | no       | `50`                            | Priority when no `priority:` label says otherwise (0…100)                                                                                                                                                                                                                                                         |
 | `stateLabels`      | no       | none                            | A mapping that names, for every Event, the label it lands as (see State labels). Absent: the Events leave no label |
+| `labelColors`      | no       | none                            | A colour for each kind of label the setup creates, by what it is for, not by its name (see Label colours) |
 | `branch`           | no       | `main`                          | The work line pull requests are opened onto. `mason setup` checks it exists and names the repository's default branch when it does not                                                                                                                                                                            |
 | `remote`           | no       | `https://github.com/<repo>.git` | Git URL of the repository, for Host's copy of the work line. Over HTTPS, git authenticates with the token in `tokenEnv` — read when git asks, never written to disk — so pushes are the token's account. Set it for GitHub Enterprise, a mirror, or SSH (then this machine's keys are used, and `doctor` says so) |
 | `keepBranch`       | no       | `false`                         | Leave the ticket branch on the remote after the fold. By default it is deleted once the squash is on the work line                                                                                                                                                                                               |
@@ -218,6 +219,37 @@ options:
 Absent, nothing is labelled and the guard on `done` and `cancelled` is off. Naming
 an Event outside the list, leaving one out, or giving a label twice is refused.
 
+## Label colours
+
+`mason setup` gives each label a colour so a human can tell them apart. `labelColors`
+chooses them. A key says what a label is for, never its name, so renaming a label
+(`stateLabels`, `resumeLabel`, ...) does not lose its colour. A colour is six hex digits,
+with or without a `#`:
+
+```yaml
+options:
+  labelColors:
+    admission: "1d76db" # feature-ready, task-ready and merge-when-ready
+    resume: "0e8a16" # the resume label
+    project: "c5def5" # project:<defaultProject>
+    state-invalid: "5319e7"
+    state-accepted: "5319e7"
+    state-progress: "5319e7"
+    state-escalated: "d93f0b"
+    state-escalation_reminder: "d93f0b"
+    state-resumed: "5319e7"
+    state-submitted: "5319e7"
+    state-done: "0e8a16"
+    state-cancelled: "6a737d"
+    state-reject_late: "6a737d"
+```
+
+Every key is optional. A colour the config chose is applied to a label that already
+exists too: `mason setup` says `recolour label …` and `--apply` does it. A label the
+config chose no colour for keeps the default colour when it is created and is never
+touched when it exists, so a colour set by hand on GitHub stays. A key that is not in the
+list above, or a colour that is not six hex digits, is refused by name.
+
 ## Prepare the repository
 
 `mason setup` reads the config and says what the repository still needs;
@@ -236,8 +268,8 @@ mason setup --apply
 | The branch exists           | `GET /repos/{owner}/{repo}/branches/{branch}` for `branch` (default `main`); when it is missing and the config named none, the step says the repository's default branch and what to write |
 | Labels                      | `featureReadyLabel`, `ticketReadyLabel`, `mergeWhenReadyLabel`, `resumeLabel`, `project:<defaultProject>`, and one per Event when `stateLabels` is set                                                                                       |
 
-Creating a label is the only write; nothing existing is renamed, recoloured, or
-deleted.
+Creating a label, and recolouring one the config chose a colour for (see Label
+colours), are the only writes; nothing existing is renamed or deleted.
 
 ## Stack
 
