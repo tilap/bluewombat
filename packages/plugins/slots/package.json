@@ -53,6 +53,6 @@
   },
   "dependencies": {
     "@bluewombat/slot-kit": "^0.9.0",
-    "@pinkpuma/deck": "1.0.0"
+    "@pinkpuma/deck": "1.1.0"
   }
 }
