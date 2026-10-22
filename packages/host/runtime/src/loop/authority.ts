@@ -237,6 +237,8 @@ export function openLine(input: {
 export async function refreshWorkLine(input: {
   workLineStable: string;
   workLineTarget: string;
+  /** The line `workLineTarget` was cut from, when it is a Feature's line. */
+  workLineBase?: string | undefined;
   refreshArgv: string[];
   timeoutMs: number;
   env?: Record<string, string> | undefined;
@@ -247,7 +249,12 @@ export async function refreshWorkLine(input: {
   }
   const run = await runSlot({
     command,
-    args: [...rest, "--target", input.workLineTarget],
+    args: [
+      ...rest,
+      "--target",
+      input.workLineTarget,
+      ...(input.workLineBase === undefined ? [] : ["--base", input.workLineBase]),
+    ],
     cwd: input.workLineStable,
     timeoutMs: input.timeoutMs,
     env: { ...process.env, ...input.env },

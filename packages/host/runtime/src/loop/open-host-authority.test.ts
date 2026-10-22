@@ -351,6 +351,35 @@ const eventsOf = (stub: Stub, key: string): string[] =>
   stub.reports.filter((report) => report.key === key).map((report) => report.event);
 
 describe("host with an Authority", () => {
+  it("refreshes a Feature's line against the final line before its first Ticket starts", async () => {
+    const paths = sandbox();
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
+    const seen = join(paths.root, "refresher-argv.jsonl");
+    const recording = join(paths.root, "recording-refresher.mjs");
+    writeFileSync(
+      recording,
+      `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)) + "\\n"); console.log('{"ok":true}');\n`,
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        authority: {
+          enabled: true,
+          publishArgv: slot(paths.root, "publisher", { ref: "shelf/42" }),
+          refreshArgv: [node, recording],
+        },
+      }),
+      { journal: memoryJournal() },
+    );
+
+    await host.runOnce();
+
+    const calls = readFileSync(seen, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    assert.deepEqual(calls[0], ["--target", LINE, "--base", TARGET]);
+  });
+
   it("makes a Ticket on the Feature's line, offers it there, folds it, then offers the line", async () => {
     const paths = sandbox();
     const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });

@@ -33,8 +33,9 @@ function setup(): { copy: string; remote: string } {
   return { copy, remote };
 }
 
-function refresh(cwd: string, target: string): "refreshed" | "refused" {
-  const result = spawnSync(process.execPath, [refresher, "--target", target], {
+function refresh(cwd: string, target: string, base?: string): "refreshed" | "refused" {
+  const args = base === undefined ? [] : ["--base", base];
+  const result = spawnSync(process.execPath, [refresher, "--target", target, ...args], {
     cwd,
     encoding: "utf8",
   });
@@ -65,5 +66,46 @@ describe("git refresher", () => {
   it("refuses a line the remote does not have", () => {
     const { copy } = setup();
     assert.equal(refresh(copy, "feature/none"), "refused");
+  });
+
+  describe("a feature line given its base", () => {
+    /** `feature/y` cut from main's only commit, then main moves on by one. */
+    function behind(): { copy: string; remote: string; mainTip: string } {
+      const { copy, remote } = setup();
+      git(remote, "branch", "feature/y", "main");
+      writeFileSync(join(remote, "c.txt"), "c");
+      git(remote, "add", "-A");
+      git(remote, "commit", "-qm", "c");
+      return { copy, remote, mainTip: git(remote, "rev-parse", "main") };
+    }
+
+    it("fast-forwards a line with no commit of its own to the base, copy and remote", () => {
+      const { copy, remote, mainTip } = behind();
+      assert.equal(refresh(copy, "feature/y", "main"), "refreshed");
+      assert.equal(git(copy, "symbolic-ref", "--short", "HEAD"), "feature/y");
+      assert.equal(git(copy, "rev-parse", "HEAD"), mainTip);
+      assert.equal(git(remote, "rev-parse", "feature/y"), mainTip);
+    });
+
+    it("leaves a line with commits of its own where it is", () => {
+      const { copy, remote } = behind();
+      const own = git(remote, "rev-parse", "feature/x");
+      assert.equal(refresh(copy, "feature/x", "main"), "refreshed");
+      assert.equal(git(copy, "rev-parse", "HEAD"), own);
+      assert.equal(git(remote, "rev-parse", "feature/x"), own);
+    });
+
+    it("does nothing when the line already is the base", () => {
+      const { copy, remote } = setup();
+      git(remote, "branch", "feature/y", "main");
+      const tip = git(remote, "rev-parse", "main");
+      assert.equal(refresh(copy, "feature/y", "main"), "refreshed");
+      assert.equal(git(copy, "rev-parse", "HEAD"), tip);
+    });
+
+    it("refuses a base the remote does not have", () => {
+      const { copy } = behind();
+      assert.equal(refresh(copy, "feature/y", "nowhere"), "refused");
+    });
   });
 });

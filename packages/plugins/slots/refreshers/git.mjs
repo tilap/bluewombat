@@ -23,6 +23,12 @@ import {
 // fast-forward has been written to by somebody else, and that is a person's
 // problem, not a merge to attempt.
 //
+// A Feature's line cut from the final branch that has no commit of its own is
+// only a stale copy of it: when `--base` names that branch and the line is an
+// ancestor of it, the line is fast-forwarded to it, here and on the remote, so
+// a Ticket starts from the code as it now is. A line with commits of its own
+// is left alone.
+//
 // The remote is `origin`, like the git Publisher's. Takes no option.
 
 const cwd = process.cwd();
@@ -53,6 +59,34 @@ if (fetched.status !== 0) {
   process.exit(0);
 }
 
+const base = take(process.argv, "--base");
+let goal = `origin/${target}`;
+if (base !== undefined && base.trim().length > 0 && base !== target) {
+  const fetchedBase = git(["fetch", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`]);
+  if (fetchedBase.status !== 0) {
+    emitRefreshRefusal(
+      `Cannot fetch origin/${base} from ${cwd}: ${fetchedBase.stderr.trim().slice(-500)}`,
+    );
+    process.exit(0);
+  }
+  const behindBase =
+    git(["merge-base", "--is-ancestor", `origin/${target}`, `origin/${base}`]).status === 0;
+  if (
+    behindBase &&
+    git(["rev-parse", `origin/${target}`]).stdout !== git(["rev-parse", `origin/${base}`]).stdout
+  ) {
+    // A plain push: never forced, so it only ever adds history.
+    const pushed = git(["push", "origin", `refs/remotes/origin/${base}:refs/heads/${target}`]);
+    if (pushed.status !== 0) {
+      emitRefreshRefusal(
+        `Cannot move origin/${target} up to origin/${base}: ${pushed.stderr.trim().slice(-500)}`,
+      );
+      process.exit(0);
+    }
+    goal = `origin/${base}`;
+  }
+}
+
 const current = git(["symbolic-ref", "--short", "HEAD"]);
 if (current.status !== 0 || current.stdout.trim() !== target) {
   const exists = git(["rev-parse", "--verify", "--quiet", `refs/heads/${target}`]).status === 0;
@@ -65,7 +99,7 @@ if (current.status !== 0 || current.stdout.trim() !== target) {
   }
 }
 
-const merged = git(["merge", "--ff-only", `origin/${target}`]);
+const merged = git(["merge", "--ff-only", goal]);
 if (merged.status !== 0) {
   // The one way a copy stops fast-forwarding is a commit made into it that
   // the reference does not have. The copy is the system's, not a person's:

@@ -390,6 +390,9 @@ async function refreshOnto(input: HostDeliveryInput, branch: string | undefined)
   const refreshed = await refreshWorkLine({
     workLineStable: input.workLine.stable,
     workLineTarget: branch,
+    // A Feature's line that has not moved is brought up to the final branch
+    // first, so its Tickets read the code as it now is.
+    workLineBase: branch === input.workLine.target ? undefined : input.workLine.target,
     refreshArgv: input.options.authority?.refreshArgv ?? [],
     timeoutMs: input.options.timeoutMs,
     env: input.workLine.env,
