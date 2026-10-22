@@ -359,6 +359,10 @@ describe("builder tests", () => {
     assert.match(prompt, /WRITE THE TESTS OF THIS TASK, AND ONLY THE TESTS/);
     assert.match(prompt, /must FAIL now/);
     assert.match(prompt, /minimal stub/);
+    // The tests are proved passable by running them green on a throwaway implementation.
+    assert.match(prompt, /red, green, red/);
+    assert.match(prompt, /Put every stub body back to no behaviour/);
+    assert.match(prompt, /no "Tests" section/);
     assert.match(prompt, /Write delivered\.txt/);
   });
 

@@ -53,30 +53,30 @@ these all use it. How Host wires a slot into a run:
 
 ## Catalogue
 
-| Slot                          | Kind      | Answers                                                                                    |
-| ----------------------------- | --------- | ------------------------------------------------------------------------------------------ |
-| `agents/cursor.mjs`           | Agent     | Runs Cursor CLI with a filled prompt                                                       |
-| `agents/claude.mjs`           | Agent     | Runs Claude Code with a filled prompt                                                      |
-| `builders/tests.mjs`          | Builder   | The tests of the task, written before its code: one test per case of its "Tests" section, stubs for a missing interface, tests that fail now. |
-| `builders/producer.mjs`       | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                             |
-| `builders/repair.mjs`         | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                               |
-| `ticket/fix.mjs`              | Builder   | A judgement refused the assembled ticket: fill `{{task}}` and `{{report}}`              |
-| `feature/validate.mjs`        | Builder   | Read-only review of the whole feature against its request: fill `{{task}}`; same verdict line as `ticket/validate.mjs` |
-| `feature/fix.mjs`             | Builder   | A judgement refused the whole feature: fill `{{task}}` and `{{report}}`                 |
-| `ticket/validate.mjs`         | Builder   | Read-only review of the assembled work: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …` |
-| `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
-| `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
-| `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
-| `gates/workspace-unchanged.mjs` | Gate    | A read-only pass changed nothing at all (a file modified, deleted or added)                |
-| `gates/gitignore-leak.mjs`    | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                            |
-| `gates/project-checks.mjs`    | Gate      | One command of the Project's own (typecheck, tests, lint, build) exits 0 in the workspace  |
-| `gates/tests-red.mjs`         | Gate      | The tests just written fail, and not on a missing import or a syntax error (`--cmd` with `{files}`, `--test-glob`, `--not-red-when`). |
-| `gates/tests-frozen.mjs`      | Gate      | A test file held by the "Tests: " checkpoint was not modified, deleted or renamed (`--test-glob`, `--subject-prefix`) |
-| `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
-| `publishers/git.mjs`          | Publisher | Pushes the ticket's branch to the work line's own remote                                  |
-| `refreshers/git.mjs`          | Refresher | Fast-forwards the work line copy onto what the Authority holds                             |
-| `messages/conventional.mjs`   | Message   | `<type>: <title>` for the ticket's fold, no agent; `--scope`, `--type`                    |
-| `messages/git-producer.mjs`   | Describer | An agent reads the git diff and writes the ticket's subject and body under `--rules-file` |
+| Slot                            | Kind      | Answers                                                                                                                                                                                                                                               |
+| ------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents/cursor.mjs`             | Agent     | Runs Cursor CLI with a filled prompt                                                                                                                                                                                                                  |
+| `agents/claude.mjs`             | Agent     | Runs Claude Code with a filled prompt                                                                                                                                                                                                                 |
+| `builders/tests.mjs`            | Builder   | The tests of the task, written before its code: one test per case of its "Tests" section (or per criterion when it has none), stubs for a missing interface, each test proved passable by a throwaway implementation in the stubs, then left failing. |
+| `builders/producer.mjs`         | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                                                                                                                                                                                 |
+| `builders/repair.mjs`           | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                                                                                                                                                                                             |
+| `ticket/fix.mjs`                | Builder   | A judgement refused the assembled ticket: fill `{{task}}` and `{{report}}`                                                                                                                                                                            |
+| `feature/validate.mjs`          | Builder   | Read-only review of the whole feature against its request: fill `{{task}}`; same verdict line as `ticket/validate.mjs`                                                                                                                                |
+| `feature/fix.mjs`               | Builder   | A judgement refused the whole feature: fill `{{task}}` and `{{report}}`                                                                                                                                                                               |
+| `ticket/validate.mjs`           | Builder   | Read-only review of the assembled work: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …`                                                                                                                            |
+| `gates/workspace-changed.mjs`   | Gate      | The Attempt left an uncommitted change                                                                                                                                                                                                                |
+| `gates/parent-clean.mjs`        | Gate      | Isolator's Parent working files did not move                                                                                                                                                                                                          |
+| `gates/sensitive-path.mjs`      | Gate      | No path matching a glob was touched                                                                                                                                                                                                                   |
+| `gates/workspace-unchanged.mjs` | Gate      | A read-only pass changed nothing at all (a file modified, deleted or added)                                                                                                                                                                           |
+| `gates/gitignore-leak.mjs`      | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                                                                                                                                                                                        |
+| `gates/project-checks.mjs`      | Gate      | One command of the Project's own (typecheck, tests, lint, build) exits 0 in the workspace                                                                                                                                                             |
+| `gates/tests-red.mjs`           | Gate      | The tests just written fail, and not on a missing import or a syntax error (`--cmd` with `{files}`, `--test-glob`, `--not-red-when`).                                                                                                                 |
+| `gates/tests-frozen.mjs`        | Gate      | A test file held by the "Tests: " checkpoint was not modified, deleted or renamed (`--test-glob`, `--subject-prefix`)                                                                                                                                 |
+| `gates/ci-green.mjs`            | Gate      | The work line's own checks came back green                                                                                                                                                                                                            |
+| `publishers/git.mjs`            | Publisher | Pushes the ticket's branch to the work line's own remote                                                                                                                                                                                              |
+| `refreshers/git.mjs`            | Refresher | Fast-forwards the work line copy onto what the Authority holds                                                                                                                                                                                        |
+| `messages/conventional.mjs`     | Message   | `<type>: <title>` for the ticket's fold, no agent; `--scope`, `--type`                                                                                                                                                                                |
+| `messages/git-producer.mjs`     | Describer | An agent reads the git diff and writes the ticket's subject and body under `--rules-file`                                                                                                                                                             |
 
 ## Agents
 
@@ -107,26 +107,26 @@ lowers a risk and confines nothing (RESERVATIONS F32). `claude.mjs`
 needs `claude`, signed in once, and refuses those two flags: Claude is not
 isolated yet, and starting it would keep the operator's own config.
 
-| Option                             | Meaning                                                                          |
-| ---------------------------------- | -------------------------------------------------------------------------------- |
-| `--prompt TEXT`                    | The filled prompt. Mutually exclusive with `--prompt-file`                       |
-| `--prompt-file PATH`               | The same text, from a file. No interpolation                                     |
-| `--bin PATH`                       | The CLI to run. Default: the vendor's own name, on PATH                          |
-| `--model NAME`                     | Model for that run                                                               |
-| `--output-format FMT`              | `stream-json` (default), `json`, or `text`. Skill extraction needs `stream-json` |
-| `--permission-mode MODE`           | `claude.mjs` only. Default `bypassPermissions`                                   |
-| `--transcript-dir PATH`            | Write one file per turn under here. Off unless given                             |
-| `--transcript-part NAME`           | `prompt`, `stdout`, `stderr`, `timing`. Repeatable. Default: all                 |
-| `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                          |
-| `--agent-home DIR`                 | Isolate the vendor process: its `HOME` is this directory. Cursor only; Claude refuses |
-| `--api-key-env NAME`               | With `--agent-home`, read `process.env[NAME]` for the vendor key. Never the value itself |
-| `--pass-env NAME`                  | With `--agent-home`, also hand the vendor this environment variable. Repeatable |
-| `--deny-shell NAME`                | With `--agent-home`, also refuse this command to the vendor (`gh`, `vercel`…). `ssh` and `scp` always are. Repeatable |
-| `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first |
+| Option                             | Meaning                                                                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `--prompt TEXT`                    | The filled prompt. Mutually exclusive with `--prompt-file`                                                                      |
+| `--prompt-file PATH`               | The same text, from a file. No interpolation                                                                                    |
+| `--bin PATH`                       | The CLI to run. Default: the vendor's own name, on PATH                                                                         |
+| `--model NAME`                     | Model for that run                                                                                                              |
+| `--output-format FMT`              | `stream-json` (default), `json`, or `text`. Skill extraction needs `stream-json`                                                |
+| `--permission-mode MODE`           | `claude.mjs` only. Default `bypassPermissions`                                                                                  |
+| `--transcript-dir PATH`            | Write one file per turn under here. Off unless given                                                                            |
+| `--transcript-part NAME`           | `prompt`, `stdout`, `stderr`, `timing`. Repeatable. Default: all                                                                |
+| `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                                                                         |
+| `--agent-home DIR`                 | Isolate the vendor process: its `HOME` is this directory. Cursor only; Claude refuses                                           |
+| `--api-key-env NAME`               | With `--agent-home`, read `process.env[NAME]` for the vendor key. Never the value itself                                        |
+| `--pass-env NAME`                  | With `--agent-home`, also hand the vendor this environment variable. Repeatable                                                 |
+| `--deny-shell NAME`                | With `--agent-home`, also refuse this command to the vendor (`gh`, `vercel`…). `ssh` and `scp` always are. Repeatable           |
+| `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first                                |
 | `--app-deck-profile PATH`          | The app's deck profile for this role, as a path in the checkout: `[<app dir>/].ai/profiles/<name>`. Cursor only; Claude refuses |
-| `--plugins-out DIR`                | Where the profile is built, one folder per profile. Required with `--app-deck-profile`; never the workspace |
-| `--deck-bin PATH`                  | The deck CLI. Default: the `@pinkpuma/deck` this package depends on |
-| `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                 |
+| `--plugins-out DIR`                | Where the profile is built, one folder per profile. Required with `--app-deck-profile`; never the workspace                     |
+| `--deck-bin PATH`                  | The deck CLI. Default: the `@pinkpuma/deck` this package depends on                                                             |
+| `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                                                                |
 
 ### Plugins
 
@@ -144,11 +144,11 @@ no committed lock pins, and the wrapper then refuses before the vendor starts
 role refuses the same way until the project is fixed; `mason doctor` says so
 first.
 
-| The project has                         | The agent gets                       |
-| --------------------------------------- | ------------------------------------ |
-| `.ai/profiles/<name>/ai-plugin.json`    | the base and that profile            |
-| only a base `ai-plugin.json`            | the base, and a note on stderr       |
-| no deck file at all                     | the `--plugin-dir` folders only      |
+| The project has                      | The agent gets                  |
+| ------------------------------------ | ------------------------------- |
+| `.ai/profiles/<name>/ai-plugin.json` | the base and that profile       |
+| only a base `ai-plugin.json`         | the base, and a note on stderr  |
+| no deck file at all                  | the `--plugin-dir` folders only |
 
 A non-empty `.ai/profiles/<name>/prompt.md` is appended to the filled prompt
 under `## Project instructions for this role`: what the project wants from that
@@ -171,12 +171,12 @@ The agent CLI prints **one JSON line** — a `SerializedRun` from
 `@bluewombat/slot-kit` — with the vendor's raw streams plus the extras the
 wrapper fills when it can:
 
-| Field    | Meaning                                                                                                                                              |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skills` | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                         |
-| `usage`  | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost) |
-| `plugins` | Absent when no plugin folder was loaded. Otherwise each folder: `id`, `path`, `from` (`local` or `deck`), and `integrity` (deck's, `null` for a local one) |
-| `tools`  | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`, plus `getMcpTools` when the agent only listed a server's tools), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
+| Field     | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `skills`  | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                                                                                                                                                                                                                                                                                                                                                               |
+| `usage`   | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost)                                                                                                                                                                                                                                                                                                                                       |
+| `plugins` | Absent when no plugin folder was loaded. Otherwise each folder: `id`, `path`, `from` (`local` or `deck`), and `integrity` (deck's, `null` for a local one)                                                                                                                                                                                                                                                                                                                                 |
+| `tools`   | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`, plus `getMcpTools` when the agent only listed a server's tools), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
 
 Cursor extracts skills from `stream-json` `readToolCall` paths ending in
 `/skills/<name>/SKILL.md`. Claude extracts them from `tool_use` blocks named
@@ -245,14 +245,14 @@ committed in the Project travels with it.
 Each role owns a closed set. An unknown name, or a required name the template
 never places, is `fail-blocking`.
 
-| Role                | Required                              | Also fills                                                 |
-| ------------------- | ------------------------------------- | ---------------------------------------------------------- |
-| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{id}}`, `{{attempt}}`                     |
-| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`    |
-| `ticket/fix`        | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
-| `feature/validate`  | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
-| `feature/fix`       | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
-| `ticket/validate`   | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
+| Role                | Required                              | Also fills                                               |
+| ------------------- | ------------------------------------- | -------------------------------------------------------- |
+| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{id}}`, `{{attempt}}`                   |
+| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}` |
+| `ticket/fix`        | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}` |
+| `feature/validate`  | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                  |
+| `feature/fix`       | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}` |
+| `ticket/validate`   | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                  |
 
 A first-pass command that receives `--report` is `fail-blocking`: that report
 belongs to the repair command. A repair or fix command without `--report` is the same.
