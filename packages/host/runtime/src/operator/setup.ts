@@ -36,6 +36,11 @@ export async function runSetup(input: SetupInput): Promise<number> {
   }
   const invocation = parsed.invocation;
 
+  // The tracker round trips below can take a while: say something first.
+  input.write(
+    apply ? "Applying the configuration to the tracker...\n\n" : "Checking the tracker...\n\n",
+  );
+
   const common = {
     configDir: invocation.configDir,
     durationMs: invocation.timeoutMs,
