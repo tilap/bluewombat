@@ -35,7 +35,7 @@ export function openWarm(input: {
         cwd: workspace,
         timeoutMs: durationMs,
       });
-      if (flag !== undefined && flag.interrupted) {
+      if (flag?.interrupted) {
         return { outcome: "interrupted" };
       }
       if (run.error !== undefined) {

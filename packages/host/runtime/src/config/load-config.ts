@@ -14,7 +14,6 @@ import type {
   FeatureSpec,
   GatedPassSpec,
   HostDraft,
-  HostInvocation,
   ManagerSpec,
   ObservabilitySpec,
   PassSpec,
