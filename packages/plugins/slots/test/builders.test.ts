@@ -10,6 +10,7 @@ const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
 const producer = join(here, "../builders/producer.mjs");
 const repair = join(here, "../builders/repair.mjs");
+const e2eRole = join(here, "../builders/e2e.mjs");
 const testsRole = join(here, "../builders/tests.mjs");
 const ticketFix = join(here, "../ticket/fix.mjs");
 const featureFix = join(here, "../feature/fix.mjs");
@@ -796,5 +797,61 @@ describe("what the Task went through, and the way out", () => {
     const result = run(cwd, ["--bin", agentOk]);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout.trim()), { said: "done" });
+  });
+});
+
+describe("builder e2e", () => {
+  it("writes the suite from the scenarios, and tells the agent the form it takes", () => {
+    const cwd = sandbox();
+    const result = runRole(e2eRole, cursor, cwd, ["--bin", agentEchoArgv]);
+    assert.equal(result.status, 0, result.stderr);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /Write delivered\.txt/);
+    assert.match(prompt, /e2e\/scenarios\.json/);
+    assert.match(prompt, /start the name of each test with its scenario id/);
+    assert.match(prompt, /do not run the suite/);
+    assert.doesNotMatch(prompt, /It was refused/);
+  });
+
+  it("is the one command of a refused pass too: the refusal reaches the prompt, with who said it", () => {
+    const cwd = sandbox();
+    const result = runRole(
+      e2eRole,
+      cursor,
+      cwd,
+      ["--bin", agentEchoArgv],
+      [],
+      ["--attempt", "2", "--report", "S3 has no test", "--report-from", "e2e-form"],
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /refused\s+by e2e-form/);
+    assert.match(prompt, /S3 has no test/);
+  });
+
+  it("takes the Project's own template, with the report and the refusal as placeholders", () => {
+    const cwd = sandbox();
+    const template = join(cwd, "prompt.md");
+    writeFileSync(template, "Scenarios: {{task}}\n[{{refused_by}}] {{report}}\n{{rules}}\n");
+    const result = runRole(
+      e2eRole,
+      cursor,
+      cwd,
+      ["--bin", agentEchoArgv],
+      ["--prompt-file", template],
+      ["--report", "no manifest", "--report-from", "e2e-form"],
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(echoedPrompt(cwd), /\[e2e-form\] no manifest/);
+  });
+
+  it("fail-blocking when there is no intention", () => {
+    const cwd = sandbox();
+    const result = spawnSync(node, [e2eRole, "--", node, cursor, "--bin", agentOk], {
+      cwd,
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(failureOf(result.stdout).outcome, "fail-blocking");
   });
 });

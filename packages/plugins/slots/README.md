@@ -58,6 +58,7 @@ these all use it. How Host wires a slot into a run:
 | `agents/cursor.mjs`             | Agent     | Runs Cursor CLI with a filled prompt                                                                                                                                                                                                                  |
 | `agents/claude.mjs`             | Agent     | Runs Claude Code with a filled prompt                                                                                                                                                                                                                 |
 | `builders/tests.mjs`            | Builder   | The tests of the task, written before its code: one test per case of its "Tests" section (or per criterion when it has none), stubs for a missing interface, each test proved passable by a throwaway implementation in the stubs, then left failing. |
+| `builders/e2e.mjs`              | Builder   | The Ticket that holds a Feature's e2e acceptance suite: one test per scenario of the task, named after its id, and the manifest `e2e/scenarios.json`; nothing outside the suite folder, the suite never run. One command for the first pass and a refused one |
 | `builders/producer.mjs`         | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                                                                                                                                                                                 |
 | `builders/repair.mjs`           | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                                                                                                                                                                                             |
 | `ticket/fix.mjs`                | Builder   | A judgement refused the assembled ticket: fill `{{task}}` and `{{report}}`                                                                                                                                                                            |
@@ -72,6 +73,7 @@ these all use it. How Host wires a slot into a run:
 | `gates/project-checks.mjs`      | Gate      | One command of the Project's own (typecheck, tests, lint, build) exits 0 in the workspace                                                                                                                                                             |
 | `gates/tests-red.mjs`           | Gate      | The tests just written fail, and not on a missing import or a syntax error (`--cmd` with `{files}`, `--test-glob`, `--not-red-when`).                                                                                                                 |
 | `gates/tests-frozen.mjs`        | Gate      | A test file held by the "Tests: " checkpoint was not modified, deleted or renamed (`--test-glob`, `--subject-prefix`)                                                                                                                                 |
+| `gates/e2e.mjs`                 | Gate      | The Feature's acceptance suite, run once on the assembled line: the Project's `--up` / `--ready` / `--run` / `--down`, a JUnit report compared with the manifest of scenario ids, each failing test retried once. |
 | `gates/ci-green.mjs`            | Gate      | The work line's own checks came back green                                                                                                                                                                                                            |
 | `publishers/git.mjs`            | Publisher | Pushes the ticket's branch to the work line's own remote                                                                                                                                                                                              |
 | `refreshers/git.mjs`            | Refresher | Fast-forwards the work line copy onto what the Authority holds                                                                                                                                                                                        |
@@ -508,6 +510,64 @@ without the other.
 is what Isolator makes when WorkLineStable is a git tree. They fail-block on a
 workspace Isolator had to copy.
 
+### The e2e acceptance suite
+
+`e2e.mjs` runs a Feature's acceptance suite on the assembled Feature line, from a Feature Gate
+(`feature.validate.gates`). It knows no stack: the Project supplies four commands, run through
+the shell in the workspace, and the Gate starts, waits, runs, compares and always stops.
+
+| Option | Meaning |
+| --- | --- |
+| `--up CMD` | Required. Starts the application. It may return once started or keep running; the Gate does not wait for it, it waits for `--ready`. An `--up` that exits non-zero before that is a start failure |
+| `--ready CMD` | Required. Exit 0 when the application answers. Polled every second until `--start-timeout-ms` |
+| `--run CMD` | Required. Runs the suite and writes a JUnit XML report to `--junit` |
+| `--rerun CMD` | Runs the failed scenarios again; `{ids}` is their ids joined with `\|` (a regular expression, `pnpm e2e --grep "{ids}"`). Absent: `--run` again, whole |
+| `--down CMD` | Required. Stops the application. Always run, whatever happened; the process group of `--up` is killed after it |
+| `--manifest PATH` | The scenarios the suite must hold. Default `e2e/scenarios.json`: an array of ids, or `{ "scenarios": [ "E1" \| { "id": "E1", "title": "…" } ] }` |
+| `--junit PATH` | Where `--run` writes its report. Default `e2e/results/junit.xml`. Removed before every run, so an old report is never read |
+| `--server-log PATH` | The application's log, whose tail goes in a red report. Default: what `--up` printed |
+| `--max-scenarios N` | The most scenarios a suite may hold. Default 5 |
+| `--max-run-ms N` | The most the whole Gate may take. Default 600000 (10 minutes), and never more than the Gate's own ceiling less 25 s |
+| `--start-timeout-ms N` | The most `--up` and `--ready` may take together. Default 120000 |
+| `--host HOST` | Handed to every command as `E2E_HOST`. Default `127.0.0.1`; any non-loopback address is refused |
+| `--port N` | Handed to every command as `E2E_PORT`. Absent: the application's own choice |
+
+Every command also gets `E2E_DATA_DIR`, an empty directory made for the run and removed after it
+(the data is disposable), and `E2E_RESULTS_DIR`, the folder of `--junit`. A secret is not an
+option of the Gate: the commands read it from the environment mason was started in, and it
+belongs in no file of the repository.
+
+A scenario is a manifest id, and every test carries its id in its name (`E2 pays by card`). The
+comparison is exact: an id with no test, a test with no manifest id, and a test the runner
+skipped are failures. A failing test is run once more: a pass then is reported `UNSTABLE`, and
+is not a refusal; failing twice is red. The verdict:
+
+| Verdict | When |
+| --- | --- |
+| `pass` | Every scenario ran and passed. The report says how many and which, and which were unstable |
+| `fail-retryable` | Red: the report has, per scenario, its id, the test, the step (`at`), the message, the trace path when the runner saved one, then the last 40 lines of the server log. Screenshots and traces stay on disk beside the report. The suite is frozen; the application is the producer's to repair. Also a runner that crashed before writing a report |
+| `fail-blocking` | What no change to the application fixes: a missing, empty or oversized manifest, an application that does not start or is never ready, a run or a retry that outlives the ceiling, a suite that exits 0 and writes no report, a non-loopback `--host` |
+
+The Project's `.gitignore` excludes the results folder (`e2e/results/`): a Gate that guards the
+suite folder (`sensitive-path e2e/**` in `feature.fix.gates`) would read the report as a change.
+
+```yaml
+- id: e2e
+  skipWhen: skip-test-e2e   # Host's: not run for a Feature that carries the label
+  timeoutMs: 720000
+  argv:
+    - node
+    - ./node_modules/@bluewombat/slots/gates/e2e.mjs
+    - --up
+    - pnpm e2e:up
+    - --ready
+    - pnpm e2e:ready
+    - --run
+    - pnpm e2e
+    - --down
+    - pnpm e2e:down
+```
+
 ## Publishers
 
 The slot that puts an assembled ticket where the Authority can read it. It runs
@@ -590,7 +650,7 @@ type in JSDoc.
 ```
 README.md      this file
 agents/        vendor CLIs: filled prompt in, serialized run out
-builders/      first-pass and repair roles for the unit of work
+builders/      first-pass and repair roles for the unit of work, and the e2e Ticket's
 ticket/        fix and validate for an assembled ticket
 feature/       fix for a whole feature
 lib/           what the shipped templates say, shared by the roles
