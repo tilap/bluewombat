@@ -45,6 +45,8 @@ export type FeatureCommands = {
   clearFeatureParkedRefusal(key: string): Promise<CommandResult>;
   /** `submitted` → `done`. */
   markFeatureDone(key: string, input?: { reference?: string | undefined }): Promise<CommandResult>;
+  /** The tracker's e2e skip label moved: honoured while the Feature waits, is open or is escalated. */
+  setFeatureSkipE2e(input: { key: string; skip: boolean }): Promise<CommandResult>;
   /** `open` or `submitted` → `escalated`, for a human. Consumes a pending edit. */
   escalateFeature(input: { key: string; report?: string }): Promise<CommandResult>;
   /** `escalated` → `open`, a round later. */
@@ -67,6 +69,9 @@ function cloneIntention(feature: FeatureAdmission): FeatureIntention {
     blocked_by: [...feature.blocked_by],
     merge_when_ready: feature.merge_when_ready,
   };
+  if (feature.skip_e2e === true) {
+    intention.skip_e2e = true;
+  }
   if (feature.title !== undefined) {
     intention.title = feature.title;
   }
@@ -305,6 +310,16 @@ export function openFeatureCommands(options: {
         aggregate.state = "open";
         aggregate.resumes += 1;
         delete aggregate.escalation;
+      });
+    },
+
+    async setFeatureSkipE2e(input) {
+      return await transition(input.key, ["waiting", "open", "escalated"], (aggregate) => {
+        if (input.skip) {
+          aggregate.intention.skip_e2e = true;
+        } else {
+          delete aggregate.intention.skip_e2e;
+        }
       });
     },
 

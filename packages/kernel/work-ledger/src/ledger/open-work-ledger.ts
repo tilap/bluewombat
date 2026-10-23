@@ -156,6 +156,9 @@ function cloneIntention(ticket: TicketAdmission): TicketIntention {
   if (ticket.no_tests === true) {
     intention.no_tests = true;
   }
+  if (ticket.e2e === true) {
+    intention.e2e = true;
+  }
   return intention;
 }
 
