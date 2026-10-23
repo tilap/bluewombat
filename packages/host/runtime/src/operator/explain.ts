@@ -92,6 +92,10 @@ export const PROMPT_PLACEHOLDERS: Record<
     known: ["task", "history", "rules", "id", "attempt"],
     required: ["task", "rules"],
   },
+  "builder.e2e": {
+    known: ["task", "history", "refusal", "report", "refused_by", "rules", "id", "attempt"],
+    required: ["task", "rules"],
+  },
   "builder.repair": {
     known: ["task", "history", "report", "refused_by", "rules", "id", "attempt"],
     required: ["task", "report", "rules"],
@@ -155,6 +159,7 @@ function rolesOf(invocation: HostInvocation): RoleDef[] {
   const withAgent = (review: ReviewSpec | undefined): GatedPassSpec | undefined =>
     review !== undefined && hasAgent(review) ? review : undefined;
   add("builder.tests", withAgent(invocation.builder.tests), invocation.builder.maxAttempts);
+  add("builder.e2e", invocation.builder.e2e, invocation.builder.maxAttempts);
   add("builder.producer", invocation.builder.producer, invocation.builder.maxAttempts);
   add("builder.repair", invocation.builder.repair, invocation.builder.maxAttempts);
   add("ticket.fix", invocation.ticket.fix, invocation.ticket.maxAttempts);

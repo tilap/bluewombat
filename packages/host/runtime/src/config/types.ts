@@ -2,10 +2,24 @@ import type { GateSpec } from "@bluewombat/implementer";
 import type { ManagerModule } from "@bluewombat/manager-kit";
 
 /**
+ * What a Feature can say that makes Host leave a Gate out. Names are the ones a Gate's `skipWhen`
+ * is written with, whatever the tracker calls the label behind them.
+ */
+export const SKIP_WHEN = ["skip-test-e2e"] as const;
+export type SkipWhen = (typeof SKIP_WHEN)[number];
+
+/**
+ * A Gate as the config writes it: Implementer's, and the condition under which Host does not run
+ * it. A Gate that is not run is not a Gate that passed: Host says so in its journal and trace, and
+ * the Gate itself knows nothing of it. Only a Feature's Gates take one.
+ */
+export type HostGateSpec = GateSpec & { skipWhen?: SkipWhen };
+
+/**
  * A command with its own Gate sequence. Every role is gated independently —
  * no sharing, no dispatch choosing between two buckets (see DECISIONS.md).
  */
-export type GatedPassSpec = PassSpec & { gates: GateSpec[] };
+export type GatedPassSpec = PassSpec & { gates: HostGateSpec[] };
 
 /**
  * A review: an agent and the Gates that follow it — or, with `agent: false`,
@@ -13,7 +27,7 @@ export type GatedPassSpec = PassSpec & { gates: GateSpec[] };
  * and keeps its checks; with no Gates either, the review is off altogether. A
  * review is always written, so that turning it off is a choice that shows.
  */
-export type ReviewSpec = GatedPassSpec | { agent: false; gates: GateSpec[] };
+export type ReviewSpec = GatedPassSpec | { agent: false; gates: HostGateSpec[] };
 
 /** Whether a review does anything: an agent to run, or Gates to ask. */
 export function isOn(review: ReviewSpec | undefined): boolean {
@@ -192,6 +206,13 @@ export type StageSpec = {
    * `agent: false` no tests are written first.
    */
   tests?: ReviewSpec;
+  /**
+   * The Ticket that holds a Feature's e2e acceptance suite (the tracker's e2e label) is made by
+   * this pass instead of the producer and the repair: its own command, its own Gates, nothing
+   * borrowed from them. Declaring it declares the e2e check: a Feature needs an e2e Ticket or the
+   * skip label, and a Feature Gate with `skipWhen: skip-test-e2e` runs the suite.
+   */
+  e2e?: GatedPassSpec;
 };
 
 /**
@@ -232,7 +253,7 @@ export type TicketSpec = {
    */
   validate?: ReviewSpec;
   /** The judgement-only pass's own sequence — see above. */
-  gates: GateSpec[];
+  gates: HostGateSpec[];
 };
 
 /**
@@ -258,7 +279,7 @@ export type FeatureSpec = {
    */
   validate: ReviewSpec;
   /** Judges the published line, with nothing produced (the CI). At least one. */
-  gates: GateSpec[];
+  gates: HostGateSpec[];
 };
 
 /**

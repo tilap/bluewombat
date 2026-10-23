@@ -149,6 +149,7 @@ function transcriptDir(invocation: HostInvocation): string | undefined {
     ...(invocation.builder.tests === undefined || !hasAgent(invocation.builder.tests)
       ? []
       : [invocation.builder.tests.cmd]),
+    ...(invocation.builder.e2e === undefined ? [] : [invocation.builder.e2e.cmd]),
     invocation.builder.producer.cmd,
     invocation.builder.repair.cmd,
     ...(invocation.ticket.fix === undefined ? [] : [invocation.ticket.fix.cmd]),

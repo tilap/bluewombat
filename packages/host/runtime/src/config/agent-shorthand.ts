@@ -31,6 +31,7 @@ export const ROLE_SCRIPTS = {
   "builder.producer": "builders/producer.mjs",
   "builder.repair": "builders/repair.mjs",
   "builder.tests": "builders/tests.mjs",
+  "builder.e2e": "builders/e2e.mjs",
   "ticket.fix": "ticket/fix.mjs",
   "ticket.validate": "ticket/validate.mjs",
   "feature.fix": "feature/fix.mjs",

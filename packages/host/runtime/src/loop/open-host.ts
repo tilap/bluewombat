@@ -214,6 +214,17 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     ...(options.feature === undefined ? {} : { feature: options.feature }),
     isolation: resolved.strategy.isolation,
     fold: resolved.strategy.fold,
+    // Read from the ledger as each pass starts: the tracker's labels move while work is made.
+    marks: {
+      async ticketIsE2e(key) {
+        const got = await ledger.get(key);
+        return got.ok && got.aggregate.intention.e2e === true;
+      },
+      async featureSkipsE2e(key) {
+        const got = await ledger.getFeature(key);
+        return got.ok && got.aggregate.intention.skip_e2e === true;
+      },
+    },
     timeoutMs: options.timeoutMs,
     interruptFlag,
   });

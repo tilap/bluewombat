@@ -105,6 +105,21 @@ async function admitFeature(input: HostDeliveryInput, feature: FeatureStandard):
   // about work already made: nothing here restarts it.
   const before = await input.ledger.getFeature(feature.key);
   if (before.ok && before.aggregate.state !== "waiting") {
+    // The label that leaves the e2e check out is the one thing a human can still change: it is
+    // honoured until the Feature is submitted, and read again by the check each time it runs.
+    if (before.aggregate.intention.skip_e2e !== feature.skip_e2e) {
+      const moved = await input.ledger.setFeatureSkipE2e({
+        key: feature.key,
+        skip: feature.skip_e2e,
+      });
+      if (moved.ok) {
+        input.journal.append({ event: "skip-e2e", key: feature.key, skip: feature.skip_e2e });
+        input.trace(
+          `feature    ${feature.key} ${feature.skip_e2e ? "now" : "no longer"} skips the e2e check`,
+        );
+        return;
+      }
+    }
     input.journal.append({ event: "skipped", key: feature.key, state: before.aggregate.state });
     return;
   }
@@ -118,6 +133,7 @@ async function admitFeature(input: HostDeliveryInput, feature: FeatureStandard):
     external_id: feature.external_id,
     blocked_by: feature.blocked_by,
     merge_when_ready: feature.merge_when_ready,
+    ...(feature.skip_e2e ? { skip_e2e: true } : {}),
     ...(feature.title === undefined ? {} : { title: feature.title }),
     ...(feature.source === undefined ? {} : { source: feature.source }),
   };
@@ -236,6 +252,11 @@ export async function advanceProject(
   }
 }
 
+/** What the tracker says of a Ticket beside its words. */
+function marksOf(entry: TicketEntry): { noTests: boolean; e2e: boolean } {
+  return { noTests: entry.no_tests, e2e: entry.e2e === true };
+}
+
 function refOf(feature: FeatureAggregate): FeatureRef {
   const { intention } = feature;
   return {
@@ -256,7 +277,7 @@ function admissionOf(
   ticket: TicketStandard,
   feature: FeatureAggregate,
   among: ReadonlySet<string>,
-  noTests: boolean,
+  marks: { noTests: boolean; e2e: boolean },
 ): TicketAdmission {
   return {
     key: ticket.key,
@@ -271,8 +292,55 @@ function admissionOf(
     ...(feature.line === undefined ? {} : { line: feature.line }),
     ...(ticket.title === undefined ? {} : { title: ticket.title }),
     ...(ticket.source === undefined ? {} : { source: ticket.source }),
-    ...(noTests ? { no_tests: true } : {}),
+    // The Ticket that holds the acceptance suite writes the tests itself: none are written first.
+    ...(marks.noTests || marks.e2e ? { no_tests: true } : {}),
+    ...(marks.e2e ? { e2e: true } : {}),
   };
+}
+
+/**
+ * What is wrong with a Feature of a Project that proves its Features by an e2e suite: it holds
+ * no e2e Ticket and is not marked to skip the check, holds several, or its e2e Ticket may start
+ * before the others have landed. Nothing: a Project without the check, or a Feature that skips it.
+ */
+function e2eRefusal(
+  input: HostDeliveryInput,
+  feature: FeatureAggregate,
+  live: readonly TicketEntry[],
+): string | undefined {
+  if (input.options.builder.e2e === undefined || feature.intention.skip_e2e === true) {
+    return undefined;
+  }
+  const holding = live.filter((entry) => entry.e2e);
+  const head =
+    "This Project proves each Feature by an e2e acceptance suite, run once on the whole Feature.";
+  if (holding.length === 0) {
+    return `${head} The Feature has no e2e Ticket and is not marked skip-test-e2e: add the e2e Ticket (the scenarios agreed with the operator, blocked by every other Ticket), or mark the Feature to skip the check.`;
+  }
+  if (holding.length > 1) {
+    return `${head} The Feature holds ${holding.length} e2e Tickets: it holds one, with all its scenarios.`;
+  }
+  const only = holding[0];
+  const others = live.filter((entry) => !entry.e2e).map((entry) => entry.ticket.key);
+  const missing = others.filter((key) => !only?.ticket.blocked_by.includes(key));
+  if (only !== undefined && missing.length > 0) {
+    return `${head} The e2e Ticket ${only.ticket.key} must be blocked by every other Ticket of the Feature, so that it lands last. It is not blocked by: ${missing.join(", ")}.`;
+  }
+  return undefined;
+}
+
+/** Whether a Feature still holds an e2e Ticket that was not cancelled. */
+async function holdsLiveE2eTicket(
+  input: HostDeliveryInput,
+  feature: FeatureAggregate,
+): Promise<boolean> {
+  for (const key of feature.tickets) {
+    const got = await input.ledger.get(key);
+    if (got.ok && got.aggregate.intention.e2e === true && got.aggregate.state !== "cancelled") {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -301,6 +369,23 @@ async function openNextFeature(input: HostDeliveryInput, project: string): Promi
       key: feature.intention.key,
       reason: live.length === 0 ? "it has no Ticket yet" : "a Ticket is not ready yet",
     });
+    return;
+  }
+
+  const refusal = e2eRefusal(input, feature, live);
+  if (refusal !== undefined) {
+    input.journal.append({ event: "invalid", key: feature.intention.key, reason: refusal });
+    await pushReport(
+      input,
+      {
+        event: "invalid",
+        key: feature.intention.key,
+        project,
+        eventId: `${feature.intention.key}:invalid:e2e:${refusal}`,
+        fields: { reason: refusal },
+      },
+      TO,
+    );
     return;
   }
 
@@ -348,7 +433,7 @@ async function openNextFeature(input: HostDeliveryInput, project: string): Promi
   }
   const withLine: FeatureAggregate = { ...feature, ...(line === undefined ? {} : { line }) };
   for (const entry of live) {
-    await input.ledger.admit(admissionOf(entry.ticket, withLine, among, entry.no_tests));
+    await input.ledger.admit(admissionOf(entry.ticket, withLine, among, marksOf(entry)));
   }
   input.journal.append({
     event: "feature-opened",
@@ -454,12 +539,29 @@ async function syncTicket(
   // fingerprint moves with every comment, and a unit in flight is not rewritten.
   // The label that says no tests are written first is not in the words, so it moves no
   // fingerprint: it is compared on its own.
+  const marks = marksOf(entry);
   const flagged = current.aggregate.intention.no_tests === true;
+  const holdsE2e = current.aggregate.intention.e2e === true;
   if (
     state === "received" &&
-    (current.aggregate.intention.fingerprint !== ticket.fingerprint || flagged !== entry.no_tests)
+    (current.aggregate.intention.fingerprint !== ticket.fingerprint ||
+      flagged !== (marks.noTests || marks.e2e) ||
+      holdsE2e !== marks.e2e)
   ) {
-    await input.ledger.admit(admissionOf(ticket, feature, known, entry.no_tests));
+    await input.ledger.admit(admissionOf(ticket, feature, known, marks));
+  }
+  // A Feature that is not put through the e2e check has no use of the Ticket that holds it.
+  if (feature.intention.skip_e2e === true && marks.e2e && LIVE.has(state)) {
+    input.journal.append({
+      event: "e2e-ticket-cancelled",
+      key: ticket.key,
+      feature: feature.intention.key,
+    });
+    input.trace(
+      `feature    ${feature.intention.key} skips the e2e check: ticket ${ticket.key} is cancelled`,
+    );
+    await cancelTicketByKey({ key: ticket.key, project: ticket.project }, input);
+    return;
   }
   if (entry.resume && state === "escalated") {
     await resumeTicketByKey({ key: ticket.key, project: ticket.project }, input);
@@ -722,6 +824,18 @@ async function closeFeature(
   const project = feature.intention.project;
   if (!tickets.some((summary) => summary.state === "done")) {
     await escalateFeature(input, feature, "Every Ticket was abandoned, so nothing was made.");
+    return;
+  }
+  if (
+    input.options.builder.e2e !== undefined &&
+    feature.intention.skip_e2e !== true &&
+    !(await holdsLiveE2eTicket(input, feature))
+  ) {
+    await escalateFeature(
+      input,
+      feature,
+      "This Feature is not marked skip-test-e2e and holds no e2e Ticket: it was cancelled while the Feature skipped the check, and the mark was taken off since. Mark the Feature skip-test-e2e again to leave the check out.",
+    );
     return;
   }
   if (input.authority === undefined || feature.line === undefined) {

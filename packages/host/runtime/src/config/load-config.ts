@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { GateSpec } from "@bluewombat/implementer";
 import { parse as parseYaml } from "yaml";
 import {
   type AgentRole,
@@ -14,13 +13,16 @@ import type {
   FeatureSpec,
   GatedPassSpec,
   HostDraft,
+  HostGateSpec,
   ManagerSpec,
   ObservabilitySpec,
   PassSpec,
   ReviewSpec,
+  SkipWhen,
   StageSpec,
   TicketSpec,
 } from "./types.js";
+import { SKIP_WHEN } from "./types.js";
 
 const KNOWN_KEYS = new Set([
   "featureTracker",
@@ -50,7 +52,7 @@ const WORK_LINE_KEYS = new Set([
 ]);
 const PASS_KEYS = new Set(["cmd", "timeoutMs"]);
 const GATED_PASS_KEYS = new Set(["cmd", "timeoutMs", "gates"]);
-const STAGE_KEYS = new Set(["tests", "producer", "repair", "gates", "maxAttempts"]);
+const STAGE_KEYS = new Set(["tests", "e2e", "producer", "repair", "gates", "maxAttempts"]);
 const TICKET_KEYS = new Set([
   "maxParallel",
   "maxAttempts",
@@ -232,7 +234,49 @@ export function loadConfig(path: string): LoadedConfig {
     invocation.pollIntervalMs = pollIntervalMs.value;
   }
 
+  const e2eRefusal = checkE2eDeclaration(invocation);
+  if (e2eRefusal !== undefined) {
+    return { ok: false, reason: e2eRefusal };
+  }
+
   return { ok: true, invocation };
+}
+
+/**
+ * The e2e check is declared by a pair: `builder.e2e`, which makes the Ticket that holds the
+ * suite, and a Feature Gate with `skipWhen: skip-test-e2e`, which runs it. One without the other
+ * is a check that never runs or a Ticket nobody judges, so neither is accepted alone. A `skipWhen`
+ * outside a Feature's Gates has nothing to read.
+ */
+function checkE2eDeclaration(invocation: HostDraft): string | undefined {
+  const outside: [string, HostGateSpec[] | undefined][] = [
+    ["builder.gates", invocation.builder?.producer.gates],
+    ["builder.tests.gates", invocation.builder?.tests?.gates],
+    ["builder.e2e.gates", invocation.builder?.e2e?.gates],
+    ["ticket.gates", invocation.ticket?.gates],
+    ["ticket.fix.gates", invocation.ticket?.fix?.gates],
+    ["ticket.validate.gates", invocation.ticket?.validate?.gates],
+  ];
+  for (const [key, gates] of outside) {
+    const bad = gates?.find((gate) => gate.skipWhen !== undefined);
+    if (bad !== undefined) {
+      return `Config "${key}" gate "${bad.id}" has "skipWhen", which only a Feature's gates (feature.validate, feature.gates, feature.fix) can have.`;
+    }
+  }
+  const feature = invocation.feature;
+  const skippable = [
+    ...(feature?.validate.gates ?? []),
+    ...(feature?.gates ?? []),
+    ...(feature?.fix.gates ?? []),
+  ].filter((gate) => gate.skipWhen === "skip-test-e2e");
+  const declared = invocation.builder?.e2e !== undefined;
+  if (skippable.length > 0 && !declared) {
+    return `Config gate "${skippable[0]?.id}" has "skipWhen: skip-test-e2e", so the e2e check is declared: "builder.e2e" is required (the pass that makes the Ticket holding the suite).`;
+  }
+  if (declared && feature !== undefined && skippable.length === 0) {
+    return 'Config "builder.e2e" is declared, but no Feature gate runs the suite. Add a gate to "feature.validate.gates" with "skipWhen: skip-test-e2e".';
+  }
+  return undefined;
 }
 
 type StringResult = { ok: true; value: string | undefined } | { ok: false; reason: string };
@@ -564,7 +608,7 @@ function readGates(
   value: unknown,
   configDir: string,
   key: string,
-): { ok: true; value: GateSpec[] } | { ok: false; reason: string } {
+): { ok: true; value: HostGateSpec[] } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: `Config "${key}" must be a YAML mapping with "gates".` };
   }
@@ -586,7 +630,7 @@ function readGates(
   if (!Array.isArray(entries)) {
     return { ok: false, reason: `Config "${key}.gates" must be an array.` };
   }
-  const gates: GateSpec[] = [];
+  const gates: HostGateSpec[] = [];
   for (const entry of entries) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
       return {
@@ -620,7 +664,19 @@ function readGates(
         reason: `Config gate "${id}" has no "timeoutMs", and "${key}" names no "defaultTimeoutMs".`,
       };
     }
-    gates.push({ id, argv: resolveArgv(argv as string[], configDir), timeoutMs });
+    const skipWhen = (entry as { skipWhen?: unknown }).skipWhen;
+    if (skipWhen !== undefined && !SKIP_WHEN.includes(skipWhen as SkipWhen)) {
+      return {
+        ok: false,
+        reason: `Config gate "${id}" has "skipWhen: ${String(skipWhen)}". Known: ${SKIP_WHEN.join(", ")}.`,
+      };
+    }
+    gates.push({
+      id,
+      argv: resolveArgv(argv as string[], configDir),
+      timeoutMs,
+      ...(skipWhen === undefined ? {} : { skipWhen: skipWhen as SkipWhen }),
+    });
   }
   return { ok: true, value: gates };
 }
@@ -727,7 +783,7 @@ function readGatedPass(
       reason: `Config "${key}" needs a positive "timeoutMs": nothing else bounds a command.`,
     };
   }
-  let gates: GateSpec[] = [];
+  let gates: HostGateSpec[] = [];
   if (object.gates !== undefined) {
     const read = readGates(object.gates, configDir, `${key}.gates`);
     if (read.ok === false) {
@@ -852,6 +908,14 @@ function readBuilder(
   if (readTestsPass.ok === false) {
     return readTestsPass;
   }
+  let e2e: GatedPassSpec | undefined;
+  if (object.e2e !== undefined) {
+    const read = readGatedPass(object.e2e, configDir, "builder.e2e", agents);
+    if (read.ok === false) {
+      return read;
+    }
+    e2e = read.value;
+  }
   if (object.producer === undefined) {
     return { ok: false, reason: 'Config "builder" needs a "producer".' };
   }
@@ -866,7 +930,7 @@ function readBuilder(
   if (readRepair.ok === false) {
     return readRepair;
   }
-  let gates: GateSpec[] = [];
+  let gates: HostGateSpec[] = [];
   if (object.gates !== undefined) {
     const read = readGates(object.gates, configDir, "builder.gates");
     if (read.ok === false) {
@@ -880,6 +944,7 @@ function readBuilder(
     tests: readTestsPass.value,
     producer: { ...readProducer.value, gates },
     repair: { ...readRepair.value, gates: [...gates] },
+    ...(e2e === undefined ? {} : { e2e }),
   };
   const maxAttempts = positiveIntField(object, "maxAttempts");
   if (maxAttempts.ok === false) {

@@ -228,6 +228,7 @@ pollIntervalMs: 10000
 | `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
 | `agents`                    | Agents a pass names instead of writing `cmd` (§ Agent passes written short)                                                                                                                                                                                                                                                                                                 |
 | `builder.tests`             | Required. The tests of the task, written before its code by an agent that is not the producer: `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }`, or `{ agent: false }` for none. Its `gates` check them (`tests-red`: they must fail, for the right reason). What it wrote is committed as a checkpoint titled `Tests: …`, which `builder.gates` can keep intact (`tests-frozen`). A ticket the tracker labels as having no tests first (`no-tests` with the GitHub manager) runs no agent and no `tests-red` |
+| `builder.e2e`               | Optional. Declares the e2e acceptance check (see § The e2e acceptance check): the pass that makes the Ticket holding the suite, `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }` or `{ cmd, timeoutMs, gates }`. One command for the first pass and for a pass a Gate refused; its own `gates` (they check the form: compiles, one test per manifest id, no application file touched). Nothing is borrowed from `builder.producer`, `builder.repair` or `builder.gates`. No tests are written first for that Ticket. Needs a Feature Gate with `skipWhen: skip-test-e2e`, and the other way round |
 | `builder.producer`          | `cmd` / `timeoutMs`. Spawned in the workspace. Exit 0 runs `builder.gates`                                                                                                                                                                                                                                                                                 |
 | `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited: it names its own command. It is judged by the same `builder.gates` as the producer                                                                                                                                                                               |
 | `builder.gates`             | `defaultTimeoutMs` and `gates`: the one Gate list for `builder.producer` and `builder.repair`. `gates` written on either pass is refused, naming this key. Empty: the unit runs ungated |
@@ -482,6 +483,60 @@ is bounded the same way from `ticket.maxAttempts` and `ticket.fix`.
   "timeoutMs": 900000
 }
 ```
+
+### The e2e acceptance check
+
+A Project proves each Feature by an acceptance suite, run once on the assembled Feature
+line, when its config says so, by a pair:
+
+```yaml
+builder:
+  e2e:                       # makes the Ticket that holds the suite (label `e2e` on the tracker)
+    agent: claude
+    prompt: ./prompts/e2e.md # {{task}} is the scenarios; {{report}}, {{refused_by}}, {{refusal}} on a refused pass
+    timeoutMs: 1800000
+    gates:                   # form only: it compiles, one test per manifest id, no application file touched
+      gates:
+        - { id: e2e-form, argv: [...], timeoutMs: 120000 }
+feature:
+  validate:
+    agent: false
+    gates:
+      defaultTimeoutMs: 120000
+      gates:
+        - id: e2e
+          skipWhen: skip-test-e2e      # Host does not run this Gate for a Feature that carries the label
+          timeoutMs: 720000
+          argv:
+            - node
+            - ./node_modules/@bluewombat/slots/gates/e2e.mjs
+            - --up
+            - pnpm e2e:up
+            - --ready
+            - pnpm e2e:ready
+            - --run
+            - pnpm e2e
+            - --down
+            - pnpm e2e:down
+```
+
+`skipWhen` is the one condition Host reads for a Gate, on a Feature's Gates only
+(`feature.validate`, `feature.gates`, `feature.fix`); its one value today is
+`skip-test-e2e`, whatever the tracker calls that label. A Gate left out is not a Gate that
+passed: the journal gets `gate-skipped` and the trace says "`e2e` not run: the Feature carries
+skip-test-e2e". The Gate knows nothing of the skip and no environment variable carries it.
+
+The tracker side: a Ticket carrying the e2e label (`e2eLabel` of the TicketTracker manager) is
+made by `builder.e2e` and has no tests written first; a Feature carrying the skip label
+(`skipTestE2eLabel` of the FeatureTracker manager) has that Ticket cancelled, with a line in
+the trace. The label is read again until the Feature is submitted. A Project that declares the
+check refuses a Feature that holds neither an e2e Ticket nor the skip label, or whose e2e
+Ticket is not blocked by every other Ticket, as `invalid`, with the reason as a comment.
+
+What the Gate proves is a red/green verdict; what the operator reads is its text in the
+journal (`gate-finished`) — a red suite is also in the reason of the refusal the fix is
+given and in the escalation. A passing suite's text is not shown on the pull request: see
+RESERVATIONS I17.
 
 ### Describer
 
