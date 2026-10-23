@@ -60,7 +60,7 @@ edit. Ticking a box is not.
 A Feature is listed when the issue has no parent (`parent_issue_url` is null) and carries `featureReadyLabel`
 (`labels=<featureReadyLabel>` on the list call). Its `blocked_by` are read from
 `GET /issues/{n}/dependencies/blocked_by`, its `merge_when_ready` from
-`mergeWhenReadyLabel`. `tickets(feature)` reads `GET /issues/{n}/sub_issues`
+`mergeWhenReadyLabel` and its `skip_e2e` from `skipTestE2eLabel`. `tickets(feature)` reads `GET /issues/{n}/sub_issues`
 and, per sub-issue, its blockers; `task_ready` is `ticketReadyLabel`, `resume` is
 `resumeLabel`, `open` is the issue state. Every failed read is `unavailable`,
 never an empty list.
@@ -82,7 +82,7 @@ configuration names against the labels that exist.
 Without `apply` it reports a plan and sends no write. With `apply` it creates the
 missing labels, and recolours an existing label whose colour differs from the one the
 config chose for it (`labelColors`, keyed by the label's identifier: `feature-ready`,
-`ticket-ready`, `merge-when-ready`, `resume`, `project`, `state-<event>`): an existing label is never renamed or deleted, a label with no
+`ticket-ready`, `merge-when-ready`, `no-tests`, `e2e`, `skip-test-e2e`, `resume`, `project`, `state-<event>`): an existing label is never renamed or deleted, a label with no
 chosen colour keeps whatever colour it has, and a repeated name is created once. A
 second `apply` reports everything `satisfied`.
 

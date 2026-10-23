@@ -157,6 +157,7 @@ describe("normalize", () => {
       "normalized_at",
       "priority",
       "project",
+      "skip_e2e",
     ]);
   });
 
@@ -171,6 +172,14 @@ describe("normalize", () => {
     const plain = normalize(upsertRaw(), options);
     assert.equal(plain.ok && plain.feature.merge_when_ready, false);
     assert.deepEqual(plain.ok && plain.feature.blocked_by, []);
+  });
+
+  it("reads whether the Feature is left out of the e2e acceptance check", () => {
+    const skipped = normalize(upsertRaw({ skip_e2e: true }), options);
+    assert.equal(skipped.ok && skipped.feature.skip_e2e, true);
+    const plain = normalize(upsertRaw(), options);
+    assert.equal(plain.ok && plain.feature.skip_e2e, false);
+    assert.equal(invalidCode(upsertRaw({ skip_e2e: "yes" })), "bad-field-type");
   });
 
   it("changes the fingerprint when the order or the merge changes", () => {

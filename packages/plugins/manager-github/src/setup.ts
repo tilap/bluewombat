@@ -18,6 +18,8 @@ const ADMISSION_COLOUR = "1d76db";
 const STATE_COLOUR = "5319e7";
 const PROJECT_COLOUR = "c5def5";
 const NO_TESTS_COLOUR = "fbca04";
+const E2E_COLOUR = "0e8a16";
+const SKIP_E2E_COLOUR = "fbca04";
 
 export type SetupSettings = {
   repo: Repository;
@@ -27,6 +29,8 @@ export type SetupSettings = {
   featureReadyLabel: string;
   ticketReadyLabel: string;
   noTestsLabel: string;
+  e2eLabel: string;
+  skipTestE2eLabel: string;
   mergeWhenReadyLabel: string;
   /** The sides this manager is built for: only their labels are wanted. */
   sides: readonly ManagerSide[];
@@ -144,6 +148,8 @@ export function wantedLabels(settings: {
   featureReadyLabel: string;
   ticketReadyLabel: string;
   noTestsLabel: string;
+  e2eLabel: string;
+  skipTestE2eLabel: string;
   mergeWhenReadyLabel: string;
   sides?: readonly ManagerSide[];
   defaultProject: string | undefined;
@@ -192,12 +198,22 @@ export function wantedLabels(settings: {
       ...colourOf("no-tests", NO_TESTS_COLOUR),
       description: `on a Ticket: ${PRODUCT} writes no tests before its code`,
     });
+    wanted.push({
+      name: settings.e2eLabel,
+      ...colourOf("e2e", E2E_COLOUR),
+      description: `on a Ticket: it holds the e2e acceptance suite of its Feature, run once on the whole Feature`,
+    });
   }
   if (forFeatures) {
     wanted.push({
       name: settings.mergeWhenReadyLabel,
       ...colourOf("merge-when-ready", ADMISSION_COLOUR),
       description: `on a Feature: ${PRODUCT} folds its line without a human`,
+    });
+    wanted.push({
+      name: settings.skipTestE2eLabel,
+      ...colourOf("skip-test-e2e", SKIP_E2E_COLOUR),
+      description: `on a Feature: ${PRODUCT} does not run its e2e acceptance suite`,
     });
   }
   wanted.push({

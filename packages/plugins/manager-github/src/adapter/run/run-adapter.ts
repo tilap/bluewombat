@@ -173,6 +173,7 @@ export async function runAdapter(options: RunOptions): Promise<RunResult> {
     priorityLabelPrefix: invocation.priorityLabelPrefix,
     resumeLabel: invocation.resumeLabel,
     mergeWhenReadyLabel: invocation.mergeWhenReadyLabel,
+    skipTestE2eLabel: invocation.skipTestE2eLabel,
     blockedBy,
     normalizedAt: invocation.at ?? new Date(now()).toISOString(),
     ...(invocation.defaultProject !== undefined
