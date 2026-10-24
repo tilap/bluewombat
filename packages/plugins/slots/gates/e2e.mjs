@@ -137,11 +137,14 @@ const manifestPath = inWorkspace(textOption(parsed.values, "manifest") ?? "");
 const junitPath = inWorkspace(textOption(parsed.values, "junit") ?? "");
 const serverLogPath = textOption(parsed.values, "serverLog");
 
-const ids = readManifest();
-if (typeof ids === "string") {
-  emitVerdict("fail-blocking", ids);
+const manifest = readManifest();
+if (typeof manifest === "string") {
+  emitVerdict("fail-blocking", manifest);
   process.exit(0);
 }
+// Typed apart from the early exit above: the functions below are hoisted, and a narrowing does not reach them.
+/** @type {string[]} */
+const ids = manifest;
 
 const ceilingMs = Number(take(process.argv, "--timeout-ms"));
 const budgetMs =
