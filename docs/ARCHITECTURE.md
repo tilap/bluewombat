@@ -152,7 +152,7 @@ entry in [DECISIONS.md](./DECISIONS.md).
 - Only a manager package reaches a tracker. `setupManager` is the one hook that may
   write to one before a run, and only when `mason setup --apply` asks; `checkManager`
   stays offline so `mason doctor` answers the same with or without a network.
-- One open Feature per Project and one active Ticket in it; one unit of work per Ticket.
+- One open Feature per Project and at most `ticket.maxParallel` active Tickets in it (default 1; above 1 needs an Authority); one unit of work per Ticket.
 - The Project's Gate sequence is the only validation path, in order, on the unit
   and again on the assembled work.
 - WorkLineStable pre-exists when it is the operator's. When an Authority holds the

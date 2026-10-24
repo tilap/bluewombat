@@ -328,7 +328,7 @@ A refused command leaves the store as it was. `code` is one token.
 | `not-found`            | `key` is unknown                                                                                   |
 | `duplicate`            | Reserved; `admit` of an identical fingerprint is success, not this                                 |
 | `illegal-transition`   | State does not allow this command                                                                  |
-| `project-busy`         | `claim` while that Project already has an active TicketStandard; `openFeature` while it holds a Feature |
+| `project-busy`         | `claim` while that Project already has `limit` active TicketStandards (default 1); `openFeature` while it holds a Feature |
 | `another-running`      | `startUnit` while a unit is already held                                                           |
 | `missing-trace`        | `escalate` after an Attempt with no Trace                                                          |
 | `point-of-no-return`   | `cancel` in `merging` or `done`, or abandon after merging-born escalation                          |
@@ -409,8 +409,8 @@ consequence: another answer was possible.
 
 1. **Not a Transformer.** A store with many verbs is not IN/OUT-shaped. One IN
    and one OUT would force a toolbox CLI and hide the transition table.
-2. **Commands, not `set(state)`.** The product rules (one active
-   TicketStandard per Project, no abandon in `merging`) live here or they live
+2. **Commands, not `set(state)`.** The product rules (at most `limit` active
+   TicketStandards per Project, no abandon in `merging`) live here or they live
    nowhere.
 3. **Injected Persistence Port.** Sniffing env or a path to pick SQLite later
    would couple the ledger to ops. Glue chooses; the ledger stays portable.

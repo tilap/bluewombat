@@ -54,8 +54,9 @@ Business invariants that must hold regardless of implementation. Each one should
 falsifiable — if code violates it, that is a bug, not a design choice.
 
 - A Feature belongs to exactly one Project. A Ticket belongs to exactly one Feature.
-- A Project has at most one open Feature at a time, and in it at most one active
-  Ticket. Distinct Projects may run in parallel.
+- A Project has at most one open Feature at a time, and in it at most
+  `ticket.maxParallel` active Tickets (default 1: one after the other). Above 1, the
+  Tickets land one by one through the Authority. Distinct Projects may run in parallel.
 - A Feature opens only when it is **feature-ready**, every Feature that blocks it is
   `done`, and every one of its Tickets is **task-ready**. A Feature whose Tickets are
   not all task-ready does not open, whatever the others say. Among the Features
@@ -306,7 +307,6 @@ What this product deliberately does not do, so the question stops coming back.
 - Everything after the final line (release, deploy, final publication)
 - Automatic revert or repair of a Ticket already landed
 - Splitting a Ticket into smaller units: the Ticket is the unit
-- Parallel Tickets inside one Feature
 - Concurrent Features on the same Project (they are serialized)
 - A shared runtime library that Transformers import
 - Documenting a Transformer's internals or CLI in root `docs/`

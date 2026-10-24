@@ -281,22 +281,24 @@ Tickets are. `merge-when-ready` and the human merge have no meaning there.
 
 ---
 
-### C31 · One active Ticket at a time is a shortcut, not a law
+### C31 · `ticket.maxParallel` above 1 was never run on a real Project
 
-`docs/PRODUCT.md` (domain rules); `activeOn` in the WorkLedger; the loop in
-`packages/host/runtime/src/loop/features.ts` (`advanceOpenFeature`)
+`ticket.maxParallel` (`packages/host/runtime/src/config/load-config.ts`);
+`claim(project, limit)` in the WorkLedger; `advanceOpenFeature` in
+`packages/host/runtime/src/loop/features.ts`
 
-A Project has at most one active Ticket, and a Ticket in `submitted` counts as
-active, so the next one starts only once the previous is `done`. It was chosen to
-keep merges simple, and it is meant to go. The rule is written in three places and
-nothing else names it as temporary. What already does not lean on it: a Ticket is
-checked against the line right before its fold (`AuthorityPort.behind`, DECISIONS),
-and re-aligned if the line moved. What would still need work: the shared copy of the
-line (`workLineStable`) refreshed before each align, the `maxRefusals` ceiling on
-realigns (right for a person writing to the line, probably too tight when Tickets
-move it), and the ledger's single-active rule.
+A Project works on `maxParallel` Tickets at once (default 1), and above 1 only
+with an Authority, because they land one by one. The limit is in the ledger's
+`claim`, the Conductor and the config, with unit tests (`open-conductor.test.ts`,
+`load-config.test.ts`). Nothing records a run of it against a real Project. What
+is still in doubt: the shared copy of the line (`workLineStable`) refreshed before
+each align while others land; the `maxRefusals` ceiling on realigns (right for a
+person writing to the line, probably too tight when Tickets move it); a Ticket in
+`escalated` holds its place, so with every place held that way nothing moves until
+a person answers. A Ticket is still checked against the line right before its fold
+(`AuthorityPort.behind`) and re-aligned if the line moved.
 
-**Instead**: nothing yet — this entry exists so that the shortcut stays visible.
+**Instead**: keep the default at 1 until a real run shows the above holds.
 
 
 ### C32 · An align conflict is told to the fix, which has not been seen resolving one
