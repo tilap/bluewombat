@@ -7,31 +7,23 @@ import type {
   TicketAggregate,
   WorkLedger,
 } from "@bluewombat/work-ledger";
-import type {
-  AuthorityPort,
-  ImplementResult,
-  ImplementTrace,
-  TransformerPort,
-} from "../transformers/port.js";
+import type { AuthorityPort, ImplementTrace, TransformerPort } from "../transformers/port.js";
+import {
+  type Delivery,
+  type DeliveryStore,
+  type DeliveryUnit,
+  openDelivery,
+  reasonOfTraces,
+} from "./delivery.js";
 import { ticketWorkspacePath } from "./paths.js";
+import type { ConductorRefusalCode, ProjectRunResult } from "./results.js";
+import { foldMessageOf, subjectOf } from "./subject.js";
+
+export type { ConductorRefusalCode, ProjectRunResult } from "./results.js";
+export { foldMessageOf, subjectOf } from "./subject.js";
 
 const DEFAULT_MAX_REFUSALS = 3;
 const DEFAULT_TRANSFORMER_DURATION_MS = 30_000;
-
-export type ConductorRefusalCode =
-  | "stable-missing"
-  | "root-invalid"
-  | "persist-failed"
-  | "interrupted"
-  | "isolate-failed"
-  | "warm-failed"
-  | "align-conflict"
-  | "transformer-invalid"
-  | "unavailable"
-  | "not-found"
-  | "point-of-no-return"
-  | "project-busy"
-  | "illegal-transition";
 
 /** Prepare a Ticket workspace after Isolation — install deps, and so on. */
 export type WarmOutcome = "warmed" | "failed" | "interrupted" | "invalid-invocation";
@@ -40,12 +32,14 @@ export type WarmPort = {
   prepare(input: { workspace: string; durationMs: number }): Promise<{ outcome: WarmOutcome }>;
 };
 
-export type ProjectRunResult =
-  | { outcome: "idle" }
-  | { outcome: "done"; key: string }
-  | { outcome: "escalated"; key: string }
-  | { outcome: "paused"; key?: string }
-  | { outcome: "refused"; code: ConductorRefusalCode };
+/**
+ * Bring the shared copy of the work line up to what the Authority holds, for
+ * the line `target` names. Conductor asks right before it reads the copy, so a
+ * ticket always starts from, and aligns with, the line as it is now.
+ */
+export type LinePort = {
+  refresh(target: string): Promise<{ ok: true } | { ok: false; detail?: string }>;
+};
 
 export type OpenConductorOptions = {
   ledger: WorkLedger;
@@ -53,6 +47,18 @@ export type OpenConductorOptions = {
   workLineStable: string;
   workspaceRoot: string;
   transformerDurationMs?: number;
+  /**
+   * How many Tickets of a Project may be active at once. Default 1.
+   *
+   * Above 1 the Project needs an Authority: a Ticket folded straight into the
+   * work line would move it under the others with nobody to send them back.
+   */
+  maxParallel?: number;
+  /**
+   * Keeps the shared copy of the work line current. Absent: it is whatever its
+   * owner left, as before.
+   */
+  line?: LinePort;
   /**
    * The outside judge of a Submission. Absent: an assembled ticket is folded
    * into the work line directly, with nobody else asked.
@@ -65,17 +71,24 @@ export type OpenConductorOptions = {
   /**
    * Whether a local judge decides if the assembled ticket meets the
    * intention, before any Submission exists — or, without an Authority,
-   * before the final fold. Absent or `false`: `assembly.validate` is not
+   * before the final fold. Absent or `false`: `validate` is not
    * declared, and `integrating` goes straight to offer (or the local judge on
    * `produce: false`).
    */
-  assemblyValidate?: boolean;
+  validate?: boolean;
   /**
-   * Whether `assembly.fix` is declared. A validate refusal with nothing to
+   * Whether the tests of a Task are written before its code. Then a pass of its
+   * own runs in the Ticket's workspace first, and what it wrote is committed as a
+   * checkpoint, so the producer's work is what comes after it. Absent or `false`:
+   * the producer makes the code and the tests together, as before.
+   */
+  tests?: boolean;
+  /**
+   * Whether a fix is declared. A validate refusal with nothing to
    * repair it escalates on the spot rather than spending the budget on a round
    * that can only repeat the same refusal.
    */
-  assemblyFixDeclared?: boolean;
+  fixDeclared?: boolean;
   /**
    * Told at the moments a pass changes what an outsider would want to know:
    * the work is submitted. Awaited,
@@ -100,6 +113,17 @@ export type Conductor = {
   pause(): void;
   resume(): void;
   runProject(project: string): Promise<ProjectRunResult>;
+  /**
+   * Take the next Ticket of the Project that may start, within its parallel
+   * limit. Nothing is run. Absent when none may: the Project is full, or
+   * nothing is ready or unblocked.
+   */
+  claimNext(project: string): Promise<{ key: string } | undefined>;
+  /**
+   * Drive one Ticket the Project already holds, as far as it goes. Unlike
+   * `runProject` it neither claims nor reconciles, so several can run at once.
+   */
+  runTicket(key: string): Promise<ProjectRunResult>;
   cancel(key: string): Promise<CommandResult>;
   /**
    * Drop a held unit without waiting for the bail clock.
@@ -122,6 +146,10 @@ async function destroy(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
+/** What the next pass is told when it picks up a workspace the earlier one did not finish. */
+const RESUMED_NOTE =
+  "The pass before this one was stopped before it finished. What it made is in this directory: look at it before you write, and do not start over.";
+
 /**
  * Where a Ticket's workspace is: the path the ledger declared when it was
  * made, else the one the layout gives. The declared path wins because a
@@ -133,6 +161,18 @@ function declaredTicketPath(
   aggregate: TicketAggregate | undefined,
 ): string {
   return aggregate?.workspace ?? ticketWorkspacePath(workspaceRoot, key);
+}
+
+/** Whether a workspace the ledger declares is still there with something in it. */
+async function stillThere(path: string | undefined): Promise<boolean> {
+  if (path === undefined) {
+    return false;
+  }
+  try {
+    return (await readdir(path)).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function destroyOrphans(workspaceRoot: string, allowed: Set<string>): Promise<void> {
@@ -163,41 +203,6 @@ async function destroyOrphans(workspaceRoot: string, allowed: Set<string>): Prom
   }
 }
 
-const SUBJECT_MAX = 72;
-
-/**
- * A fold's subject out of prose. Text written the way a commit is — a headline,
- * a blank line, the rest — gives its headline. Otherwise the first sentence,
- * cut at a word when even that runs past what one line of history shows. A
- * subject is not markdown, so the backticks prose uses for names come off; and
- * it ends on a word, not on an ellipsis — the whole text follows in the body
- * for whoever wants it.
- */
-export function subjectOf(text: string): string {
-  const trimmed = text.trim();
-  const headline = /^([^\n]+)\n\s*\n/.exec(trimmed)?.[1];
-  const oneLine = (headline ?? trimmed).replace(/\s+/g, " ");
-  // A sentence ends where the next one starts with a capital, or where the
-  // text ends: "e.g. foo" and "src/index.js" are not sentence ends.
-  const sentence = /^(.*?[.!?])(?:\s+(?=[A-Z\p{Lu}])|$)/u.exec(oneLine)?.[1] ?? oneLine;
-  const candidate = sentence.replace(/`/g, "").replace(/[.:;,\s]+$/, "");
-  if (candidate.length <= SUBJECT_MAX) {
-    return candidate;
-  }
-  const cut = candidate.slice(0, SUBJECT_MAX);
-  const atWord = cut.lastIndexOf(" ");
-  return (atWord > SUBJECT_MAX / 2 ? cut.slice(0, atWord) : cut).replace(/[.:;,\s]+$/, "");
-}
-
-/** Subject line, then the whole text when the subject did not carry it all. */
-export function foldMessageOf(text: string): string {
-  const subject = subjectOf(text);
-  const whole = text.trim();
-  return subject === whole || subject === whole.replace(/[.\s]+$/, "")
-    ? subject
-    : `${subject}\n\n${whole}`;
-}
-
 export function openConductor(options: OpenConductorOptions): Conductor {
   if (!isAbsolute(options.workLineStable) || !isAbsolute(options.workspaceRoot)) {
     throw new Error("Conductor workLineStable and workspaceRoot must be absolute directories.");
@@ -224,25 +229,40 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   const targetOf = (aggregate: TicketAggregate): string =>
     aggregate.intention.line ?? workLineTarget;
   const maxRefusals = options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
-  const assemblyValidate = options.assemblyValidate ?? false;
-  const assemblyFixDeclared = options.assemblyFixDeclared ?? false;
+  const validate = options.validate ?? false;
+  const testsFirst = options.tests ?? false;
+  const fixDeclared = options.fixDeclared ?? false;
   const warm = options.warm;
+  const maxParallel = options.maxParallel ?? 1;
+  const line = options.line;
   let paused = false;
+
+  /**
+   * One at a time over the shared copy of the work line. What runs under it is
+   * brief and git's own — cutting a worktree from the copy, merging the copy
+   * in — while what takes minutes (the agents, the Gates) runs in the Ticket's
+   * own workspace, outside it.
+   */
+  let lastOnLine: Promise<unknown> = Promise.resolve();
+  const onLine = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = lastOnLine.then(job, job);
+    lastOnLine = run.catch(() => undefined);
+    return run;
+  };
+
+  /** The copy brought up to the line `target`, or why it could not be. */
+  const refreshLine = async (target: string): Promise<{ ok: true } | { ok: false }> => {
+    if (line === undefined || target.length === 0) {
+      return { ok: true };
+    }
+    const refreshed = await line.refresh(target);
+    return refreshed.ok ? { ok: true } : { ok: false };
+  };
 
   const refused = (code: ConductorRefusalCode): ProjectRunResult => ({
     outcome: "refused",
     code,
   });
-
-  /** What the last Attempt ended on, for whoever reads the escalation. */
-  const reasonOfTraces = (traces: ImplementTrace[]): string | undefined => {
-    const last = traces.at(-1);
-    const report = last?.report?.trim();
-    if (report === undefined || report.length === 0) {
-      return undefined;
-    }
-    return last?.refusedBy === undefined ? report : `${last.refusedBy}: ${report}`;
-  };
 
   const fromLedger = (result: CommandResult): ProjectRunResult | undefined => {
     if (result.ok) {
@@ -298,36 +318,150 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     return await freeze(key, { kind: "unit" });
   }
 
+  /**
+   * What the corrective rounds of one ticket have used. A refusal, a conflict, a
+   * recheck that failed and a line that moved on all draw on the one
+   * `maxRefusals` budget: whichever loop it is, the ticket stops being corrected
+   * when it is empty, not once per loop.
+   */
+  function spentOf(aggregate: TicketAggregate): number {
+    return (
+      (aggregate.submission?.refusals ?? 0) +
+      (aggregate.parked_refusals ?? 0) +
+      (aggregate.submission?.realigns ?? 0)
+    );
+  }
+
+  /** What a Ticket's delivery reads of it, and how it keeps what the delivery decides. */
+  function ticketStore(key: string): DeliveryStore {
+    return {
+      async read() {
+        const got = await ledger.get(key);
+        if (!got.ok) {
+          return undefined;
+        }
+        const aggregate = got.aggregate;
+        // A parked refusal is this round's; a Submission's is carried forward on
+        // purpose and may already be repaired. The fresher one wins.
+        const parked = aggregate.parked_refusal;
+        const report = parked?.report ?? aggregate.submission?.last_report;
+        const refusedBy = parked?.refused_by ?? aggregate.submission?.last_refused_by;
+        return {
+          sentBack: report === undefined ? undefined : { report, refusedBy },
+          spent: spentOf(aggregate),
+          submission:
+            aggregate.submission === undefined
+              ? undefined
+              : { reference: aggregate.submission.reference },
+        };
+      },
+      freeze: async (input) => await freeze(key, input),
+      park: async (why) =>
+        fromLedger(
+          await ledger.recordParkedRefusal({
+            key,
+            report: why.report,
+            ...(why.refusedBy === undefined ? {} : { refusedBy: why.refusedBy }),
+          }),
+        ),
+      unpark: async () => fromLedger(await ledger.clearParkedRefusal(key)),
+      refuse: async (why) =>
+        fromLedger(
+          await ledger.recordRefusal({
+            key,
+            report: why.report,
+            ...(why.refusedBy === undefined ? {} : { refusedBy: why.refusedBy }),
+          }),
+        ),
+      realign: async () => fromLedger(await ledger.recordRealign({ key })),
+    };
+  }
+
+  /** Where a Ticket's work is and where it goes. */
+  function unitOf(key: string, aggregate: TicketAggregate): DeliveryUnit {
+    const workspace = declaredTicketPath(workspaceRoot, key, aggregate);
+    return {
+      key,
+      intention: aggregate.intention.intention,
+      title: aggregate.intention.title,
+      noun: "ticket",
+      workspace,
+      judgeWorkspace: workspace,
+      target: targetOf(aggregate),
+      line: workLineStable,
+    };
+  }
+
+  const delivery: Delivery = openDelivery({
+    transformers,
+    authority,
+    durationMs,
+    maxRefusals,
+    recheck: true,
+    validate,
+    fixDeclared,
+    onLine,
+    refreshLine: async (target) => (await refreshLine(target)).ok,
+    isPaused: () => paused,
+  });
+
+  /** A unit nobody is on any more: its lease runs out. Its workspace stays, for the next pass. */
   async function expireIfHeld(key: string): Promise<void> {
-    const before = await ledger.get(key);
-    const held =
-      before.ok && before.aggregate.state === "running" ? before.aggregate.workspace : undefined;
-    const expired = await ledger.expireBail(key);
-    if (expired.ok && held !== undefined) {
-      await destroy(held);
-    }
+    await ledger.expireBail(key);
   }
 
   /**
    * A unit was started and a transformer stopped on interrupt. Release the
    * bail now so the next process does not wait an hour for the clock.
+   *
+   * The workspace stays, and so do the Attempts the pass finished: stopping Mason is not a
+   * failure of the work, so the next pass picks it up where it was instead of starting over.
+   * Whoever wants it started over says so (`release`).
    */
-  async function releaseHeldAfterInterrupt(key: string): Promise<ProjectRunResult | undefined> {
+  async function releaseHeldAfterInterrupt(
+    key: string,
+    traces: ImplementTrace[] = [],
+  ): Promise<ProjectRunResult | undefined> {
     const before = await ledger.get(key);
-    const child = before.ok ? before.aggregate.workspace : undefined;
-    const released = await ledger.releaseBail(key);
-    if (!released.ok) {
-      if (released.code === "persist-failed") {
-        return refused("persist-failed");
+    if (before.ok) {
+      let number = before.aggregate.attempts.length + 1;
+      for (const trace of traces) {
+        if (trace.ended === "interrupted") {
+          continue;
+        }
+        const recorded = await recordFinished(key, number, trace);
+        if (recorded !== undefined) {
+          return recorded;
+        }
+        number += 1;
       }
-      // Already free, or a state releaseBail refuses — leave the ledger and
-      // still answer interrupted.
-      return undefined;
     }
-    if (child !== undefined) {
-      await destroy(child);
+    const released = await ledger.releaseBail(key);
+    if (!released.ok && released.code === "persist-failed") {
+      return refused("persist-failed");
     }
+    // Already free, or a state releaseBail refuses — leave the ledger and
+    // still answer interrupted.
     return undefined;
+  }
+
+  async function recordFinished(
+    key: string,
+    number: number,
+    trace: ImplementTrace,
+  ): Promise<ProjectRunResult | undefined> {
+    const recorded = await ledger.recordAttempt({
+      key,
+      number,
+      trace: {
+        ended: trace.ended,
+        ...(trace.report === undefined || trace.report.length === 0
+          ? {}
+          : { report: trace.report }),
+        ...(trace.refusedBy === undefined ? {} : { refusedBy: trace.refusedBy }),
+      },
+    });
+    return fromLedger(recorded);
   }
 
   async function reconcile(project: string): Promise<void> {
@@ -376,13 +510,24 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (declareFail !== undefined) {
       return declareFail;
     }
-    const isolated = await transformers.isolate({
-      id: key,
-      context: key,
-      parent: workLineStable,
-      child: workspace,
-      durationMs,
+    // Cut from the line as it is now, with nobody moving it meanwhile.
+    const target = targetOf(got.aggregate);
+    const cut = await onLine(async () => {
+      if (!(await refreshLine(target)).ok) {
+        return undefined;
+      }
+      return await transformers.isolate({
+        id: key,
+        context: key,
+        parent: workLineStable,
+        child: workspace,
+        durationMs,
+      });
     });
+    if (cut === undefined) {
+      return refused("line-refresh-failed");
+    }
+    const isolated = cut;
     if (isolated.outcome === "interrupted") {
       return refused("interrupted");
     }
@@ -407,6 +552,70 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   }
 
   /**
+   * The tests of the Task, before its code.
+   *
+   * Their own agent writes them in the Ticket's workspace and their own Gates
+   * judge them (they must fail, for the right reason). What they wrote is then
+   * committed — a checkpoint, by folding the workspace into itself, which the
+   * Integration does by committing what is loose — so that the producer's work is
+   * what differs from it afterwards, and its Gates can see whether a test was
+   * touched.
+   *
+   * `undefined` when the code may be written; otherwise the result that ends the
+   * pass. Nothing of this is an Attempt of the unit: a pass that fails here is a
+   * Task whose tests could not be written, and a person looks.
+   */
+  async function writeTestsFirst(
+    key: string,
+    aggregate: TicketAggregate,
+    workspace: string,
+  ): Promise<ProjectRunResult | undefined> {
+    const written = await transformers.implement({
+      id: `${key}:tests`,
+      context: key,
+      stage: "tests",
+      produce: true,
+      intention: aggregate.intention.intention,
+      workspace,
+    });
+    if (written.outcome === "interrupted") {
+      const failure = await releaseHeldAfterInterrupt(key);
+      return failure ?? refused("interrupted");
+    }
+    if (written.outcome === "invalid-invocation") {
+      return refused("transformer-invalid");
+    }
+    if (written.outcome === "escalated") {
+      const why = reasonOfTraces(written.traces);
+      return await freeze(key, {
+        kind: "unit",
+        report: `The tests could not be written first.${why === undefined ? "" : ` ${why}`}`,
+      });
+    }
+    const checkpoint = await transformers.integrate({
+      id: `${key}:tests`,
+      context: key,
+      parent: workspace,
+      child: workspace,
+      durationMs,
+      subject: `Tests: ${subjectOf(aggregate.intention.title ?? aggregate.intention.intention)}`,
+    });
+    if (checkpoint.outcome === "interrupted") {
+      const failure = await releaseHeldAfterInterrupt(key);
+      return failure ?? refused("interrupted");
+    }
+    if (checkpoint.outcome !== "integrated") {
+      return await freeze(key, {
+        kind: "unit",
+        report: "The tests that were written first could not be committed.",
+      });
+    }
+    // A pass that is stopped from here on does not write them again.
+    const marked = await ledger.markFirstStageDone(key);
+    return fromLedger(marked);
+  }
+
+  /**
    * Run the unit: Builder, then the Gates, in the workspace Isolation made.
    * The result stays loose in the workspace; the Integration in `doIntegrating`
    * is what takes it up.
@@ -426,9 +635,14 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       // A unit is held: its lease runs out on its own if nobody is on it.
       return { outcome: "paused", key };
     }
-    const isolated = await isolateFresh(key);
-    if (isolated !== undefined) {
-      return isolated;
+    // A pass that was stopped (Mason stopped, or died) leaves its workspace declared: this one
+    // picks it up. A unit that starts with nothing left starts from zero.
+    const resumed = await stillThere(before.aggregate.workspace);
+    if (!resumed) {
+      const isolated = await isolateFresh(key);
+      if (isolated !== undefined) {
+        return isolated;
+      }
     }
     if (paused) {
       return { outcome: "paused", key };
@@ -442,14 +656,36 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (!got.ok) {
       return refused("not-found");
     }
+    const unitPath = declaredTicketPath(workspaceRoot, key, got.aggregate);
+    // The tracker can say a ticket has no tests written first: a label, not a line of its text.
+    if (
+      testsFirst &&
+      got.aggregate.intention.no_tests !== true &&
+      got.aggregate.first_stage_done !== true
+    ) {
+      const stopped = await writeTestsFirst(key, got.aggregate, unitPath);
+      if (stopped !== undefined) {
+        return stopped;
+      }
+    }
+    // The Attempts the stopped pass finished count, and the next one goes on from them.
+    const earlier = resumed
+      ? got.aggregate.attempts.filter((attempt) => attempt.round === got.aggregate.resumes)
+      : [];
+    const last = earlier[earlier.length - 1]?.trace;
+    const carried = last?.ended === "fail-retryable" ? last : undefined;
+    const report = carried?.report ?? (resumed ? RESUMED_NOTE : undefined);
     const implemented = await transformers.implement({
       id: key,
       context: key,
       intention: got.aggregate.intention.intention,
-      workspace: declaredTicketPath(workspaceRoot, key, got.aggregate),
+      workspace: unitPath,
+      ...(report === undefined ? {} : { report }),
+      ...(carried?.refusedBy === undefined ? {} : { reportFrom: carried.refusedBy }),
+      ...(earlier.length === 0 ? {} : { firstAttempt: earlier.length + 1 }),
     });
     if (implemented.outcome === "interrupted") {
-      const failure = await releaseHeldAfterInterrupt(key);
+      const failure = await releaseHeldAfterInterrupt(key, implemented.traces);
       return failure ?? refused("interrupted");
     }
     if (implemented.outcome === "invalid-invocation") {
@@ -501,126 +737,16 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (!got.ok) {
       return refused("not-found");
     }
-    const ticketPath = declaredTicketPath(workspaceRoot, key, got.aggregate);
-    // A parked refusal is this round's; a Submission's is carried forward on
-    // purpose and may already be repaired. The fresher one wins.
-    const parked = got.aggregate.parked_refusal;
-    const sentBack = parked?.report ?? got.aggregate.submission?.last_report;
-    if (sentBack !== undefined) {
-      // Something refused the last round and said why. That report is the only
-      // reason this stage has to produce: the unit is already validated.
-      //
-      // Before the Integration below, and that order is the whole point. What a
-      // producer leaves is loose in the workspace; the Integration is the only
-      // thing that takes it up. Producing after it means the repair waits for
-      // the next round to be taken up at all, and what goes out meanwhile is the
-      // state that was already refused — the same refusal comes back, and the
-      // budget empties on the delay.
-      const refusedBy = parked?.refused_by ?? got.aggregate.submission?.last_refused_by;
-      const remade = await transformers.implement({
-        id: `${key}:assembly`,
-        context: key,
-        stage: "assembly",
-        produce: true,
-        intention: got.aggregate.intention.intention,
-        workspace: ticketPath,
-        report: sentBack,
-        ...(refusedBy === undefined ? {} : { reportFrom: refusedBy }),
-      });
-      if (remade.outcome === "interrupted") {
-        return refused("interrupted");
-      }
-      if (remade.outcome === "invalid-invocation") {
-        return refused("transformer-invalid");
-      }
-      if (remade.outcome === "escalated") {
-        // The assembled work, not the unit: naming the unit here sends a reader
-        // to look at work that did not fail.
-        const why = reasonOfTraces(remade.traces);
-        return await freeze(key, {
-          kind: "assembly",
-          ...(why === undefined ? {} : { report: why }),
-        });
-      }
-    }
-    const aligned = await transformers.integrate({
-      id: `${key}:align`,
-      context: key,
-      parent: ticketPath,
-      child: workLineStable,
-      durationMs,
-      // What is loose in the workspace here is the work the Builder made, or a
-      // repair of it.
-      subject:
-        sentBack === undefined
-          ? foldMessageOf(got.aggregate.intention.title ?? got.aggregate.intention.intention)
-          : "Repair after it was refused",
-      mergeSubject: `Merge ${targetOf(got.aggregate) || "the work line"} into the ticket`,
-    });
-    if (aligned.outcome === "interrupted") {
-      return refused("interrupted");
-    }
-    if (aligned.outcome === "conflict") {
-      return refused("align-conflict");
-    }
-    if (aligned.outcome !== "integrated") {
-      return refused("transformer-invalid");
-    }
-    if (paused) {
-      return { outcome: "paused", key };
-    }
-    if (assemblyValidate) {
-      const validated = await transformers.implement({
-        id: `${key}:validate`,
-        context: key,
-        stage: "assembly",
-        validate: true,
-        intention: got.aggregate.intention.intention,
-        workspace: ticketPath,
-      });
-      if (validated.outcome === "interrupted") {
-        return refused("interrupted");
-      }
-      if (validated.outcome === "invalid-invocation") {
-        return refused("transformer-invalid");
-      }
-      if (validated.outcome === "escalated") {
-        const last = validated.traces.at(-1);
-        const report = last?.report ?? "The assembled ticket was refused, with no reason given.";
-        const spent =
-          (got.aggregate.submission?.refusals ?? 0) + (got.aggregate.parked_refusals ?? 0);
-        const canRepair =
-          assemblyFixDeclared && last?.ended !== "fail-blocking" && spent + 1 < maxRefusals;
-        if (!canRepair) {
-          return await freeze(key, {
-            kind: "assembly",
-            report: last?.refusedBy === undefined ? report : `${last.refusedBy}: ${report}`,
-          });
-        }
-        const recorded = await ledger.recordParkedRefusal({
-          key,
-          report,
-          ...(last?.refusedBy === undefined ? {} : { refusedBy: last.refusedBy }),
-        });
-        const failure = fromLedger(recorded);
-        if (failure !== undefined) {
-          return failure;
-        }
-        // Repair is on its way: do not offer, or judge, work that is already
-        // known to need it.
-        return { outcome: "paused", key };
-      }
-      const cleared = await ledger.clearParkedRefusal(key);
-      const clearFail = fromLedger(cleared);
-      if (clearFail !== undefined) {
-        return clearFail;
-      }
+    const unit = unitOf(key, got.aggregate);
+    const prepared = await delivery.prepare(unit, ticketStore(key));
+    if (prepared !== "ready") {
+      return prepared;
     }
     if (authority === undefined) {
       // Nobody outside will look at it, so the Project's own sequence is the
       // only judgement the assembled ticket gets. Skipping it here would let
       // work into the work line that nothing ever judged as a whole.
-      const judged = await judge(key, got.aggregate);
+      const judged = await delivery.judge(unit);
       if (judged.outcome === "interrupted") {
         return refused("interrupted");
       }
@@ -679,75 +805,15 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     return { outcome: "paused", key };
   }
 
-  /**
-   * Judge the assembled ticket with the Project's Gate sequence for it.
-   *
-   * Nothing is produced: the work is done, and this pass only decides whether it
-   * may enter the work line. A Gate that reads an outside answer belongs in that
-   * sequence like any other — it says ok or not, and it does not act.
-   */
-  async function judge(key: string, aggregate: TicketAggregate): Promise<ImplementResult> {
-    return await transformers.implement({
-      id: `${key}:judgement`,
-      context: key,
-      stage: "assembly",
-      produce: false,
-      intention: aggregate.intention.intention,
-      workspace: declaredTicketPath(workspaceRoot, key, aggregate),
-    });
-  }
-
   async function doSubmitted(key: string): Promise<ProjectRunResult> {
     const got = await ledger.get(key);
     if (!got.ok) {
       return refused("not-found");
     }
-    const submission = got.aggregate.submission;
-    if (authority === undefined || submission === undefined) {
-      return refused("transformer-invalid");
-    }
     const ticketPath = declaredTicketPath(workspaceRoot, key, got.aggregate);
-    const judged = await judge(key, got.aggregate);
-    if (judged.outcome === "interrupted") {
-      return refused("interrupted");
-    }
-    if (judged.outcome === "invalid-invocation") {
-      return refused("transformer-invalid");
-    }
-
-    if (judged.outcome === "escalated") {
-      const last = judged.traces.at(-1);
-      const report = last?.report ?? "The Submission was refused, with no reason given.";
-      // A blocking refusal is not something another round repairs, and neither
-      // is one more refusal than the budget allows.
-      if (last?.ended === "fail-blocking" || submission.refusals + 1 >= maxRefusals) {
-        // The refusal that stopped it is never recorded as one — this is the
-        // only place it can be kept for the person who reads the escalation.
-        return await freeze(key, {
-          kind: "submitted",
-          report: last?.refusedBy === undefined ? report : `${last.refusedBy}: ${report}`,
-        });
-      }
-      const recorded = await ledger.recordRefusal({
-        key,
-        report,
-        ...(last?.refusedBy === undefined ? {} : { refusedBy: last.refusedBy }),
-      });
-      const failure = fromLedger(recorded);
-      if (failure !== undefined) {
-        return failure;
-      }
-      // Back to where the work is made. The next pass produces with that report
-      // in hand and publishes to the same place.
-      return { outcome: "paused", key };
-    }
-
-    const folded = await authority.fold({ reference: submission.reference });
-    if (folded.outcome === "unavailable") {
-      return { outcome: "paused", key };
-    }
-    if (folded.outcome === "conflict") {
-      return await freeze(key, { kind: "submitted" });
+    const settled = await delivery.settle(unitOf(key, got.aggregate), ticketStore(key));
+    if (!("folded" in settled)) {
+      return settled;
     }
     // The Authority folded it. The work line moved; this system's copy has not,
     // and whoever wired the Authority is the one that brings it up to date.
@@ -756,7 +822,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (mergingFailure !== undefined) {
       return mergingFailure;
     }
-    const done = await ledger.markDone(key, { reference: folded.reference });
+    const done = await ledger.markDone(key, { reference: settled.reference });
     const doneFailure = fromLedger(done);
     if (doneFailure !== undefined) {
       return doneFailure;
@@ -772,15 +838,18 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     const title = got.ok
       ? (got.aggregate.intention.title ?? got.aggregate.intention.intention)
       : key;
-    const folded = await transformers.integrate({
-      id: key,
-      context: key,
-      parent: workLineStable,
-      child: ticketPath,
-      durationMs,
-      subject: foldMessageOf(title),
-      mergeSubject: `Merge ${subjectOf(title)}`,
-    });
+    const folded = await onLine(
+      async () =>
+        await transformers.integrate({
+          id: key,
+          context: key,
+          parent: workLineStable,
+          child: ticketPath,
+          durationMs,
+          subject: foldMessageOf(title),
+          mergeSubject: `Merge ${subjectOf(title)}`,
+        }),
+    );
     if (folded.outcome === "interrupted") {
       return refused("interrupted");
     }
@@ -892,7 +961,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       if (paused) {
         return { outcome: "paused" };
       }
-      const claimed = await ledger.claim(project);
+      const claimed = await ledger.claim(project, maxParallel);
       if (!claimed.ok) {
         const failure = fromLedger(claimed);
         return failure ?? refused("illegal-transition");
@@ -901,6 +970,21 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         return { outcome: "idle" };
       }
       return await drive(claimed.key);
+    },
+
+    async claimNext(project: string): Promise<{ key: string } | undefined> {
+      if (paused || !(await isDirectory(workLineStable))) {
+        return undefined;
+      }
+      const claimed = await ledger.claim(project, maxParallel);
+      return claimed.ok && "key" in claimed ? { key: claimed.key } : undefined;
+    },
+
+    async runTicket(key: string): Promise<ProjectRunResult> {
+      if (!(await isDirectory(workLineStable))) {
+        return refused("stable-missing");
+      }
+      return await drive(key);
     },
 
     async cancel(key: string): Promise<CommandResult> {
@@ -916,7 +1000,9 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       const child = before.ok ? before.aggregate.workspace : undefined;
       const released = await ledger.releaseBail(key);
       if (released.ok && child !== undefined) {
+        // The way to start a unit over: what a stopped pass left is dropped, not picked up.
         await destroy(child);
+        await ledger.clearWorkspace(key);
       }
       return released;
     },

@@ -25,6 +25,10 @@ Task:
 This checkout is the project as it stands. Add or change only what this task
 names, and leave the project's own checks green on the whole tree.
 
+When the latest commit of this checkout is titled "Tests: …", the tests of this task were
+written before the code and committed. They are the specification: make them pass as they
+are. Do not edit, delete or rename them.
+
 {{history}}
 
 ## When you cannot act

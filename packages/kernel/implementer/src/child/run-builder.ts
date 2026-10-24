@@ -104,18 +104,16 @@ function interpretBuilderOutcome(outcome: SpawnOutcome, timeoutMs: number): Buil
   }
 
   if (outcome.kind === "timed_out") {
-    const detail = withChildWords(
-      `killed after ${timeoutMs}ms, its own ceiling`,
-      outcome.stdout,
-      outcome.stderr,
-    );
+    const sentence = `killed after ${timeoutMs}ms, its own ceiling`;
     return {
       result: {
         kind: "timed_out",
         outcome: "fail-retryable",
-        detail,
+        detail: withChildWords(sentence, outcome.stdout, outcome.stderr),
       },
-      reportForRetry: detail,
+      // What the next producer is told. The tail of what a killed child wrote is the stream of its
+      // tool calls: pages of it, and nothing in it says what to do. The film of the run keeps it.
+      reportForRetry: `${sentence}. It left no answer. What it made is in this directory: look at it, finish it, and run each check once.`,
       attemptEnded: "fail-retryable",
     };
   }
@@ -153,10 +151,14 @@ function interpretBuilderOutcome(outcome: SpawnOutcome, timeoutMs: number): Buil
   };
 }
 
+/** How much of what a killed child wrote stays in the Trace: its end, where it stopped. */
+const CHILD_WORDS_KEPT = 1_000;
+
 function withChildWords(sentence: string, stdout: string, stderr: string): string {
   const said = combinedOutput(stdout, stderr).trim();
   if (said.length === 0) {
     return sentence;
   }
-  return `${sentence} ${said}`;
+  const end = said.length > CHILD_WORDS_KEPT ? `…${said.slice(-CHILD_WORDS_KEPT)}` : said;
+  return `${sentence} ${end}`;
 }

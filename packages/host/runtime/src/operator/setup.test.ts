@@ -24,12 +24,13 @@ function sandbox(config: Record<string, unknown>): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
+        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,
-          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
+        gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
       },
       timeoutMs: 1000,
       ...config,

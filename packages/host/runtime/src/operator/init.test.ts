@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -43,14 +43,14 @@ describe("runInit", () => {
     assert.equal(config.featureTracker.options.repo, "tilap/mason");
     assert.equal(existsSync(join(cwd, "mason-builder.mjs")), true);
     assert.equal(existsSync(join(cwd, "mason-gate.mjs")), false);
-    assert.deepEqual(config.builder.producer.gates.gates, []);
-    assert.deepEqual(config.builder.repair.gates.gates, []);
+    assert.deepEqual(config.builder.gates.gates, []);
+    assert.equal(config.builder.producer.gates, undefined);
+    assert.equal(config.builder.repair.gates, undefined);
     // A producer with no ceiling is the failure this shape exists to prevent,
     // so `init` writes one rather than leaving a required key out.
     assert.equal(typeof config.builder.producer.timeoutMs, "number");
     assert.equal(typeof config.builder.repair.timeoutMs, "number");
-    assert.equal(typeof config.builder.producer.gates.defaultTimeoutMs, "number");
-    assert.equal(typeof config.builder.repair.gates.defaultTimeoutMs, "number");
+    assert.equal(typeof config.builder.gates.defaultTimeoutMs, "number");
     // Where Host keeps its own files is a default, not a line to maintain.
     assert.equal(config.home, undefined);
     assert.equal(config.workspaceRoot, undefined);
@@ -80,7 +80,7 @@ describe("runInit", () => {
     await initIn(cwd, ["--manager", "@bluewombat/manager-fake"]);
     assert.equal(existsSync(join(cwd, "mason-gate.mjs")), false);
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8"));
-    assert.deepEqual(config.builder.producer.gates.gates, []);
+    assert.deepEqual(config.builder.gates.gates, []);
   });
 
   it("lets the fake manager prepare its Source and Thread directories", async () => {

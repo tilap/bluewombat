@@ -34,12 +34,13 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
       workspaceRoot: "./workspaces",
       ledger: "./ledger",
       builder: {
+        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,
-          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
+        gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
       },
       timeoutMs: 1000,
     }),
@@ -221,7 +222,7 @@ describe("runLog", () => {
       "# builder · attempt 1\n\n- exit: 0\n- duration: 12.0s\n",
     );
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8")) as {
-      builder: { producer: { cmd: string[] } };
+      builder: { tests: { agent: false }; producer: { cmd: string[] } };
     };
     config.builder.producer.cmd.push("--transcript-dir", transcripts);
     writeFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), stringifyYaml(config));

@@ -2,10 +2,42 @@ import type { GateSpec } from "@bluewombat/implementer";
 import type { ManagerModule } from "@bluewombat/manager-kit";
 
 /**
+ * What a Feature can say that makes Host leave a Gate out. Names are the ones a Gate's `skipWhen`
+ * is written with, whatever the tracker calls the label behind them.
+ */
+export const SKIP_WHEN = ["skip-test-e2e"] as const;
+export type SkipWhen = (typeof SKIP_WHEN)[number];
+
+/**
+ * A Gate as the config writes it: Implementer's, and the condition under which Host does not run
+ * it. A Gate that is not run is not a Gate that passed: Host says so in its journal and trace, and
+ * the Gate itself knows nothing of it. Only a Feature's Gates take one.
+ */
+export type HostGateSpec = GateSpec & { skipWhen?: SkipWhen };
+
+/**
  * A command with its own Gate sequence. Every role is gated independently —
  * no sharing, no dispatch choosing between two buckets (see DECISIONS.md).
  */
-export type GatedPassSpec = PassSpec & { gates: GateSpec[] };
+export type GatedPassSpec = PassSpec & { gates: HostGateSpec[] };
+
+/**
+ * A review: an agent and the Gates that follow it — or, with `agent: false`,
+ * the Gates alone. Writing `agent: false` is how a Project turns the agent off
+ * and keeps its checks; with no Gates either, the review is off altogether. A
+ * review is always written, so that turning it off is a choice that shows.
+ */
+export type ReviewSpec = GatedPassSpec | { agent: false; gates: HostGateSpec[] };
+
+/** Whether a review does anything: an agent to run, or Gates to ask. */
+export function isOn(review: ReviewSpec | undefined): boolean {
+  return review !== undefined && (hasAgent(review) || review.gates.length > 0);
+}
+
+/** Whether a review has an agent to run before its Gates. */
+export function hasAgent(review: ReviewSpec): review is GatedPassSpec {
+  return "cmd" in review;
+}
 
 /**
  * One tracker integration: the package that talks to it and the options that
@@ -40,6 +72,13 @@ export type HostInvocation = {
    */
   workLineStable?: string;
   /**
+   * A second copy of the work line, kept on the branch a Feature is folded into.
+   * It is what the target is merged from when a Feature is brought up to date.
+   * Host keeps its own under `.mason/targetLine` when the reference allows;
+   * required with an Authority otherwise.
+   */
+  workLineTargetStable?: string;
+  /**
    * The work line a fold lands on. Absent: what the manager's reference names,
    * or else whatever WorkLineStable has checked out, which is nobody's decision.
    */
@@ -70,7 +109,13 @@ export type HostInvocation = {
   /** Making the unit of work, and judging what came out of it. */
   builder: StageSpec;
   /** Judging the assembled ticket, and fixing what a judgement refused. */
-  assembly: AssemblySpec;
+  ticket: TicketSpec;
+  /**
+   * Judging the whole Feature before its line is folded, and fixing what that
+   * judgement refused. Required with an Authority, which is what folds a line;
+   * without one nothing here is read.
+   */
+  feature?: FeatureSpec;
   /**
    * The outside judge, when the Project declares one. Absent or disabled: the
    * assembled ticket is folded into WorkLineStable and that fold is final.
@@ -82,11 +127,6 @@ export type HostInvocation = {
   observability?: ObservabilitySpec;
   /** How long any one child outside a Task may run: manager, isolations. */
   timeoutMs: number;
-  /**
-   * Times the work may be sent back before it escalates, by an Authority, by
-   * `assembly.validate`, or by both — one shared budget. Default 3.
-   */
-  maxRefusals?: number;
   pollIntervalMs?: number;
 };
 
@@ -146,17 +186,33 @@ export type PassSpec = {
 };
 
 /**
- * Making the unit of work: first pass, then repair when a Gate refused, each judged
- * by its own Gate sequence — a repair Attempt with no gates of its own runs
- * ungated, even when the producer's list is not empty.
+ * Making the unit of work: first pass, then repair when a Gate refused. The
+ * config writes one `builder.gates` list; the loader puts it on both passes, so
+ * a repair is judged by exactly what judged the producer (Implementer still takes
+ * two sequences, one per command).
  */
 export type StageSpec = {
-  /** Produces from a specification. Judged by its own `gates`. */
+  /** Produces from a specification. Judged by `builder.gates`. */
   producer: GatedPassSpec;
-  /** Produces again, with the report of what refused the last pass. Judged by its own `gates`. */
+  /** Produces again, with the report of what refused the last pass. Judged by `builder.gates`. */
   repair: GatedPassSpec;
   /** Attempts one Task may start. Default 3. */
   maxAttempts?: number;
+  /**
+   * The tests of the Task, written before its code by an agent that is not the
+   * producer, and committed as a checkpoint the producer's work builds on. Its
+   * `gates` are what makes them worth having (they must fail, for the right
+   * reason) and what the producer's own Gates then keep intact. With
+   * `agent: false` no tests are written first.
+   */
+  tests?: ReviewSpec;
+  /**
+   * The Ticket that holds a Feature's e2e acceptance suite (the tracker's e2e label) is made by
+   * this pass instead of the producer and the repair: its own command, its own Gates, nothing
+   * borrowed from them. Declaring it declares the e2e check: a Feature needs an e2e Ticket or the
+   * skip label, and a Feature Gate with `skipWhen: skip-test-e2e` runs the suite.
+   */
+  e2e?: GatedPassSpec;
 };
 
 /**
@@ -173,7 +229,19 @@ export type StageSpec = {
  * producer of its own (nothing new made, the existing assembled state
  * re-checked; e.g. `ci-green`), and was never shared with `fix` or `validate`.
  */
-export type AssemblySpec = {
+export type TicketSpec = {
+  /**
+   * How many Tickets of a Project may be worked on at once. Default 1: one
+   * after the other. Above 1 needs `authority.enabled`.
+   */
+  maxParallel?: number;
+  /** How many Attempts one fix may take. */
+  maxAttempts?: number;
+  /**
+   * Times the work may be sent back before it escalates, by an Authority, by
+   * `validate`, or by both — one shared budget. Default 3.
+   */
+  maxRefusals?: number;
   /** Fixes what a judgement of the whole refused. Needs `--report`. Judged by its own `gates`. */
   fix?: GatedPassSpec;
   /**
@@ -183,10 +251,35 @@ export type AssemblySpec = {
    * parked on the aggregate and repaired by `fix`, the same as an Authority's.
    * Judged by its own `gates`.
    */
-  validate?: GatedPassSpec;
-  maxAttempts?: number;
+  validate?: ReviewSpec;
   /** The judgement-only pass's own sequence — see above. */
-  gates: GateSpec[];
+  gates: HostGateSpec[];
+};
+
+/**
+ * What happens to a Feature's line before it is folded: its own judgement, its
+ * own fix and its own budget, apart from a Ticket's ticket.
+ */
+export type FeatureSpec = {
+  /** Repairs the line when a judgement of it refused. Needs `--report`. Judged by its own `gates`. */
+  fix: GatedPassSpec;
+  /** How many Attempts one fix may take. */
+  maxAttempts?: number;
+  /**
+   * Times the line may be sent back before the Feature escalates. One shared
+   * budget, like a Ticket's. Default 3.
+   */
+  maxRefusals?: number;
+  /**
+   * A local, read-only review of the whole line against the Feature's request,
+   * once the target has been merged into it, before the line is published. Its
+   * `gates` are where the project's own checks on the whole line run (typecheck,
+   * tests) beside the guards that it wrote nothing. Judged by its own gates, not
+   * by `gates` below, which read the published branch.
+   */
+  validate: ReviewSpec;
+  /** Judges the published line, with nothing produced (the CI). At least one. */
+  gates: HostGateSpec[];
 };
 
 /**

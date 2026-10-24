@@ -45,7 +45,7 @@ ticketTracker:
 
 Each label option is written under the side that uses it:
 `featureReadyLabel` and `mergeWhenReadyLabel` under `featureTracker`,
-`ticketReadyLabel` under `ticketTracker`. The package is told which side it
+`ticketReadyLabel`, `noTestsLabel` and `e2eLabel` under `ticketTracker`; `skipTestE2eLabel` under `featureTracker`. The package is told which side it
 serves, so `mason setup` creates only that side's labels and `mason doctor`
 names only those; an option under the wrong side is refused by name. The
 options both sides read (`repo`, `tokenEnv`, `resumeLabel`, `defaultProject`,
@@ -70,6 +70,8 @@ config file and Host never sees it.
 | Its sub-issues                                | Its Tickets, in the order GitHub gives them                                                                      |
 | `task-ready` on a sub-issue                    | The Ticket's specification is final. A Feature starts only when every one of its Tickets carries it             |
 | "Blocked by" (issue dependencies)             | On a Feature: the Features that must be done first. On a Ticket: the Tickets that must be done first            |
+| `skip-test-e2e` on a Feature                  | The Feature is not put through the e2e acceptance check: its e2e Ticket is cancelled and the Gate that runs the suite is not run. Put on or taken off, it is read again until the Feature is submitted |
+| `e2e` on a sub-issue                          | The Ticket holds the e2e acceptance suite of its Feature: it is made by the e2e pass, with no tests written first |
 | `merge-when-ready` on a Feature               | Its line may be folded without a human. Without it, a human merges the pull request and the system waits         |
 | `to-resume` on an escalated Feature or Ticket | Resume                                                                                                           |
 | `priority:<n>`, `project:<name>` labels       | On a Feature and on a Ticket                                                                          |
@@ -105,11 +107,15 @@ you mean it.
 | `apiBase`          | no       | `https://api.github.com`        | REST base, for GitHub Enterprise                                                                                                                                                                                                                                                                                  |
 | `featureReadyLabel` (featureTracker) | no       | `feature-ready`                   | The label that makes an issue a Feature the system may take                                                                                                                                                                                                                                                       |
 | `ticketReadyLabel` (ticketTracker) | no       | `task-ready`                     | The label a sub-issue carries once its specification is final                                                                                                                                                                                                                                                     |
+| `noTestsLabel` (ticketTracker) | no       | `no-tests`                       | The label that says no tests are written before this Ticket's code. It is read on the sub-issue, beside its text: the Ticket is made without the agent that writes tests first (see No tests first)                                                                                                         |
+| `e2eLabel` (ticketTracker) | no       | `e2e`                            | The label that says this sub-issue holds the Feature's e2e acceptance suite (see The e2e labels) |
+| `skipTestE2eLabel` (featureTracker) | no | `skip-test-e2e`                  | On a Feature: it is not put through the e2e acceptance check |
 | `mergeWhenReadyLabel` (featureTracker) | no    | `merge-when-ready`              | On a Feature: its line is folded without a human                                                                                                                                                                                                                                                                  |
 | `resumeLabel`       | no       | `to-resume`                         | On an escalated Feature or Ticket, this label means resume; the escalation comment names it                                                                                                                                                                                                                                 |
 | `defaultProject`   | no       | none                            | The Project of a Feature that has no `project:` label. Without it, such a Feature is refused as invalid (`missing-project`). `mason setup` creates the label `project:<defaultProject>` |
 | `defaultPriority`  | no       | `50`                            | Priority when no `priority:` label says otherwise (0…100)                                                                                                                                                                                                                                                         |
 | `stateLabels`      | no       | none                            | A mapping that names, for every Event, the label it lands as (see State labels). Absent: the Events leave no label |
+| `labelColors`      | no       | none                            | A colour for each kind of label the setup creates, by what it is for, not by its name (see Label colours) |
 | `branch`           | no       | `main`                          | The work line pull requests are opened onto. `mason setup` checks it exists and names the repository's default branch when it does not                                                                                                                                                                            |
 | `remote`           | no       | `https://github.com/<repo>.git` | Git URL of the repository, for Host's copy of the work line. Over HTTPS, git authenticates with the token in `tokenEnv` — read when git asks, never written to disk — so pushes are the token's account. Set it for GitHub Enterprise, a mirror, or SSH (then this machine's keys are used, and `doctor` says so) |
 | `keepBranch`       | no       | `false`                         | Leave the ticket branch on the remote after the fold. By default it is deleted once the squash is on the work line                                                                                                                                                                                               |
@@ -127,6 +133,7 @@ takes an accepted one in.
 | `dropLine`| Deletes a line nobody will fold                                                                                                                                                                              |
 | `submit`  | Opens a pull request from the published branch onto the line it is offered to (a Feature's line, or `branch`). An open one on the same branch is reused, never duplicated                                   |
 | `settled` | Whether the pull request is still open, was merged (by anyone), or was closed unmerged. A human's merge is read here                                                                                         |
+| `behind`  | Whether the line holds commits the pull request does not (`compare` of the line's tip against the pull request's head, `behind_by`). Asked right before a `fold`. A failed read is `unavailable`, never `current` |
 | `fold`    | Squash-merges it: the commit's title is the pull request's; its body is what the Project's Describer said (carried on the pull request), else `Closes #N` alone. Then deletes the branch unless `keepBranch` |
 
 The pull request is titled after the issue (trailing full stop dropped, `(#N)`
@@ -217,6 +224,65 @@ options:
 Absent, nothing is labelled and the guard on `done` and `cancelled` is off. Naming
 an Event outside the list, leaving one out, or giving a label twice is refused.
 
+## No tests first
+
+When the host writes a Ticket's tests before its code, a sub-issue carrying the `no-tests`
+label (the `noTestsLabel` option renames it) is made without that step: no agent writes
+tests for it, and its producer writes its own with its code. The decision is the label,
+never a line of the issue's text, so it can be set or taken off without editing the
+specification. Put it on a Ticket before it starts: a Ticket already under way keeps what
+it began with. `mason setup` creates the label, and `labelColors` colours it with the
+`no-tests` key.
+
+## The e2e labels
+
+A Project may prove each Feature by an acceptance suite run once on the whole Feature (see the
+runtime README, "The e2e acceptance check"). On the tracker it is two labels. `e2e`
+(`e2eLabel`, under `ticketTracker`) marks the last sub-issue of the Feature, whose body is the
+scenarios agreed with the operator, `E1`, `E2`…, copied verbatim; it must be blocked by every
+other sub-issue. `skip-test-e2e` (`skipTestE2eLabel`, under `featureTracker`) on the Feature
+leaves the check out: the `e2e` sub-issue is cancelled, and the Gate that runs the suite is not
+run. Both are compared without case, and read again on each delivery until the Feature is
+submitted. `mason setup` creates them, and `labelColors` colours them with the keys `e2e` and
+`skip-test-e2e`.
+
+## Label colours
+
+`mason setup` gives each label a colour so a human can tell them apart. `labelColors`
+chooses them, one label at a time. A key is the identifier of a label, never its name, so
+renaming a label (`stateLabels`, `resumeLabel`, ...) does not lose its colour. A colour is
+six hex digits, with or without a `#`:
+
+```yaml
+options:
+  labelColors:
+    feature-ready: "1d76db"
+    ticket-ready: "1d76db"
+    merge-when-ready: "1d76db"
+    no-tests: "fbca04"
+    e2e: "0e8a16"
+    skip-test-e2e: "fbca04"
+    resume: "0e8a16"
+    project: "c5def5" # project:<defaultProject>
+    state-invalid: "5319e7"
+    state-accepted: "5319e7"
+    state-progress: "5319e7"
+    state-escalated: "d93f0b"
+    state-escalation_reminder: "d93f0b"
+    state-resumed: "5319e7"
+    state-submitted: "5319e7"
+    state-done: "0e8a16"
+    state-cancelled: "6a737d"
+    state-reject_late: "6a737d"
+```
+
+Every key is optional. When the Feature and the Ticket ready labels are one label (the
+same name), `feature-ready` colours it. A colour the config chose is applied to a label
+that already exists too: `mason setup` says `recolour label …` and `--apply` does it. A
+label the config chose no colour for keeps the default colour when it is created and is
+never touched when it exists, so a colour set by hand on GitHub stays. A key that is not in
+the list above, or a colour that is not six hex digits, is refused by name.
+
 ## Prepare the repository
 
 `mason setup` reads the config and says what the repository still needs;
@@ -233,10 +299,10 @@ mason setup --apply
 | Issues are enabled          | `has_issues` on that same response                                                                                                                                                         |
 | The token can write         | `permissions.push` on that same response, rather than guessing at scopes                                                                                                                   |
 | The branch exists           | `GET /repos/{owner}/{repo}/branches/{branch}` for `branch` (default `main`); when it is missing and the config named none, the step says the repository's default branch and what to write |
-| Labels                      | `featureReadyLabel`, `ticketReadyLabel`, `mergeWhenReadyLabel`, `resumeLabel`, `project:<defaultProject>`, and one per Event when `stateLabels` is set                                                                                       |
+| Labels                      | `featureReadyLabel`, `ticketReadyLabel`, `noTestsLabel`, `e2eLabel`, `mergeWhenReadyLabel`, `skipTestE2eLabel`, `resumeLabel`, `project:<defaultProject>`, and one per Event when `stateLabels` is set                                                                                       |
 
-Creating a label is the only write; nothing existing is renamed, recoloured, or
-deleted.
+Creating a label, and recolouring one the config chose a colour for (see Label
+colours), are the only writes; nothing existing is renamed or deleted.
 
 ## Stack
 

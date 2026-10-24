@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { GateSpec } from "@bluewombat/implementer";
 import type {
+  BehindResult,
   Delivery,
   FoldResult,
   LineResult,
@@ -45,6 +46,8 @@ const LINE_PR = "pr-line";
 type Paths = {
   root: string;
   workLineStable: string;
+  /** The copy of the line a Feature is folded into. */
+  targetStable: string;
   workspaceRoot: string;
   ledgerRoot: string;
 };
@@ -54,9 +57,13 @@ function sandbox(): Paths {
   const workLineStable = join(root, "stable");
   mkdirSync(workLineStable);
   writeFileSync(join(workLineStable, "seed.txt"), "already good\n");
+  const targetStable = join(root, "target");
+  mkdirSync(targetStable);
+  writeFileSync(join(targetStable, "seed.txt"), "already good\n");
   return {
     root,
     workLineStable,
+    targetStable,
     workspaceRoot: join(root, "workspaces"),
     ledgerRoot: join(root, "ledger"),
   };
@@ -76,6 +83,7 @@ type StubTicket = {
   task_ready?: boolean;
   resume?: boolean;
   open?: boolean;
+  e2e?: boolean;
 };
 
 /** A Feature as the tracker would deliver it, its Tickets beside it. */
@@ -103,6 +111,8 @@ type Stub = {
   foldAnswer: FoldResult;
   lineAnswer: LineResult;
   settledAnswers: SettledResult[];
+  /** What the Authority says of a Submission falling behind, per reference; "current" once the list is empty. */
+  behind: Record<string, BehindResult[]>;
   listenOutcome: string;
   probes: string[];
   probe?: (key: string) => Promise<ProbeResult>;
@@ -128,6 +138,7 @@ function stubManager(over: Partial<Stub> = {}): Stub {
     foldAnswer: { outcome: "folded", reference: "9aeff61" },
     lineAnswer: { outcome: "opened" },
     settledAnswers: ["folded"],
+    behind: {},
     listenOutcome: "listened",
     probes: [],
     foldsLocally: false,
@@ -175,6 +186,7 @@ function stubManager(over: Partial<Stub> = {}): Stub {
                   (other) => `stub:${other}`,
                 ),
                 merge_when_ready: payload.merge_when_ready === true,
+                skip_e2e: payload.skip_e2e === true,
                 fingerprint: `fp-${id}-${String(payload.intention)}`,
                 normalized_at: "2026-09-06T10:00:00Z",
               },
@@ -209,6 +221,8 @@ function stubManager(over: Partial<Stub> = {}): Stub {
               },
               task_ready: t.task_ready ?? true,
               resume: t.resume ?? false,
+              no_tests: false,
+              e2e: t.e2e ?? false,
               open: t.open ?? true,
             }));
             return { outcome: "listed", tickets: entries };
@@ -244,6 +258,8 @@ function stubManager(over: Partial<Stub> = {}): Stub {
             return stub.foldAnswer;
           };
           tickets.settled = async () => stub.settledAnswers.shift() ?? "open";
+          tickets.behind = async (input) =>
+            stub.behind[input.reference]?.shift() ?? { outcome: "current" };
         }
         return { ok: true, manager: { features, tickets } };
       },
@@ -292,6 +308,7 @@ function optionsFor(paths: Paths, stub: Stub, over: Partial<HostOptions> = {}): 
     featureTracker: { package: stub.module, options: {} },
     ticketTracker: { package: stub.module, options: {} },
     workLineStable: paths.workLineStable,
+    workLineTargetStable: paths.targetStable,
     workLineBranch: TARGET,
     workLineIsolation: "@bluewombat/isolation-copy",
     workspaceRoot: paths.workspaceRoot,
@@ -308,7 +325,20 @@ function optionsFor(paths: Paths, stub: Stub, over: Partial<HostOptions> = {}): 
         gates: [],
       },
     },
-    assembly: { gates: [] },
+    ticket: { gates: [] },
+    feature: {
+      validate: {
+        cmd: [node, join(fixtures, "builder-ok.mjs")],
+        timeoutMs: 30_000,
+        gates: passingGates(),
+      },
+      gates: passingGates(),
+      fix: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates: [],
+      },
+    },
     authority: {
       enabled: true,
       publishArgv: slot(paths.root, "publisher", { ref: "shelf/42" }),
@@ -324,6 +354,35 @@ const eventsOf = (stub: Stub, key: string): string[] =>
   stub.reports.filter((report) => report.key === key).map((report) => report.event);
 
 describe("host with an Authority", () => {
+  it("refreshes a Feature's line against the final line before its first Ticket starts", async () => {
+    const paths = sandbox();
+    const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
+    const seen = join(paths.root, "refresher-argv.jsonl");
+    const recording = join(paths.root, "recording-refresher.mjs");
+    writeFileSync(
+      recording,
+      `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)) + "\\n"); console.log('{"ok":true}');\n`,
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        authority: {
+          enabled: true,
+          publishArgv: slot(paths.root, "publisher", { ref: "shelf/42" }),
+          refreshArgv: [node, recording],
+        },
+      }),
+      { journal: memoryJournal() },
+    );
+
+    await host.runOnce();
+
+    const calls = readFileSync(seen, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    assert.deepEqual(calls[0], ["--target", LINE, "--base", TARGET]);
+  });
+
   it("makes a Ticket on the Feature's line, offers it there, folds it, then offers the line", async () => {
     const paths = sandbox();
     const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
@@ -372,6 +431,7 @@ describe("host with an Authority", () => {
     assert.deepEqual(
       journal.lines.filter((l) => l.event === "refresh").map((l) => [l.outcome, l.target]),
       [
+        ["ok", LINE],
         ["ok", LINE],
         ["ok", LINE],
       ],
@@ -447,7 +507,7 @@ describe("host with an Authority", () => {
     });
     const host = await openHost(
       optionsFor(paths, stub, {
-        assembly: {
+        ticket: {
           gates: [
             {
               id: "ci",
@@ -463,6 +523,293 @@ describe("host with an Authority", () => {
     const tick = await host.runOnce();
     assert.ok(tick.reported.includes("escalated"));
     assert.deepEqual(stub.folds, []);
+  });
+
+  function defaultFeature(): NonNullable<HostOptions["feature"]> {
+    return {
+      validate: {
+        cmd: [node, join(fixtures, "builder-ok.mjs")],
+        timeoutMs: 30_000,
+        gates: passingGates(),
+      },
+      gates: passingGates(),
+      fix: {
+        cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+        timeoutMs: 30_000,
+        gates: [],
+      },
+    };
+  }
+
+  /** A Gate that refuses until the repair has put its marker in the line. */
+  function needsRepairGate(root: string): GateSpec[] {
+    const path = join(root, "needs-repair.mjs");
+    writeFileSync(
+      path,
+      [
+        'import { existsSync } from "node:fs";',
+        'const ok = existsSync("feature-fixed.txt");',
+        "console.log(JSON.stringify(ok",
+        '  ? { verdict: "pass" }',
+        '  : { verdict: "fail-retryable", report: "the line needs feature-fixed.txt" }));',
+        "",
+      ].join("\n"),
+    );
+    return [{ id: "line-check", argv: [node, path], timeoutMs: 10_000 }];
+  }
+
+  function script(root: string, name: string, body: string): string[] {
+    const path = join(root, `${name}.mjs`);
+    writeFileSync(path, body);
+    return [node, path];
+  }
+
+  function writesRepair(root: string): string[] {
+    return script(
+      root,
+      "repairs",
+      'import { writeFileSync } from "node:fs";\nwriteFileSync("feature-fixed.txt", "repaired\\n");\n',
+    );
+  }
+
+  /** The Ticket has landed and the Feature's line is with the Authority. */
+  async function featureSubmitted(host: Awaited<ReturnType<typeof openHost>>): Promise<void> {
+    await host.runOnce();
+    await host.runOnce();
+  }
+
+  async function stateOf(host: Awaited<ReturnType<typeof openHost>>) {
+    const got = await host.ledger.getFeature(FEATURE);
+    assert.ok(got.ok);
+    return got.aggregate;
+  }
+
+  it("judges the published line by the Feature's own gates, not the ticket's", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        // The Ticket's ticket passes; only the Feature's sequence refuses.
+        ticket: { gates: [] },
+        feature: { ...defaultFeature(), gates: blockingGates() },
+      }),
+    );
+    await featureSubmitted(host);
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "escalated");
+    assert.deepEqual(stub.folds, [TICKET_PR]);
+  });
+
+  it("brings the final line into the Feature and reviews it before the line is offered", async () => {
+    const paths = sandbox();
+    // The final line holds a file the Feature's line does not.
+    writeFileSync(join(paths.targetStable, "from-target.txt"), "moved on\n");
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    // The review's gates run in the Feature's workspace and see what was merged into it.
+    const checks = script(
+      paths.root,
+      "sees-target",
+      [
+        'import { existsSync, writeFileSync } from "node:fs";',
+        'const ok = existsSync("from-target.txt");',
+        'writeFileSync(process.env.SEEN ?? "seen.txt", ok ? "yes" : "no");',
+        "console.log(JSON.stringify(ok",
+        '  ? { verdict: "pass" }',
+        '  : { verdict: "fail-blocking", report: "the target was not merged" }));',
+        "",
+      ].join("\n"),
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          validate: {
+            ...defaultFeature().validate,
+            gates: [{ id: "target-merged", argv: checks, timeoutMs: 10_000 }],
+          },
+        },
+      }),
+    );
+    await featureSubmitted(host);
+    const feature = await stateOf(host);
+    assert.equal(feature.state, "submitted");
+    // What was merged is on the Feature's line, which is what gets published.
+    assert.equal(existsSync(join(paths.workLineStable, "from-target.txt")), true);
+  });
+
+  it("repairs a refused line, publishes it again, and folds it once the gates agree", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          gates: needsRepairGate(paths.root),
+          fix: { cmd: writesRepair(paths.root), timeoutMs: 30_000, gates: [] },
+        },
+      }),
+    );
+    await featureSubmitted(host);
+
+    // The judgement refuses: the line goes back to where it is made.
+    await host.runOnce();
+    const refused = await stateOf(host);
+    assert.equal(refused.state, "open");
+    assert.equal(refused.submission?.refusals, 1);
+    assert.match(refused.submission?.last_report ?? "", /feature-fixed\.txt/);
+    assert.deepEqual(stub.folds, [TICKET_PR]);
+
+    // The fix, the align, the review and the offer, on the same Submission.
+    await host.runOnce();
+    const repaired = await stateOf(host);
+    assert.equal(repaired.state, "submitted");
+    assert.equal(repaired.submission?.reference, LINE_PR);
+    assert.equal(existsSync(join(paths.workLineStable, "feature-fixed.txt")), true);
+
+    await host.runOnce();
+    assert.deepEqual(stub.folds, [TICKET_PR, LINE_PR]);
+    assert.equal((await stateOf(host)).state, "done");
+  });
+
+  it("escalates the Feature when its own rounds are spent", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          // Never satisfied: the repair writes a file the gate does not look for.
+          gates: [
+            {
+              id: "never",
+              argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
+              timeoutMs: 10_000,
+            },
+          ],
+          fix: { cmd: writesRepair(paths.root), timeoutMs: 30_000, gates: [] },
+          maxRefusals: 2,
+        },
+      }),
+    );
+    await featureSubmitted(host);
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "open");
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "submitted");
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "escalated");
+    assert.deepEqual(stub.folds, [TICKET_PR]);
+  });
+
+  it("runs the gates of feature.validate alone when its agent is turned off", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    // The gate records that it ran, in the Feature's workspace.
+    const ran = join(paths.root, "validate-gate-ran.txt");
+    const gate = script(
+      paths.root,
+      "records-run",
+      `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(ran)}, "ran\\n");\nconsole.log(JSON.stringify({ verdict: "pass" }));\n`,
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: {
+          ...defaultFeature(),
+          validate: { agent: false, gates: [{ id: "records", argv: gate, timeoutMs: 10_000 }] },
+        },
+      }),
+    );
+    await featureSubmitted(host);
+    assert.equal((await stateOf(host)).state, "submitted");
+    assert.equal(readFileSync(ran, "utf8"), "ran\n");
+  });
+
+  it("goes back to be brought up to date when the final line moved on, then folds", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+      behind: { [LINE_PR]: [{ outcome: "behind", commits: 2 }] },
+    });
+    const host = await openHost(optionsFor(paths, stub));
+    await featureSubmitted(host);
+
+    await host.runOnce();
+    const behind = await stateOf(host);
+    assert.equal(behind.state, "open");
+    assert.equal(behind.submission?.realigns, 1);
+    assert.deepEqual(stub.folds, [TICKET_PR], "nothing is folded that was not judged");
+
+    await host.runOnce();
+    assert.equal((await stateOf(host)).state, "submitted");
+
+    await host.runOnce();
+    assert.deepEqual(stub.folds, [TICKET_PR, LINE_PR]);
+    assert.equal((await stateOf(host)).state, "done");
+  });
+
+  it("sends a conflict with the final line to the fix, which settles it by hand", async () => {
+    const paths = sandbox();
+    // A file on the Feature's line, a directory of the same name on the final one.
+    writeFileSync(join(paths.workLineStable, "clash"), "feature\n");
+    mkdirSync(join(paths.targetStable, "clash"));
+    writeFileSync(join(paths.targetStable, "clash", "inner.txt"), "target\n");
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    // The copy strategy cannot turn a file into a directory and fold it back, so
+    // the fix settles it on both sides, as a person editing both would.
+    const fix = script(
+      paths.root,
+      "settles-clash",
+      `import { rmSync } from "node:fs";\nrmSync("clash", { force: true });\nrmSync(${JSON.stringify(join(paths.workLineStable, "clash"))}, { force: true });\n`,
+    );
+    const host = await openHost(
+      optionsFor(paths, stub, {
+        feature: { ...defaultFeature(), fix: { cmd: fix, timeoutMs: 30_000, gates: [] } },
+      }),
+    );
+    await host.runOnce();
+    await host.runOnce();
+    // First pass: the align conflicts, and the reason is kept for the fix.
+    const parked = await stateOf(host);
+    assert.equal(parked.state, "open");
+    assert.match(parked.parked_refusal?.report ?? "", /conflicts/);
+    assert.equal(parked.parked_refusal?.refused_by, "align");
+
+    // Second pass: the fix settles it, and the line is offered.
+    await host.runOnce();
+    const offered = await stateOf(host);
+    assert.equal(offered.state, "submitted");
+    assert.equal(offered.parked_refusal, undefined);
+    assert.equal(offered.parked_refusals, 1);
+  });
+
+  it("escalates a conflict with the final line when the rounds are spent", async () => {
+    const paths = sandbox();
+    writeFileSync(join(paths.workLineStable, "clash"), "feature\n");
+    mkdirSync(join(paths.targetStable, "clash"));
+    writeFileSync(join(paths.targetStable, "clash", "inner.txt"), "target\n");
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { merge_when_ready: true }) }],
+    });
+    const host = await openHost(
+      optionsFor(paths, stub, { feature: { ...defaultFeature(), maxRefusals: 1 } }),
+    );
+    await host.runOnce();
+    await host.runOnce();
+    const feature = await stateOf(host);
+    assert.equal(feature.state, "escalated");
+    assert.match(feature.escalation?.report ?? "", /align: .*conflicts/);
   });
 
   it("escalates the Feature when the line is closed without being folded, and resumes it on ready", async () => {
@@ -487,7 +834,9 @@ describe("host with an Authority", () => {
     const back = await host.ledger.getFeature(FEATURE);
     assert.equal(back.ok && back.aggregate.state, "submitted");
     assert.equal(back.ok && back.aggregate.resumes, 1);
-    assert.equal(stub.submissions.length, 2, "the same Submission, not a second one");
+    // Offered again: a real Authority answers the pull request that is still open,
+    // and opens a new one when the old was closed.
+    assert.equal(stub.submissions.length, 3);
 
     const merged = await host.runOnce();
     assert.deepEqual(merged.reported, ["done"]);
@@ -616,8 +965,8 @@ describe("host with an Authority", () => {
     const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     const host = await openHost(
       optionsFor(paths, stub, {
-        maxRefusals: 3,
-        assembly: {
+        ticket: {
+          maxRefusals: 3,
           fix: {
             cmd: [node, join(fixtures, "builder-write-marker.mjs")],
             timeoutMs: 30_000,
@@ -982,5 +1331,337 @@ describe("one Host pass", () => {
     const ticket = await host.ledger.get(TICKET);
     assert.equal(ticket.ok && ticket.aggregate.state, "submitted");
     assert.equal(ticket.ok && ticket.aggregate.resumes, 1);
+  });
+});
+
+/**
+ * A Project that proves its Features by an e2e acceptance suite: the shipped Gate, run on the
+ * assembled Feature, against a tiny application kept in the work line. The application answers
+ * 500 for scenario E2 until the Feature's fix has put `app-fixed.txt` in its tree.
+ */
+describe("the e2e acceptance check", () => {
+  const e2eGate = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../../plugins/slots/gates/e2e.mjs",
+  );
+
+  const SERVER = [
+    'import { createServer } from "node:http";',
+    'import { existsSync } from "node:fs";',
+    "createServer((req, res) => {",
+    '  const id = req.url.split("/").pop();',
+    '  const broken = id === "E2" && !existsSync("app-fixed.txt");',
+    '  console.log("GET " + req.url + " -> " + (broken ? 500 : 200));',
+    "  res.statusCode = broken ? 500 : 200;",
+    '  res.end("ok");',
+    "}).listen(Number(process.env.E2E_PORT), process.env.E2E_HOST);",
+    "",
+  ].join("\n");
+  const READY = [
+    'const r = await fetch("http://" + process.env.E2E_HOST + ":" + process.env.E2E_PORT + "/health").catch(() => undefined);',
+    "process.exit(r?.ok ? 0 : 1);",
+    "",
+  ].join("\n");
+  const SUITE = [
+    'import { mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+    'const ids = JSON.parse(readFileSync("e2e/scenarios.json", "utf8"));',
+    "const cases = [];",
+    "for (const id of ids) {",
+    '  const res = await fetch("http://" + process.env.E2E_HOST + ":" + process.env.E2E_PORT + "/s/" + id);',
+    '  const head = "<testcase name=\'" + id + " works\'";',
+    '  cases.push(res.ok ? head + "/>" : head + "><failure message=\'got " + res.status + "\'/></testcase>");',
+    "}",
+    "mkdirSync(process.env.E2E_RESULTS_DIR, { recursive: true });",
+    'writeFileSync(process.env.E2E_RESULTS_DIR + "/junit.xml", "<testsuite>" + cases.join("") + "</testsuite>");',
+    'process.exit(cases.some((c) => c.includes("failure")) ? 1 : 0);',
+    "",
+  ].join("\n");
+
+  function e2eSandbox(): Paths {
+    const paths = sandbox();
+    mkdirSync(join(paths.workLineStable, "e2e"));
+    writeFileSync(join(paths.workLineStable, "server.mjs"), SERVER);
+    writeFileSync(join(paths.workLineStable, "ready.mjs"), READY);
+    writeFileSync(join(paths.workLineStable, "e2e", "suite.mjs"), SUITE);
+    writeFileSync(join(paths.workLineStable, "down.mjs"), "");
+    // What the e2e Ticket delivers, on the line: the stub Publisher puts no work on it.
+    writeFileSync(join(paths.workLineStable, "e2e", "scenarios.json"), '["E1","E2"]');
+    return paths;
+  }
+
+  function script(root: string, name: string, body: string): string[] {
+    const path = join(root, `${name}.mjs`);
+    writeFileSync(path, body);
+    return [node, path];
+  }
+
+  /** The Gate as a Project writes it, with the clause that lets a Feature leave it out. */
+  function suiteGate(port: number): NonNullable<HostOptions["feature"]>["validate"]["gates"] {
+    process.env.E2E_PORT = String(port);
+    return [
+      {
+        id: "e2e",
+        argv: [
+          node,
+          e2eGate,
+          "--up",
+          `${node} server.mjs`,
+          "--ready",
+          `${node} ready.mjs`,
+          "--run",
+          `${node} e2e/suite.mjs`,
+          "--down",
+          `${node} down.mjs`,
+          "--start-timeout-ms",
+          "20000",
+        ],
+        timeoutMs: 120_000,
+        skipWhen: "skip-test-e2e",
+      },
+    ];
+  }
+
+  async function freePort(): Promise<number> {
+    const { createServer } = await import("node:net");
+    return await new Promise((resolve) => {
+      const probe = createServer();
+      probe.listen(0, "127.0.0.1", () => {
+        const address = probe.address();
+        const port = typeof address === "object" && address !== null ? address.port : 0;
+        probe.close(() => resolve(port));
+      });
+    });
+  }
+
+  async function optionsWithE2e(
+    paths: Paths,
+    stub: Stub,
+    over: { fix?: string[]; maxRefusals?: number } = {},
+  ): Promise<HostOptions> {
+    const base = optionsFor(paths, stub);
+    const formGates: GateSpec[] = [
+      { id: "e2e-form", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 },
+    ];
+    const feature = base.feature as NonNullable<HostOptions["feature"]>;
+    return {
+      ...base,
+      builder: {
+        ...base.builder,
+        e2e: {
+          cmd: [node, join(fixtures, "builder-write-marker.mjs")],
+          timeoutMs: 30_000,
+          gates: formGates,
+        },
+      },
+      feature: {
+        ...feature,
+        validate: { ...feature.validate, gates: suiteGate(await freePort()) },
+        fix: {
+          cmd:
+            over.fix ??
+            script(
+              paths.root,
+              "repairs-app",
+              'import { writeFileSync } from "node:fs";\nwriteFileSync("app-fixed.txt", "fixed\\n");\n',
+            ),
+          timeoutMs: 30_000,
+          gates: [],
+        },
+        ...(over.maxRefusals === undefined ? {} : { maxRefusals: over.maxRefusals }),
+      },
+    };
+  }
+
+  const TICKETS = [{ id: "42" }, { id: "43", e2e: true, blocked_by: ["42"] }];
+
+  it("refuses a Feature that has neither an e2e Ticket nor the skip label, and opens nothing", async () => {
+    const paths = e2eSandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }]) }],
+    });
+    const journal = memoryJournal();
+    const host = await openHost(await optionsWithE2e(paths, stub), { journal });
+
+    const tick = await host.runOnce();
+
+    assert.ok(tick.reported.includes("invalid"));
+    const refusal = stub.reports.find((r) => r.event === "invalid");
+    assert.equal(refusal?.key, FEATURE);
+    assert.match(refusal?.fields.reason ?? "", /no e2e Ticket and is not marked skip-test-e2e/);
+    const waiting = await host.ledger.getFeature(FEATURE);
+    assert.equal(waiting.ok && waiting.aggregate.state, "waiting");
+    assert.deepEqual(stub.lines, []);
+  });
+
+  it("refuses an e2e Ticket that does not wait for every other Ticket", async () => {
+    const paths = e2eSandbox();
+    const stub = stubManager({
+      deliveries: [
+        { cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }, { id: "43", e2e: true }]) },
+      ],
+    });
+    const host = await openHost(await optionsWithE2e(paths, stub));
+
+    await host.runOnce();
+
+    const refusal = stub.reports.find((r) => r.event === "invalid");
+    assert.match(refusal?.fields.reason ?? "", /must be blocked by every other Ticket/);
+    assert.match(refusal?.fields.reason ?? "", /stub:42/);
+  });
+
+  it("leaves a Project that does not declare the check as it was", async () => {
+    const paths = sandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }]) }],
+    });
+    const host = await openHost(optionsFor(paths, stub));
+
+    await host.runOnce();
+
+    const opened = await host.ledger.getFeature(FEATURE);
+    assert.equal(opened.ok && opened.aggregate.state, "open");
+    assert.equal(
+      stub.reports.some((r) => r.event === "invalid"),
+      false,
+    );
+  });
+
+  it("makes the e2e Ticket with its own pass, no tests first, and proves the Feature by the suite", async () => {
+    const paths = e2eSandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, TICKETS) }],
+    });
+    const journal = memoryJournal();
+    const host = await openHost(await optionsWithE2e(paths, stub), { journal });
+
+    await host.runOnce();
+    const e2eTicket = await host.ledger.get("stub:43");
+    assert.equal(e2eTicket.ok && e2eTicket.aggregate.intention.e2e, true);
+    assert.equal(e2eTicket.ok && e2eTicket.aggregate.intention.no_tests, true);
+
+    // Both Tickets land, the line is checked: E2 is red, the Feature goes to its fix, which
+    // repairs the application, and the second run of the suite is green.
+    let state: string | undefined;
+    for (let i = 0; i < 6 && state !== "submitted" && state !== "done"; i++) {
+      await host.runOnce();
+      const got = await host.ledger.getFeature(FEATURE);
+      state = got.ok ? got.aggregate.state : undefined;
+    }
+    assert.ok(state === "submitted" || state === "done", `the Feature is ${state}`);
+    // The e2e Ticket was judged by its own Gates, and the other Ticket by the shared ones.
+    const judgedBy = (task: string) =>
+      journal.lines
+        .filter((l) => l.event === "gate-finished" && l.task_id === task)
+        .map((l) => l.gate_id);
+    assert.deepEqual(judgedBy("stub:43"), ["e2e-form"]);
+    assert.deepEqual(judgedBy("stub:42"), ["check"]);
+    const finished = journal.lines.filter(
+      (l) => l.event === "gate-finished" && l.gate_id === "e2e",
+    );
+    const reports = finished.map((l) => `${l.verdict}: ${String(l.report).split("\n")[0]}`);
+    assert.match(reports[0] ?? "", /^fail-retryable: e2e: 1 of 2 scenario\(s\) failed/);
+    assert.match(
+      reports.at(-1) ?? "",
+      /^pass: e2e: 2 scenario\(s\) ran on the assembled feature and passed: E1, E2/,
+    );
+    assert.equal(existsSync(join(paths.workLineStable, "app-fixed.txt")), true);
+  });
+
+  it("escalates the Feature when the suite stays red after the fix", async () => {
+    const paths = e2eSandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, TICKETS) }],
+    });
+    const host = await openHost(
+      await optionsWithE2e(paths, stub, {
+        fix: script(
+          paths.root,
+          "useless-fix",
+          'import { writeFileSync } from "node:fs";\nwriteFileSync("nothing.txt", "x");\n',
+        ),
+        maxRefusals: 1,
+      }),
+    );
+
+    for (let i = 0; i < 8; i++) {
+      await host.runOnce();
+      const got = await host.ledger.getFeature(FEATURE);
+      if (got.ok && got.aggregate.state === "escalated") {
+        break;
+      }
+    }
+    const got = await host.ledger.getFeature(FEATURE);
+    assert.equal(got.ok && got.aggregate.state, "escalated");
+    assert.ok(stub.reports.some((r) => r.event === "escalated" && r.key === FEATURE));
+  });
+
+  it("honours the skip label put on a Feature that is already open, and cancels the e2e Ticket then", async () => {
+    const paths = e2eSandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, TICKETS) }],
+    });
+    const journal = memoryJournal();
+    const base = await optionsWithE2e(paths, stub);
+    // The first Ticket escalates, so the Feature stays open while a person looks at it.
+    const host = await openHost({ ...base, ticket: { gates: blockingGates() } }, { journal });
+    await host.runOnce();
+    const open = await host.ledger.getFeature(FEATURE);
+    assert.equal(open.ok && open.aggregate.state, "open");
+    assert.equal(open.ok && open.aggregate.intention.skip_e2e, undefined);
+
+    stub.deliveries.push({
+      cursor: "2",
+      payload: featurePayload("F1", { skip_e2e: true }, TICKETS),
+    });
+    await host.runOnce();
+
+    const marked = await host.ledger.getFeature(FEATURE);
+    assert.equal(marked.ok && marked.aggregate.intention.skip_e2e, true);
+    assert.ok(journal.lines.some((l) => l.event === "skip-e2e" && l.skip === true));
+    const suite = await host.ledger.get("stub:43");
+    assert.equal(suite.ok && suite.aggregate.state, "cancelled");
+
+    // And taken off again, it is honoured too: the Feature is judged by the suite once more.
+    stub.deliveries.push({ cursor: "3", payload: featurePayload("F1", {}, TICKETS) });
+    await host.runOnce();
+    const unmarked = await host.ledger.getFeature(FEATURE);
+    assert.equal(unmarked.ok && unmarked.aggregate.intention.skip_e2e, undefined);
+  });
+
+  it("cancels the e2e Ticket of a Feature that skips the check, and does not run the Gate, saying so", async () => {
+    const paths = e2eSandbox();
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", { skip_e2e: true }, TICKETS) }],
+    });
+    const journal = memoryJournal();
+    const traced: string[] = [];
+    const host = await openHost(
+      { ...(await optionsWithE2e(paths, stub)), write: (text: string) => traced.push(text) },
+      { journal },
+    );
+
+    for (let i = 0; i < 6; i++) {
+      await host.runOnce();
+      const got = await host.ledger.getFeature(FEATURE);
+      if (got.ok && got.aggregate.state === "submitted") {
+        break;
+      }
+    }
+
+    const cancelled = await host.ledger.get("stub:43");
+    assert.equal(cancelled.ok && cancelled.aggregate.state, "cancelled");
+    const feature = await host.ledger.getFeature(FEATURE);
+    assert.equal(feature.ok && feature.aggregate.state, "submitted");
+    assert.equal(
+      journal.lines.some((l) => l.event === "gate-finished" && l.gate_id === "e2e"),
+      false,
+    );
+    assert.ok(
+      journal.lines.some(
+        (l) => l.event === "gate-skipped" && l.gate_id === "e2e" && l.why === "skip-test-e2e",
+      ),
+    );
+    assert.ok(traced.some((line) => /skips the e2e check: ticket stub:43 is cancelled/.test(line)));
+    assert.ok(traced.some((line) => /e2e not run: the Feature carries skip-test-e2e/.test(line)));
   });
 });

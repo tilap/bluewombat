@@ -13,7 +13,7 @@ const DEFAULT_PRIORITY = 50;
  *   { "id": "7", "intention": "…", "blocked_by": ["6"], "task_ready": false,
  *     "resume": true, "open": false, "priority": 70 }
  *
- * `task_ready` and `open` default to true, `resume` to false. A Ticket's key is
+ * `task_ready` and `open` default to true, `resume`, `no_tests` and `e2e` to false. A Ticket's key is
  * `fake:<id>`, like a Feature's, so ids are unique across both.
  */
 export function listTickets(source: string, feature: FeatureRef): TicketEntry[] {
@@ -69,6 +69,8 @@ function entryOf(raw: Record<string, unknown>, feature: FeatureRef): TicketEntry
     ticket,
     task_ready: raw.task_ready !== false,
     resume: raw.resume === true,
+    no_tests: raw.no_tests === true,
+    e2e: raw.e2e === true,
     open: raw.open !== false,
   };
 }

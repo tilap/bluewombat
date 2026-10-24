@@ -171,7 +171,7 @@ async function hostFor(paths: Paths, gates: GateSpec[], fetch: typeof globalThis
         gates: [],
       },
     },
-    assembly: { gates: [] },
+    ticket: { gates: [] },
     timeoutMs: 30_000,
   });
 }

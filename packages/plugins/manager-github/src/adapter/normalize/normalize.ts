@@ -14,6 +14,7 @@ export type NormalizeOptions = {
   priorityLabelPrefix: string;
   resumeLabel: string;
   mergeWhenReadyLabel: string;
+  skipTestE2eLabel: string;
   /** Keys of the issues that block this one, read beside it: the issue itself does not carry them. */
   blockedBy?: string[];
   normalizedAt: string;
@@ -249,6 +250,9 @@ export function normalize(raw: Unwrapped, options: NormalizeOptions): NormalizeR
     merge_when_ready: labels.names.some(
       (name) => name.toLowerCase() === options.mergeWhenReadyLabel.toLowerCase(),
     ),
+    skip_e2e:
+      options.skipTestE2eLabel.length > 0 &&
+      labels.names.some((name) => name.toLowerCase() === options.skipTestE2eLabel.toLowerCase()),
     ...(Object.keys(source).length > 0 ? { source } : {}),
     fingerprint: "",
     normalized_at: options.normalizedAt,

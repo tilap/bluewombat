@@ -1,7 +1,11 @@
 import type { FoldStop } from "./working-files.js";
 
 export type FoldBackendResult =
-  | { ok: true }
+  /**
+   * `changed`: whether the fold brought anything into the Parent. Absent: not
+   * known, and a caller treats it as changed.
+   */
+  | { ok: true; changed?: boolean }
   | { ok: false; stop: FoldStop }
   | { ok: false; conflict: true; report: string }
   | { ok: false; detail: string };

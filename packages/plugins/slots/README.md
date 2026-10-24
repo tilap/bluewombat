@@ -53,23 +53,32 @@ these all use it. How Host wires a slot into a run:
 
 ## Catalogue
 
-| Slot                          | Kind      | Answers                                                                                    |
-| ----------------------------- | --------- | ------------------------------------------------------------------------------------------ |
-| `agents/cursor.mjs`           | Agent     | Runs Cursor CLI with a filled prompt                                                       |
-| `agents/claude.mjs`           | Agent     | Runs Claude Code with a filled prompt                                                      |
-| `builders/producer.mjs`       | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                             |
-| `builders/repair.mjs`         | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                               |
-| `assembly/fix.mjs`            | Builder   | A judgement refused the assembled work: fill `{{task}}` and `{{report}}`                |
-| `assembly/validate.mjs`       | Builder   | Read-only review of the assembled work: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …` |
-| `gates/workspace-changed.mjs` | Gate      | The Attempt left an uncommitted change                                                     |
-| `gates/parent-clean.mjs`      | Gate      | Isolator's Parent working files did not move                                               |
-| `gates/sensitive-path.mjs`    | Gate      | No path matching a glob was touched                                                        |
-| `gates/gitignore-leak.mjs`    | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                            |
-| `gates/ci-green.mjs`          | Gate      | The work line's own checks came back green                                                 |
-| `publishers/git.mjs`          | Publisher | Pushes the ticket's branch to the work line's own remote                                  |
-| `refreshers/git.mjs`          | Refresher | Fast-forwards the work line copy onto what the Authority holds                             |
-| `messages/conventional.mjs`   | Message   | `<type>: <title>` for the ticket's fold, no agent; `--scope`, `--type`                    |
-| `messages/git-producer.mjs`   | Describer | An agent reads the git diff and writes the ticket's subject and body under `--rules-file` |
+| Slot                            | Kind      | Answers                                                                                                                                                                                                                                               |
+| ------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents/cursor.mjs`             | Agent     | Runs Cursor CLI with a filled prompt                                                                                                                                                                                                                  |
+| `agents/claude.mjs`             | Agent     | Runs Claude Code with a filled prompt                                                                                                                                                                                                                 |
+| `builders/tests.mjs`            | Builder   | The tests of the task, written before its code: one test per case of its "Tests" section (or per criterion when it has none), stubs for a missing interface, each test proved passable by a throwaway implementation in the stubs, then left failing. |
+| `builders/e2e.mjs`              | Builder   | The Ticket that holds a Feature's e2e acceptance suite: one test per scenario of the task, named after its id, and the manifest `e2e/scenarios.json`; nothing outside the suite folder, the suite never run. One command for the first pass and a refused one |
+| `builders/producer.mjs`         | Builder   | First pass of the unit of work: fill `{{task}}`, then spawn the agent                                                                                                                                                                                 |
+| `builders/repair.mjs`           | Builder   | A Gate refused the unit: fill `{{task}}` and `{{report}}`                                                                                                                                                                                             |
+| `ticket/fix.mjs`                | Builder   | A judgement refused the assembled ticket: fill `{{task}}` and `{{report}}`                                                                                                                                                                            |
+| `feature/validate.mjs`          | Builder   | Read-only review of the whole feature against its request: fill `{{task}}`; same verdict line as `ticket/validate.mjs`                                                                                                                                |
+| `feature/fix.mjs`               | Builder   | A judgement refused the whole feature: fill `{{task}}` and `{{report}}`                                                                                                                                                                               |
+| `ticket/validate.mjs`           | Builder   | Read-only review of the assembled work: fill `{{task}}`; answers `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: …`                                                                                                                            |
+| `gates/workspace-changed.mjs`   | Gate      | The Attempt left an uncommitted change                                                                                                                                                                                                                |
+| `gates/parent-clean.mjs`        | Gate      | Isolator's Parent working files did not move                                                                                                                                                                                                          |
+| `gates/sensitive-path.mjs`      | Gate      | No path matching a glob was touched                                                                                                                                                                                                                   |
+| `gates/workspace-unchanged.mjs` | Gate      | A read-only pass changed nothing at all (a file modified, deleted or added)                                                                                                                                                                           |
+| `gates/gitignore-leak.mjs`      | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                                                                                                                                                                                        |
+| `gates/project-checks.mjs`      | Gate      | One command of the Project's own (typecheck, tests, lint, build) exits 0 in the workspace                                                                                                                                                             |
+| `gates/tests-red.mjs`           | Gate      | The tests just written fail, and not on a missing import or a syntax error (`--cmd` with `{files}`, `--test-glob`, `--not-red-when`).                                                                                                                 |
+| `gates/tests-frozen.mjs`        | Gate      | A test file held by the "Tests: " checkpoint was not modified, deleted or renamed (`--test-glob`, `--subject-prefix`)                                                                                                                                 |
+| `gates/e2e.mjs`                 | Gate      | The Feature's acceptance suite, run once on the assembled line: the Project's `--up` / `--ready` / `--run` / `--down`, a JUnit report compared with the manifest of scenario ids, each failing test retried once. |
+| `gates/ci-green.mjs`            | Gate      | The work line's own checks came back green                                                                                                                                                                                                            |
+| `publishers/git.mjs`            | Publisher | Pushes the ticket's branch to the work line's own remote                                                                                                                                                                                              |
+| `refreshers/git.mjs`            | Refresher | Fast-forwards the work line copy onto what the Authority holds                                                                                                                                                                                        |
+| `messages/conventional.mjs`     | Message   | `<type>: <title>` for the ticket's fold, no agent; `--scope`, `--type`                                                                                                                                                                                |
+| `messages/git-producer.mjs`     | Describer | An agent reads the git diff and writes the ticket's subject and body under `--rules-file`                                                                                                                                                             |
 
 ## Agents
 
@@ -100,26 +109,26 @@ lowers a risk and confines nothing (RESERVATIONS F32). `claude.mjs`
 needs `claude`, signed in once, and refuses those two flags: Claude is not
 isolated yet, and starting it would keep the operator's own config.
 
-| Option                             | Meaning                                                                          |
-| ---------------------------------- | -------------------------------------------------------------------------------- |
-| `--prompt TEXT`                    | The filled prompt. Mutually exclusive with `--prompt-file`                       |
-| `--prompt-file PATH`               | The same text, from a file. No interpolation                                     |
-| `--bin PATH`                       | The CLI to run. Default: the vendor's own name, on PATH                          |
-| `--model NAME`                     | Model for that run                                                               |
-| `--output-format FMT`              | `stream-json` (default), `json`, or `text`. Skill extraction needs `stream-json` |
-| `--permission-mode MODE`           | `claude.mjs` only. Default `bypassPermissions`                                   |
-| `--transcript-dir PATH`            | Write one file per turn under here. Off unless given                             |
-| `--transcript-part NAME`           | `prompt`, `stdout`, `stderr`, `timing`. Repeatable. Default: all                 |
-| `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                          |
-| `--agent-home DIR`                 | Isolate the vendor process: its `HOME` is this directory. Cursor only; Claude refuses |
-| `--api-key-env NAME`               | With `--agent-home`, read `process.env[NAME]` for the vendor key. Never the value itself |
-| `--pass-env NAME`                  | With `--agent-home`, also hand the vendor this environment variable. Repeatable |
-| `--deny-shell NAME`                | With `--agent-home`, also refuse this command to the vendor (`gh`, `vercel`…). `ssh` and `scp` always are. Repeatable |
-| `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first |
-| `--profile NAME`                   | The project's deck profile for this role, read in the working directory. Cursor only; Claude refuses |
-| `--plugins-out DIR`                | Where `--profile` is built, one folder per profile. Required with `--profile`; never the workspace |
-| `--deck-bin PATH`                  | The deck CLI. Default: the `@pinkpuma/deck` this package depends on |
-| `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                 |
+| Option                             | Meaning                                                                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `--prompt TEXT`                    | The filled prompt. Mutually exclusive with `--prompt-file`                                                                      |
+| `--prompt-file PATH`               | The same text, from a file. No interpolation                                                                                    |
+| `--bin PATH`                       | The CLI to run. Default: the vendor's own name, on PATH                                                                         |
+| `--model NAME`                     | Model for that run                                                                                                              |
+| `--output-format FMT`              | `stream-json` (default), `json`, or `text`. Skill extraction needs `stream-json`                                                |
+| `--permission-mode MODE`           | `claude.mjs` only. Default `bypassPermissions`                                                                                  |
+| `--transcript-dir PATH`            | Write one file per turn under here. Off unless given                                                                            |
+| `--transcript-part NAME`           | `prompt`, `stdout`, `stderr`, `timing`. Repeatable. Default: all                                                                |
+| `--agent-arg VALUE`                | Appended to the CLI argv, before the prompt. Repeatable                                                                         |
+| `--agent-home DIR`                 | Isolate the vendor process: its `HOME` is this directory. Cursor only; Claude refuses                                           |
+| `--api-key-env NAME`               | With `--agent-home`, read `process.env[NAME]` for the vendor key. Never the value itself                                        |
+| `--pass-env NAME`                  | With `--agent-home`, also hand the vendor this environment variable. Repeatable                                                 |
+| `--deny-shell NAME`                | With `--agent-home`, also refuse this command to the vendor (`gh`, `vercel`…). `ssh` and `scp` always are. Repeatable           |
+| `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first                                |
+| `--app-deck-profile PATH`          | The app's deck profile for this role, as a path in the checkout: `[<app dir>/].ai/profiles/<name>`. Cursor only; Claude refuses |
+| `--plugins-out DIR`                | Where the profile is built, one folder per profile. Required with `--app-deck-profile`; never the workspace                     |
+| `--deck-bin PATH`                  | The deck CLI. Default: the `@pinkpuma/deck` this package depends on                                                             |
+| `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                                                                |
 
 ### Plugins
 
@@ -127,7 +136,7 @@ An agent starts with plugin folders, each passed to the vendor as
 `--plugin-dir`: first the `--plugin-dir` folders, in order, then what the
 project's [deck](https://github.com/tilap/pinkpuma-deck) profile resolves to.
 
-`--profile builder` runs `deck materialize -C <cwd> --profile builder --out
+`--app-deck-profile .ai/profiles/builder` runs `deck materialize -C <app dir> --profile builder --out
 <plugins-out>/builder --json` before the vendor starts. The working directory
 is the checkout the agent works on, so a role gets what the project committed
 at that commit — the base `ai-plugin.json` and `.ai/profiles/builder/`, as their
@@ -137,11 +146,11 @@ no committed lock pins, and the wrapper then refuses before the vendor starts
 role refuses the same way until the project is fixed; `mason doctor` says so
 first.
 
-| The project has                         | The agent gets                       |
-| --------------------------------------- | ------------------------------------ |
-| `.ai/profiles/<name>/ai-plugin.json`    | the base and that profile            |
-| only a base `ai-plugin.json`            | the base, and a note on stderr       |
-| no deck file at all                     | the `--plugin-dir` folders only      |
+| The project has                      | The agent gets                  |
+| ------------------------------------ | ------------------------------- |
+| `.ai/profiles/<name>/ai-plugin.json` | the base and that profile       |
+| only a base `ai-plugin.json`         | the base, and a note on stderr  |
+| no deck file at all                  | the `--plugin-dir` folders only |
 
 A non-empty `.ai/profiles/<name>/prompt.md` is appended to the filled prompt
 under `## Project instructions for this role`: what the project wants from that
@@ -156,7 +165,7 @@ deck's cache (`~/.cache/pinkpuma-deck`, or `DECK_CACHE`) has no lock, and
 `--plugins-out` holds one folder per profile: both rely on a Mason run starting
 one agent at a time, which it does.
 
-`claude.mjs` takes `--plugin-dir` but refuses `--profile`: not isolated, Claude
+`claude.mjs` takes `--plugin-dir` but refuses `--app-deck-profile`: not isolated, Claude
 also loads the operator's plugins and the project's `.claude/settings.json`, so
 a role's profile would not be all it gets.
 
@@ -164,12 +173,12 @@ The agent CLI prints **one JSON line** — a `SerializedRun` from
 `@bluewombat/slot-kit` — with the vendor's raw streams plus the extras the
 wrapper fills when it can:
 
-| Field    | Meaning                                                                                                                                              |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skills` | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                         |
-| `usage`  | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost) |
-| `plugins` | Absent when no plugin folder was loaded. Otherwise each folder: `id`, `path`, `from` (`local` or `deck`), and `integrity` (deck's, `null` for a local one) |
-| `tools`  | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`, plus `getMcpTools` when the agent only listed a server's tools), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
+| Field     | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `skills`  | `null` = unknown (not stream-json, or unparseable). `[]` = looked, none used. Otherwise skill names in order                                                                                                                                                                                                                                                                                                                                                                               |
+| `usage`   | `null` = unknown. Otherwise token counts (`input`, `output`, `cacheRead`, `cacheWrite`) and `costUsd` (`null` when the vendor did not report a cost)                                                                                                                                                                                                                                                                                                                                       |
+| `plugins` | Absent when no plugin folder was loaded. Otherwise each folder: `id`, `path`, `from` (`local` or `deck`), and `integrity` (deck's, `null` for a local one)                                                                                                                                                                                                                                                                                                                                 |
+| `tools`   | `null` = unknown (not stream-json, or unparseable). Otherwise what the agent did with its tools: `calls` per tool name, `busyMs` (time with a tool running; `null` when the stream has no times, as Claude's), and the lists `web` (pages fetched, searches, URLs a shell command named), `mcp` (`server/tool`, plus `getMcpTools` when the agent only listed a server's tools), `subagents` (by description), `outside` (paths named outside the working directory, skill files excepted) |
 
 Cursor extracts skills from `stream-json` `readToolCall` paths ending in
 `/skills/<name>/SKILL.md`. Claude extracts them from `tool_use` blocks named
@@ -238,12 +247,14 @@ committed in the Project travels with it.
 Each role owns a closed set. An unknown name, or a required name the template
 never places, is `fail-blocking`.
 
-| Role                | Required                              | Also fills                                                 |
-| ------------------- | ------------------------------------- | ---------------------------------------------------------- |
-| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{id}}`, `{{attempt}}`                     |
-| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`    |
-| `assembly/fix`      | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}`   |
-| `assembly/validate` | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                    |
+| Role                | Required                              | Also fills                                               |
+| ------------------- | ------------------------------------- | -------------------------------------------------------- |
+| `builders/producer` | `{{task}}`, `{{rules}}`               | `{{history}}`, `{{id}}`, `{{attempt}}`                   |
+| `builders/repair`   | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}` |
+| `ticket/fix`        | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}` |
+| `feature/validate`  | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                  |
+| `feature/fix`       | `{{task}}`, `{{report}}`, `{{rules}}` | `{{history}}`, `{{refused_by}}`, `{{id}}`, `{{attempt}}` |
+| `ticket/validate`   | `{{task}}`, `{{rules}}`               | `{{id}}`, `{{attempt}}`                                  |
 
 A first-pass command that receives `--report` is `fail-blocking`: that report
 belongs to the repair command. A repair or fix command without `--report` is the same.
@@ -260,7 +271,7 @@ given is not enough to act on, it changes nothing and ends its final message wit
 one line, `MASON_BLOCKED: <what is missing>`. The slot reads the last such line
 in the agent's final message, and answers `fail-blocking` with that reason, so the
 Task stops as `escalated` and a person reads it instead of another Attempt
-inventing a change. This is the same kind of signal as `assembly/validate`'s
+inventing a change. This is the same kind of signal as `ticket/validate`'s
 `MASON_VERDICT:` line, and it is not tied to any refuser. A clean exit prints
 `{ "said": "<the agent's final message, clipped>" }` on stdout, which the Task
 keeps for its History. A Project's own template should keep a paragraph that
@@ -279,12 +290,12 @@ a run spent on nothing. A command that arrives with a report and no
 ### The fix prompt
 
 A judgement of the assembled work that refused it is not a retry of the unit.
-The unit already passed. `assembly/fix.mjs` tells the agent to change what the
+The unit already passed. `ticket/fix.mjs` tells the agent to change what the
 refusal names and leave the rest. Same placeholders as repair.
 
 ### The validate prompt
 
-`assembly/validate.mjs` is a different kind of Builder: it never writes. It
+`ticket/validate.mjs` is a different kind of Builder: it never writes. It
 fills only `{{task}}` and `{{rules}}` — there is nothing to fix yet, so no
 `{{report}}` — and asks the agent to end its final message with one line:
 `MASON_VERDICT: VALIDATED` or `MASON_VERDICT: REFUSED: <one paragraph>`. Its
@@ -384,7 +395,7 @@ builder:
 `workspace-changed` fail-retries when the workspace has no uncommitted change —
 the Attempt produced nothing, or committed and hid it. It takes no option. Put
 it first: every Gate after it then judges work that exists. It passes at
-`--stage assembly`, where "nothing changed" is a correct outcome rather than a
+`--stage ticket` (or `feature`), where "nothing changed" is a correct outcome rather than a
 producer to send back.
 
 `parent-clean` fail-blocks if Isolator's Parent working files changed
@@ -396,13 +407,56 @@ the workspace — tracked paths, and new ones `.gitignore` does not exclude — 
 what an install left under an ignored directory (a dependency's own `.github/`)
 is not a change to guard.
 
+`project-checks --cmd COMMAND` runs one command of the Project's own in the workspace
+and answers on its exit code. It is the Gate that makes a machine, not the Builder,
+say that the code typechecks and the tests pass. The command goes through the shell,
+so it is written as the Project writes it; it knows no stack.
+The report carries the end of the output, cleaned as it arrives: escape codes removed, a line redrawn with `\r` reduced to its last state, and spinner or progress lines (`[⣷] Pulling schema...`) dropped, so thousands of redraws cannot push the real error out of the tail. `tests-red` reads its output the same way.
+
+```yaml
+- id: typecheck
+  timeoutMs: 300000
+  argv: [node, ./node_modules/@bluewombat/slots/gates/project-checks.mjs, --cmd, "pnpm typecheck"]
+- id: tests
+  timeoutMs: 600000
+  argv: [node, ./node_modules/@bluewombat/slots/gates/project-checks.mjs, --cmd, "pnpm test"]
+```
+
+One command per entry: the report then names the check that failed, and the first red
+one stops the sequence before a slower one starts. Put the cheap ones first.
+
+- `0` passes.
+- A non-zero exit is `fail-retryable`: the producer gets the end of the output
+  (the last ~12 KB, where the error is), not the start.
+- Exit 126 or 127 (the shell cannot find or run the command) is `fail-blocking`: no
+  change to the work fixes it.
+- A run that outlives the Gate's ceiling is stopped, with its whole process group, a few
+  seconds before the ceiling (`--timeout-ms`, which Implementer passes), and is
+  `fail-blocking` too. A hung check and a ceiling that is too short look the same from
+  here, so a person decides. Give a test suite a `timeoutMs` of its own.
+- It sets `CI=true` so a watcher does not wait for a terminal.
+- It runs at both stages. In `ticket.gates` it is the local answer on the assembled
+  ticket, so a Project with no CI of its own is still judged by a machine, and one with
+  CI gets the answer before waiting for it.
+
+The workspace needs its dependencies, which `workLine.warm` installs once on the Feature.
+
+`workspace-unchanged` fail-blocks when the workspace holds any change: a file modified,
+deleted, or added that `.gitignore` does not exclude. It is for a pass that must not
+write (`ticket.validate`), whose other Gates each look at a part: `sensitive-path` at
+some globs, `parent-clean` at the Parent. It is meant to run where everything is
+committed (after the align), so whatever git shows was written since. `--allow GLOB`,
+repeatable, lets a path through: use it for what an earlier check leaves behind and the
+Project does not ignore (a coverage report). Blocking, not retryable: what the pass
+wrote would be committed by the next align, so a person looks.
+
 `gitignore-leak --base REF` fail-retries if the ticket's commits add a path the
 workspace's own `.gitignore` excludes — a Builder's `node_modules/`, a build's
 `dist/`, a generated file. `REF` is the work line the ticket is offered to
 (`main`): only what the ticket adds since it left that line is judged, and
 only what is committed, so a path tracked on purpose before the ticket began
 is not blamed on it, and a removal staged but not committed does not pass. The
-report is written for `assembly.fix`: untrack the paths, or change `.gitignore`
+report is written for `ticket.fix`: untrack the paths, or change `.gitignore`
 if tracking one is the point. It passes at `--stage unit`, where no commit
 holds a the unit's work yet.
 
@@ -413,7 +467,7 @@ assembly Gate, with an Authority it judges what was published, so it stops the
 fold into the work line, not the push.
 
 ```yaml
-assembly:
+ticket:
   gates:
     defaultTimeoutMs: 900000
     gates:
@@ -455,6 +509,64 @@ without the other.
 `sensitive-path`, `workspace-changed`, `gitignore-leak` and `ci-green` need a git workspace, which
 is what Isolator makes when WorkLineStable is a git tree. They fail-block on a
 workspace Isolator had to copy.
+
+### The e2e acceptance suite
+
+`e2e.mjs` runs a Feature's acceptance suite on the assembled Feature line, from a Feature Gate
+(`feature.validate.gates`). It knows no stack: the Project supplies four commands, run through
+the shell in the workspace, and the Gate starts, waits, runs, compares and always stops.
+
+| Option | Meaning |
+| --- | --- |
+| `--up CMD` | Required. Starts the application. It may return once started or keep running; the Gate does not wait for it, it waits for `--ready`. An `--up` that exits non-zero before that is a start failure |
+| `--ready CMD` | Required. Exit 0 when the application answers. Polled every second until `--start-timeout-ms` |
+| `--run CMD` | Required. Runs the suite and writes a JUnit XML report to `--junit` |
+| `--rerun CMD` | Runs the failed scenarios again; `{ids}` is their ids joined with `\|` (a regular expression, `pnpm e2e --grep "{ids}"`). Absent: `--run` again, whole |
+| `--down CMD` | Required. Stops the application. Always run, whatever happened; the process group of `--up` is killed after it |
+| `--manifest PATH` | The scenarios the suite must hold. Default `e2e/scenarios.json`: an array of ids, or `{ "scenarios": [ "E1" \| { "id": "E1", "title": "…" } ] }` |
+| `--junit PATH` | Where `--run` writes its report. Default `e2e/results/junit.xml`. Removed before every run, so an old report is never read |
+| `--server-log PATH` | The application's log, whose tail goes in a red report. Default: what `--up` printed |
+| `--max-scenarios N` | The most scenarios a suite may hold. Default 5 |
+| `--max-run-ms N` | The most the whole Gate may take. Default 600000 (10 minutes), and never more than the Gate's own ceiling less 25 s |
+| `--start-timeout-ms N` | The most `--up` and `--ready` may take together. Default 120000 |
+| `--host HOST` | Handed to every command as `E2E_HOST`. Default `127.0.0.1`; any non-loopback address is refused |
+| `--port N` | Handed to every command as `E2E_PORT`. Absent: the application's own choice |
+
+Every command also gets `E2E_DATA_DIR`, an empty directory made for the run and removed after it
+(the data is disposable), and `E2E_RESULTS_DIR`, the folder of `--junit`. A secret is not an
+option of the Gate: the commands read it from the environment mason was started in, and it
+belongs in no file of the repository.
+
+A scenario is a manifest id, and every test carries its id in its name (`E2 pays by card`). The
+comparison is exact: an id with no test, a test with no manifest id, and a test the runner
+skipped are failures. A failing test is run once more: a pass then is reported `UNSTABLE`, and
+is not a refusal; failing twice is red. The verdict:
+
+| Verdict | When |
+| --- | --- |
+| `pass` | Every scenario ran and passed. The report says how many and which, and which were unstable |
+| `fail-retryable` | Red: the report has, per scenario, its id, the test, the step (`at`), the message, the trace path when the runner saved one, then the last 40 lines of the server log. Screenshots and traces stay on disk beside the report. The suite is frozen; the application is the producer's to repair. Also a runner that crashed before writing a report |
+| `fail-blocking` | What no change to the application fixes: a missing, empty or oversized manifest, an application that does not start or is never ready, a run or a retry that outlives the ceiling, a suite that exits 0 and writes no report, a non-loopback `--host` |
+
+The Project's `.gitignore` excludes the results folder (`e2e/results/`): a Gate that guards the
+suite folder (`sensitive-path e2e/**` in `feature.fix.gates`) would read the report as a change.
+
+```yaml
+- id: e2e
+  skipWhen: skip-test-e2e   # Host's: not run for a Feature that carries the label
+  timeoutMs: 720000
+  argv:
+    - node
+    - ./node_modules/@bluewombat/slots/gates/e2e.mjs
+    - --up
+    - pnpm e2e:up
+    - --ready
+    - pnpm e2e:ready
+    - --run
+    - pnpm e2e
+    - --down
+    - pnpm e2e:down
+```
 
 ## Publishers
 
@@ -538,8 +650,9 @@ type in JSDoc.
 ```
 README.md      this file
 agents/        vendor CLIs: filled prompt in, serialized run out
-builders/      first-pass and repair roles for the unit of work
-assembly/      the same two roles for the assembled work
+builders/      first-pass and repair roles for the unit of work, and the e2e Ticket's
+ticket/        fix and validate for an assembled ticket
+feature/       fix for a whole feature
 lib/           what the shipped templates say, shared by the roles
 gates/         checks on the workspace, and on the work line
 messages/      what a commit says: a rule, or an agent under the team's guideline

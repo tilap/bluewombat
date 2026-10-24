@@ -28,35 +28,41 @@ function makeTransformers(
     builderProducerGates?: GateSpec[];
     builderRepairGates?: GateSpec[];
     builderMaxAttempts?: number;
+    /** The tests written before the code: their own command and their own Gates. */
+    testsCmd?: string[];
+    testsGates?: GateSpec[];
     /** The produce:false judgement-only pass's own list — never fix's or validate's. */
-    assemblyGates?: GateSpec[];
-    assemblyFixGates?: GateSpec[];
-    assemblyValidateCmd?: string[];
-    assemblyValidateGates?: GateSpec[];
-    assemblyMaxAttempts?: number;
+    ticketGates?: GateSpec[];
+    ticketFixGates?: GateSpec[];
+    ticketValidateCmd?: string[];
+    ticketValidateGates?: GateSpec[];
+    ticketMaxAttempts?: number;
   } = {},
   over: Record<string, unknown> = {},
 ) {
   const cmd = [node, join(fixtures, "builder-ok.mjs")];
   return createTransformers({
     builder: {
+      ...(opts.testsCmd === undefined
+        ? {}
+        : { tests: { cmd: opts.testsCmd, timeoutMs: 20_000, gates: opts.testsGates ?? [] } }),
       producer: { cmd, timeoutMs: 20_000, gates: opts.builderProducerGates ?? [] },
       repair: { cmd, timeoutMs: 20_000, gates: opts.builderRepairGates ?? [] },
       maxAttempts: opts.builderMaxAttempts ?? 1,
     },
-    assembly: {
-      fix: { cmd, timeoutMs: 20_000, gates: opts.assemblyFixGates ?? [] },
-      ...(opts.assemblyValidateCmd === undefined
+    ticket: {
+      fix: { cmd, timeoutMs: 20_000, gates: opts.ticketFixGates ?? [] },
+      ...(opts.ticketValidateCmd === undefined
         ? {}
         : {
             validate: {
-              cmd: opts.assemblyValidateCmd,
+              cmd: opts.ticketValidateCmd,
               timeoutMs: 20_000,
-              gates: opts.assemblyValidateGates ?? [],
+              gates: opts.ticketValidateGates ?? [],
             },
           }),
-      gates: opts.assemblyGates ?? [],
-      maxAttempts: opts.assemblyMaxAttempts ?? 1,
+      gates: opts.ticketGates ?? [],
+      maxAttempts: opts.ticketMaxAttempts ?? 1,
     },
     isolation: copyStrategy.isolation,
     fold: copyStrategy.fold,
@@ -105,10 +111,10 @@ describe("createTransformers", () => {
 
   it("does not judge a making pass with the sequence meant for the next one", async () => {
     const transformers = makeTransformers({
-      assemblyFixGates: [
+      ticketFixGates: [
         { id: "local", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 },
       ],
-      assemblyGates: [
+      ticketGates: [
         {
           id: "published",
           argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
@@ -117,34 +123,62 @@ describe("createTransformers", () => {
       ],
     });
     const result = await transformers.implement({
-      id: "t:assembly",
-      stage: "assembly",
+      id: "t:ticket",
+      stage: "ticket",
       produce: true,
       intention: "i",
       workspace: workspace(),
       report: "the check went red",
     });
-    // `assembly.gates` (the produce:false judgement pass) look at what was
+    // `ticket.gates` (the produce:false judgement pass) look at what was
     // published. This pass has published nothing yet — it is judged by
-    // `assembly.fix`'s own sequence instead, which passes here.
+    // `ticket.fix`'s own sequence instead, which passes here.
     assert.equal(result.outcome, "validated");
   });
 
   it("gives a judgement one Attempt, since it makes nothing to judge again", async () => {
     const transformers = makeTransformers({
-      assemblyGates: [
+      ticketGates: [
         { id: "red", argv: [node, join(fixtures, "gate-fail-retryable.mjs")], timeoutMs: 10_000 },
       ],
     });
     const result = await transformers.implement({
       id: "t:judgement",
-      stage: "assembly",
+      stage: "ticket",
       produce: false,
       intention: "i",
       workspace: workspace(),
     });
     assert.equal(result.outcome, "escalated");
     assert.equal(result.traces.length, 1, "a second Attempt would judge the same thing again");
+  });
+
+  it("rechecks aligned work with the builder's Gates, and with no other list", async () => {
+    const transformers = makeTransformers({
+      builderProducerGates: [
+        {
+          id: "typecheck",
+          argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
+          timeoutMs: 10_000,
+        },
+      ],
+      ticketGates: [{ id: "ci", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 }],
+      ticketFixGates: [
+        { id: "fix", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 },
+      ],
+    });
+    const result = await transformers.implement({
+      id: "t:recheck",
+      stage: "ticket",
+      produce: false,
+      recheck: true,
+      intention: "i",
+      workspace: workspace(),
+    });
+    // The builder's list refuses; the ticket lists would have passed.
+    assert.equal(result.outcome, "escalated");
+    assert.equal(result.traces[0]?.refusedBy, "typecheck");
+    assert.equal(result.traces.length, 1, "a recheck makes nothing, so one Attempt is all it gets");
   });
 
   it("journals every progress line, including ones the Trace drops", async () => {
@@ -168,18 +202,60 @@ describe("createTransformers", () => {
     assert.equal(events.includes("gate-finished"), true);
   });
 
-  it("runs assembly.validate with no gates and one attempt, and carries its report", async () => {
+  it("judges the tests written first by their own gates, and not by the producer's", async () => {
+    const refusing = {
+      id: "unrelated",
+      argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
+      timeoutMs: 10_000,
+    };
+    const transformers = makeTransformers({
+      builderProducerGates: [refusing],
+      testsCmd: [node, join(fixtures, "builder-ok.mjs")],
+      testsGates: [{ id: "red", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 }],
+    });
+    const written = await transformers.implement({
+      id: "t:tests",
+      stage: "tests",
+      produce: true,
+      intention: "i",
+      workspace: workspace(),
+    });
+    assert.equal(written.outcome, "validated");
+    // The producer's own list still judges the producer.
+    const made = await transformers.implement({ id: "t", intention: "i", workspace: workspace() });
+    assert.equal(made.outcome, "escalated");
+  });
+
+  it("refuses tests whose gate refuses them, with the gate's name and reason", async () => {
+    const transformers = makeTransformers({
+      testsCmd: [node, join(fixtures, "builder-ok.mjs")],
+      testsGates: [
+        { id: "red", argv: [node, join(fixtures, "gate-fail-retryable.mjs")], timeoutMs: 10_000 },
+      ],
+    });
+    const result = await transformers.implement({
+      id: "t:tests",
+      stage: "tests",
+      produce: true,
+      intention: "i",
+      workspace: workspace(),
+    });
+    assert.equal(result.outcome, "escalated");
+    assert.equal(result.traces[0]?.refusedBy, "red");
+  });
+
+  it("runs ticket.validate with no gates and one attempt, and carries its report", async () => {
     const transformers = makeTransformers({
       builderMaxAttempts: 3,
-      assemblyMaxAttempts: 3,
-      assemblyGates: [
+      ticketMaxAttempts: 3,
+      ticketGates: [
         { id: "published", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 },
       ],
-      assemblyValidateCmd: [node, join(fixtures, "builder-fail-retryable.mjs")],
+      ticketValidateCmd: [node, join(fixtures, "builder-fail-retryable.mjs")],
     });
     const result = await transformers.implement({
       id: "t:validate",
-      stage: "assembly",
+      stage: "ticket",
       validate: true,
       intention: "i",
       workspace: workspace(),
@@ -191,7 +267,7 @@ describe("createTransformers", () => {
     assert.equal(result.traces[0]?.report, "builder could not finish");
   });
 
-  it("checks assembly.validate against its own gates, not builder.producer's", async () => {
+  it("checks ticket.validate against its own gates, not builder.producer's", async () => {
     const transformers = makeTransformers({
       builderProducerGates: [
         {
@@ -200,11 +276,11 @@ describe("createTransformers", () => {
           timeoutMs: 10_000,
         },
       ],
-      assemblyValidateCmd: [node, join(fixtures, "builder-ok.mjs")],
+      ticketValidateCmd: [node, join(fixtures, "builder-ok.mjs")],
     });
     const result = await transformers.implement({
       id: "t:validate",
-      stage: "assembly",
+      stage: "ticket",
       validate: true,
       intention: "i",
       workspace: workspace(),
@@ -214,10 +290,10 @@ describe("createTransformers", () => {
     assert.equal(result.outcome, "validated");
   });
 
-  it("escalates assembly.validate when its own gates refuse it", async () => {
+  it("escalates ticket.validate when its own gates refuse it", async () => {
     const transformers = makeTransformers({
-      assemblyValidateCmd: [node, join(fixtures, "builder-ok.mjs")],
-      assemblyValidateGates: [
+      ticketValidateCmd: [node, join(fixtures, "builder-ok.mjs")],
+      ticketValidateGates: [
         {
           id: "own-check",
           argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
@@ -227,7 +303,7 @@ describe("createTransformers", () => {
     });
     const result = await transformers.implement({
       id: "t:validate",
-      stage: "assembly",
+      stage: "ticket",
       validate: true,
       intention: "i",
       workspace: workspace(),
@@ -236,11 +312,11 @@ describe("createTransformers", () => {
     assert.equal(result.traces[0]?.refusedBy, "own-check");
   });
 
-  it("does not run assembly.validate when the Project declares none", async () => {
+  it("does not run ticket.validate when the Project declares none", async () => {
     const transformers = makeTransformers();
     const result = await transformers.implement({
       id: "t:validate",
-      stage: "assembly",
+      stage: "ticket",
       validate: true,
       intention: "i",
       workspace: workspace(),
@@ -293,7 +369,7 @@ describe("createTransformers", () => {
     assert.equal(second.traces[0]?.refusedBy, "repair-red");
   });
 
-  it("stops an assembly fix on Host's interrupt instead of waiting for the agent", async () => {
+  it("stops an ticket fix on Host's interrupt instead of waiting for the agent", async () => {
     const interruptFlag = { interrupted: false };
     const sleeper = [node, join(fixtures, "sleep.mjs"), "60000"];
     const transformers = createTransformers({
@@ -302,7 +378,7 @@ describe("createTransformers", () => {
         repair: { cmd: [node, join(fixtures, "builder-ok.mjs")], timeoutMs: 20_000, gates: [] },
         maxAttempts: 1,
       },
-      assembly: { fix: { cmd: sleeper, timeoutMs: 60_000, gates: [] }, gates: [], maxAttempts: 1 },
+      ticket: { fix: { cmd: sleeper, timeoutMs: 60_000, gates: [] }, gates: [], maxAttempts: 1 },
       isolation: copyStrategy.isolation,
       fold: copyStrategy.fold,
       timeoutMs: 20_000,
@@ -310,8 +386,8 @@ describe("createTransformers", () => {
     });
     const started = Date.now();
     const pending = transformers.implement({
-      id: "t:assembly",
-      stage: "assembly",
+      id: "t:ticket",
+      stage: "ticket",
       intention: "i",
       report: "ci-green refused",
       workspace: workspace(),

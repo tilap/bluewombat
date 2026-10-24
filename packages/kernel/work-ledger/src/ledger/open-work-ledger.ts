@@ -75,7 +75,12 @@ export type WorkLedger = FeatureCommands & {
     fingerprint?: string;
     priority?: number;
   }): Promise<CommandResult>;
-  claim(project: string): Promise<ClaimResult>;
+  /**
+   * Take the next Ticket that may start. `limit` is how many Tickets of the
+   * Project may be active at once; default 1. Two calls never take the same
+   * Ticket or go past the limit.
+   */
+  claim(project: string, limit?: number): Promise<ClaimResult>;
   recordAttempt(input: RecordAttemptInput): Promise<CommandResult>;
   /** The unit starts: from here the Ticket holds a lease until it ends. */
   startUnit(key: string): Promise<CommandResult>;
@@ -83,6 +88,8 @@ export type WorkLedger = FeatureCommands & {
   markIntegrating(key: string): Promise<CommandResult>;
   markSubmitted(input: { key: string; reference: string }): Promise<CommandResult>;
   recordRefusal(input: { key: string; report: string; refusedBy?: string }): Promise<CommandResult>;
+  /** The line moved on while the Submission waited: back to `integrating` to be aligned again. */
+  recordRealign(input: { key: string }): Promise<CommandResult>;
   recordParkedRefusal(input: {
     key: string;
     report: string;
@@ -96,10 +103,12 @@ export type WorkLedger = FeatureCommands & {
   cancel(key: string): Promise<CommandResult>;
   declareWorkspace(input: DeclareWorkspaceInput): Promise<CommandResult>;
   clearWorkspace(key: string): Promise<CommandResult>;
+  /** The stage made before the producer is complete in the declared workspace. */
+  markFirstStageDone(key: string): Promise<CommandResult>;
   expireBail(key: string): Promise<CommandResult>;
   /**
-   * Drop a held unit without waiting for the bail clock. Same ledger outcome
-   * as an expired bail on a running Ticket.
+   * Drop a held unit without waiting for the bail clock. Unlike an expired bail it spends no
+   * Attempt: the unit stopped on purpose and recorded the Attempts it finished.
    */
   releaseBail(key: string): Promise<CommandResult>;
   renewBail(key: string): Promise<CommandResult>;
@@ -109,6 +118,8 @@ export type WorkLedger = FeatureCommands & {
   /** Every Ticket mid-flight, whatever its Project. */
   listInFlight(): Promise<TicketSummary[]>;
   activeOn(project: string): Promise<TicketSummary | undefined>;
+  /** Every active Ticket of a Project, escalated ones included. */
+  activeTickets(project: string): Promise<TicketSummary[]>;
   nextReceived(project: string): Promise<TicketSummary | undefined>;
   listDeclaredWorkspaces(): Promise<DeclaredWorkspace[]>;
 };
@@ -142,6 +153,12 @@ function cloneIntention(ticket: TicketAdmission): TicketIntention {
   if (ticket.line !== undefined) {
     intention.line = ticket.line;
   }
+  if (ticket.no_tests === true) {
+    intention.no_tests = true;
+  }
+  if (ticket.e2e === true) {
+    intention.e2e = true;
+  }
   return intention;
 }
 
@@ -162,20 +179,33 @@ function receivedOf(summaries: TicketSummary[], project: string): TicketSummary[
   return candidates;
 }
 
-function projectIsBusy(summaries: TicketSummary[], project: string): boolean {
-  return summaries.some((s) => s.project === project && ACTIVE_STATES.has(s.state));
+/**
+ * Whether a Project has no room for another Ticket: `limit` of them are
+ * already active. An escalated Ticket is active, so it holds its place until a
+ * person resolves it; with a limit of 1 that is the Project stopping, as ever.
+ */
+function projectIsBusy(summaries: TicketSummary[], project: string, limit = 1): boolean {
+  return (
+    summaries.filter((s) => s.project === project && ACTIVE_STATES.has(s.state)).length >= limit
+  );
 }
 
 /**
  * A held unit starts over from zero: its directory is forgotten, the Attempt
  * it was in is spent, and the lease is gone. Returns whether one was held.
  */
-function releaseRunningUnit(aggregate: TicketAggregate): boolean {
+/**
+ * The held unit stops. Its workspace stays declared: it is a directory the ledger knows nothing
+ * of, and what it holds is the next run's to look at. Whoever wants it gone says so (`clearWorkspace`).
+ * `spend`: an unit that ended without recording its Attempts spent one.
+ */
+function releaseRunningUnit(aggregate: TicketAggregate, spend: boolean): boolean {
   if (aggregate.state !== "running" || aggregate.bail === undefined) {
     return false;
   }
-  aggregate.attempts_used += 1;
-  delete aggregate.workspace;
+  if (spend) {
+    aggregate.attempts_used += 1;
+  }
   delete aggregate.bail;
   return true;
 }
@@ -184,6 +214,14 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
   const persist = options.persist;
   const now = options.now ?? (() => Date.now());
   const bailDurationMs = options.bailDurationMs ?? DEFAULT_BAIL_DURATION_MS;
+
+  /** One claim at a time, in the order asked. */
+  let lastClaim: Promise<unknown> = Promise.resolve();
+  const claiming = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = lastClaim.then(job, job);
+    lastClaim = run.catch(() => undefined);
+    return run;
+  };
 
   const loadTicket = async (key: string): Promise<TicketAggregate | undefined> => {
     const found: Aggregate | undefined = await persist.load(key);
@@ -321,22 +359,26 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       return await write(next);
     },
 
-    async claim(project: string): Promise<ClaimResult> {
-      const summaries = ticketsOf(await persist.listSummaries());
-      if (projectIsBusy(summaries, project)) {
-        return refused("project-busy");
-      }
-      const picked = await pickReceived(summaries, project);
-      if (picked === undefined) {
-        return { ok: true, empty: true };
-      }
-      const next = structuredClone(picked);
-      next.state = "running";
-      const saved = await write(next);
-      if (!saved.ok) {
-        return saved;
-      }
-      return { ok: true, key: picked.intention.key };
+    async claim(project: string, limit = 1): Promise<ClaimResult> {
+      // Reading the Project and marking the Ticket are two steps; a second
+      // claim between them would take the same Ticket or exceed the limit.
+      return await claiming(async () => {
+        const summaries = ticketsOf(await persist.listSummaries());
+        if (projectIsBusy(summaries, project, limit)) {
+          return refused("project-busy");
+        }
+        const picked = await pickReceived(summaries, project);
+        if (picked === undefined) {
+          return { ok: true, empty: true } as const;
+        }
+        const next = structuredClone(picked);
+        next.state = "running";
+        const saved = await write(next);
+        if (!saved.ok) {
+          return saved;
+        }
+        return { ok: true, key: picked.intention.key } as const;
+      });
     },
 
     async recordAttempt(input): Promise<CommandResult> {
@@ -423,6 +465,7 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         ...(previous?.last_refused_by === undefined
           ? {}
           : { last_refused_by: previous.last_refused_by }),
+        ...(previous?.realigns === undefined ? {} : { realigns: previous.realigns }),
       };
       aggregate.bail = { expires_at: now() + bailDurationMs };
       return await write(aggregate);
@@ -451,6 +494,31 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       // A parked refusal from an earlier, Authority-less round is stale the
       // moment a Submission has its own: two reports would leave the next fix
       // guessing which one to read.
+      delete aggregate.parked_refusal;
+      aggregate.bail = { expires_at: now() + bailDurationMs };
+      return await write(aggregate);
+    },
+
+    /**
+     * The line the Submission is offered to moved on while it waited. Nothing was
+     * refused, so no report is kept and no fix is owed: the ticket returns to
+     * `integrating`, where the next pass brings it up to date with the line.
+     *
+     * The report of an earlier refusal is dropped on purpose: it was repaired
+     * already, and left in place it would send the next round to repair it again.
+     */
+    async recordRealign(input): Promise<CommandResult> {
+      const current = await loadOrRefuse(input.key);
+      if (!current.ok) {
+        return current;
+      }
+      const { aggregate } = current;
+      if (aggregate.state !== "submitted" || aggregate.submission === undefined) {
+        return refused("illegal-transition");
+      }
+      const { last_report: _report, last_refused_by: _by, ...kept } = aggregate.submission;
+      aggregate.submission = { ...kept, realigns: (kept.realigns ?? 0) + 1 };
+      aggregate.state = "integrating";
       delete aggregate.parked_refusal;
       aggregate.bail = { expires_at: now() + bailDurationMs };
       return await write(aggregate);
@@ -575,6 +643,10 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       aggregate.state = kind === "unit" ? "running" : "integrating";
       if (aggregate.state === "integrating") {
         aggregate.bail = { expires_at: now() + bailDurationMs };
+      } else {
+        // A human's resume of a unit starts it from zero: what it left is not picked up.
+        delete aggregate.workspace;
+        delete aggregate.first_stage_done;
       }
       return await write(aggregate);
     },
@@ -609,6 +681,8 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return refused("illegal-transition");
       }
       aggregate.workspace = input.path;
+      // Declared anew: nothing is done in it yet.
+      delete aggregate.first_stage_done;
       return await write(aggregate);
     },
 
@@ -622,6 +696,20 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return { ok: true };
       }
       delete aggregate.workspace;
+      delete aggregate.first_stage_done;
+      return await write(aggregate);
+    },
+
+    async markFirstStageDone(key: string): Promise<CommandResult> {
+      const current = await loadOrRefuse(key);
+      if (!current.ok) {
+        return current;
+      }
+      const { aggregate } = current;
+      if (aggregate.state !== "running" || aggregate.workspace === undefined) {
+        return refused("illegal-transition");
+      }
+      aggregate.first_stage_done = true;
       return await write(aggregate);
     },
 
@@ -634,7 +722,7 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       if (aggregate.bail === undefined || now() < aggregate.bail.expires_at) {
         return refused("illegal-transition");
       }
-      if (!releaseRunningUnit(aggregate)) {
+      if (!releaseRunningUnit(aggregate, true)) {
         delete aggregate.bail;
       }
       return await write(aggregate);
@@ -649,7 +737,7 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       if (aggregate.state !== "running") {
         return refused("illegal-transition");
       }
-      if (!releaseRunningUnit(aggregate)) {
+      if (!releaseRunningUnit(aggregate, false)) {
         // Already free: no unit held, nothing to write.
         return { ok: true };
       }
@@ -684,6 +772,11 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
     async listInFlight(): Promise<TicketSummary[]> {
       const summaries = ticketsOf(await persist.listSummaries());
       return summaries.filter((summary) => IN_FLIGHT.has(summary.state));
+    },
+
+    async activeTickets(project: string): Promise<TicketSummary[]> {
+      const summaries = ticketsOf(await persist.listSummaries());
+      return summaries.filter((s) => s.project === project && ACTIVE_STATES.has(s.state));
     },
 
     async activeOn(project: string): Promise<TicketSummary | undefined> {

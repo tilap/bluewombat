@@ -151,12 +151,16 @@ manager with no `probe`), stop `run` if it holds the ledger lock, then:
 mason cancel github:owner/name#19
 ```
 
-After a crash left a unit `running` with nobody on it, stop `run` if it
-holds the lock, then:
+A unit that was stopped (Ctrl-C, a crash) is picked up where it was by the next
+`mason run`: its workspace is kept, the Attempts it finished still count and the
+numbering goes on. To start a unit over instead (the line moved on, the work took
+a wrong turn), stop `run` if it holds the lock, then:
 
 ```bash
 mason release github:owner/name#19
 ```
+
+`release` destroys the workspace and forgets it; the next `run` isolates a fresh one.
 
 The film is `<ledger>/events.jsonl`, next to `cursor`. It is not truth after a
 crash — the ledger is. The file can grow; there is no rotation yet.
@@ -194,13 +198,12 @@ builder:
   producer:
     cmd: [node, ./mason-builder.mjs]
     timeoutMs: 600000
-    gates: { defaultTimeoutMs: 120000, gates: [] }
   repair:
     cmd: [node, ./mason-repair.mjs]
     timeoutMs: 600000
-    gates: { defaultTimeoutMs: 120000, gates: [] }
+  gates: { defaultTimeoutMs: 120000, gates: [] }
   maxAttempts: 3
-assembly:
+ticket:
   gates: { defaultTimeoutMs: 900000, gates: [] }
 authority:
   enabled: false
@@ -213,6 +216,7 @@ pollIntervalMs: 10000
 | `featureTracker`            | `package` (a name or path that exports `createManager`) and `options`: where Features are written and signalled                                                                                                                                                                                                                                                                                                                            |
 | `ticketTracker`             | Same shape: where the Tickets of a Feature are, and the Authority that holds the lines. May name the same package as `featureTracker`, or another                                                                                                                                                                                                                                                                                                             |
 | `workLine.stable`           | Existing directory the work folds into. Optional when the manager names a reference work line: Host then keeps its own copy at `<home>/work-line`                                                                                                                                                                                                                            |
+| `workLine.targetStable`     | A second copy of the work line, on the branch a Feature is folded into: what is merged into the Feature when it is brought up to date. Host keeps its own at `<home>/target-line` when the manager names a reference; required with an Authority otherwise |
 | `workLine.isolation`        | Package name or path exporting `strategy` — required. Host loads it like a manager; Isolator/Integrator do not sniff                                                                                                                                                                                                                                                         |
 | `workLine.isolationOptions` | What that strategy is told, unread by Host — like a manager's `options`. `isolation-git` reads `exclude`, the paths a Child never gets (default `.env`, `.env.*`). A strategy without `createStrategy` refuses any                                                                                                                                                                |
 | `workLine.warm`             | Optional `cmd` / `timeoutMs`. Runs in the workspace after Isolation, before the Builder — typically `pnpm install --frozen-lockfile`. Absent: the Builder gets a cold tree                                                                                                                                                                 |
@@ -223,26 +227,31 @@ pollIntervalMs: 10000
 | `ledger`                    | WorkLedger root (created). The Cursor is a file inside it. Default `<home>/ledger`                                                                                                                                                                                                                                                                                           |
 | `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
 | `agents`                    | Agents a pass names instead of writing `cmd` (§ Agent passes written short)                                                                                                                                                                                                                                                                                                 |
-| `builder.producer`          | `cmd` / `timeoutMs` / `gates`. Spawned in the workspace. Exit 0 runs its own `gates`                                                                                                                                                                                                                                                                                 |
-| `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited — including its `gates`: a repair with none of its own runs ungated, even when `builder.producer.gates` is not empty                                                                                                                                                                               |
+| `builder.tests`             | Required. The tests of the task, written before its code by an agent that is not the producer: `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }`, or `{ agent: false }` for none. Its `gates` check them (`tests-red`: they must fail, for the right reason). What it wrote is committed as a checkpoint titled `Tests: …`, which `builder.gates` can keep intact (`tests-frozen`). A ticket the tracker labels as having no tests first (`no-tests` with the GitHub manager) runs no agent and no `tests-red` |
+| `builder.e2e`               | Optional. Declares the e2e acceptance check (see § The e2e acceptance check): the pass that makes the Ticket holding the suite, `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }` or `{ cmd, timeoutMs, gates }`. One command for the first pass and for a pass a Gate refused; its own `gates` (they check the form: compiles, one test per manifest id, no application file touched). Nothing is borrowed from `builder.producer`, `builder.repair` or `builder.gates`. No tests are written first for that Ticket. Needs a Feature Gate with `skipWhen: skip-test-e2e`, and the other way round |
+| `builder.producer`          | `cmd` / `timeoutMs`. Spawned in the workspace. Exit 0 runs `builder.gates`                                                                                                                                                                                                                                                                                 |
+| `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited: it names its own command. It is judged by the same `builder.gates` as the producer                                                                                                                                                                               |
+| `builder.gates`             | `defaultTimeoutMs` and `gates`: the one Gate list for `builder.producer` and `builder.repair`. `gates` written on either pass is refused, naming this key. Empty: the unit runs ungated |
 | `builder.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                                                                                                                                                                       |
-| `assembly.fix`              | `cmd` / `timeoutMs` / `gates`. Spawned when a judgement of the whole refused it — by an Authority, by `assembly.validate`, or by both. Judged by its own `gates`                                                                                                                                                                                                            |
-| `assembly.validate`         | `cmd` / `timeoutMs` / `gates`. Optional. A local, read-only judge of the assembled ticket, run after align, with or without an Authority. A refusal is repaired by `assembly.fix` the same as an Authority's. Judged by its own `gates`, never `builder`'s or `assembly.fix`'s                                                                                            |
-| `assembly.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                                                                                                                                                                                   |
-| `assembly.gates`            | `defaultTimeoutMs` and `gates`: the produce:false judgement-only pass — no producer of its own, re-checking the assembled ticket. Empty: the Authority judges alone. Independent of `assembly.fix.gates` / `assembly.validate.gates` — never shared with either                                                                                                          |
+| `ticket.fix`              | `cmd` / `timeoutMs` / `gates`. Spawned when a judgement of the whole refused it — by an Authority, by `ticket.validate`, or by both. Judged by its own `gates`                                                                                                                                                                                                            |
+| `ticket.validate`         | `cmd` / `timeoutMs` / `gates`. A local, read-only judge of the assembled ticket, run after align, with or without an Authority. A refusal is repaired by `ticket.fix` the same as an Authority's. Judged by its own `gates`, never `builder`'s or `ticket.fix`'s. `validate` is required when a `ticket` block is written, and so is `feature.validate`: `{ agent: false, gates }` turns the agent off and keeps the gates, and `{ agent: false }` with no gates turns the review off — a bare `gates:` counts as none. |
+| `ticket.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                                                                                                                                                                                   |
+| `ticket.gates`            | `defaultTimeoutMs` and `gates`: the produce:false judgement-only pass — no producer of its own, re-checking the assembled ticket. Empty: the Authority judges alone. Independent of `ticket.fix.gates` / `ticket.validate.gates` — never shared with either                                                                                                          |
 | `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                                                                                                                                                                             |
-| `maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `assembly.validate`, or by both — one shared budget. Default 3                                                                                                                                                                                                                                      |
+| `ticket.maxRefusals`               | Times the work may be sent back before it escalates, by an Authority, by `ticket.validate`, or by both — one shared budget. Default 3                                                                                                                                                                                                                                      |
+| `ticket.maxParallel`        | How many Tickets of a Project are worked on at once. Default 1: one after the other. Above 1 needs `authority.enabled`; a Ticket waiting on a check or a person holds a place, the others go on. Tickets that wait on another (*Blocked by*) still start only once it is `done` |
+| `feature`                   | Required with `authority.enabled`. How a Feature's line is delivered to the line it is folded into, by the same steps as a Ticket: the final line is merged into the Feature's work (`workLine.targetStable`, or Host's own copy of the reference), `validate` (same shape as `ticket.validate`) reviews the whole against the Feature's request and its `gates` (at least one) are where the project's checks on the whole line run, a refusal goes to `fix`, the line is published, and `gates` (at least one, the CI) judge it. `maxAttempts` and `maxRefusals` (default 3, same rule as a Ticket's) are its own. Nothing falls back to `ticket`. The merge itself is automatic only with `merge-when-ready`; the delivery to the Authority is for every Feature |
 | `pollIntervalMs`            | Set it and the process keeps draining until SIGINT. Absent: one tick. Pick it with § Choosing `pollIntervalMs` — 10000 is the floor worth having                                                                                                                                                                                                                             |
 | `observability.streams`     | `enabled`, `dir`, `keep`. Films what every child says, as it says it — one file per child under `<dir>/<ticket>/`, named in the journal by a `stream-opened` line. `dir` resolves against the config file; default `<home>/streams`. `keep` is `stdout` / `stderr`, default both. Off unless `enabled` is true: a stream is the Project's own code and prompts in the clear |
 
 Every `cmd` is named where it is used, and nothing falls back to a neighbour: a
 `repair` with no command of its own is refused rather than quietly running the
-first-pass agent again. `builder` makes the unit of work. `assembly` judges the whole
-and, when that judgement refuses it, runs `assembly.fix` — not a second first-pass.
-`assembly.validate`, when declared, is a second, local judge of the whole: it
+first-pass agent again. `builder` makes the unit of work. `ticket` judges the whole
+and, when that judgement refuses it, runs `ticket.fix` — not a second first-pass.
+`ticket.validate`, when declared, is a second, local judge of the whole: it
 runs after align, before the Authority sees the work (or before the final
-fold, with none). Its refusal is repaired by `assembly.fix` exactly as an
-Authority's is, and shares the same `maxRefusals` budget.
+fold, with none). Its refusal is repaired by `ticket.fix` exactly as an
+Authority's is, and shares the same `ticket.maxRefusals` budget.
 
 Paths a slot **writes** — `--transcript-dir`, `--agent-home` and
 `--plugins-out` — always resolve against the config file's directory, even
@@ -270,32 +279,35 @@ builder:
   producer:
     agent: cursor
     prompt: ./prompts/builder.md
-    plugins: [./ai-plugins/core/builder]
-    profile: builder
+    homePlugins: [./ai-plugins/core/builder]
+    appDeckProfile: .ai/profiles/builder
     args: [--mode, agent]           # the vendor CLI's own flags
     timeoutMs: 1200000
     gates: { defaultTimeoutMs: 120000, gates: [] }
 ```
 
 Host writes the `cmd` it stands for — `node <slots>/<role>.mjs --prompt-file …
--- node <slots>/agents/cursor.mjs --transcript-dir … --plugin-dir … --profile
+-- node <slots>/agents/cursor.mjs --transcript-dir … --plugin-dir … --app-deck-profile
 … --plugins-out … --agent-arg …` — with `<slots>` the
 `node_modules/@bluewombat/slots` next to the config. Nothing past the config
 knows a pass was written short. The roles: `builder.producer`,
-`builder.repair`, `assembly.fix`, `assembly.validate`, and `authority.describe`
-(an argv, or `{ agent, prompt?, plugins?, profile?, args? }`).
+`builder.repair`, `ticket.fix`, `ticket.validate`, and `authority.describe`
+(an argv, or `{ agent, prompt?, homePlugins?, appDeckProfile?, args? }`).
 
 | Key       | Meaning                                                                                                   |
 | --------- | --------------------------------------------------------------------------------------------------------- |
 | `agent`   | A name `agents` declares. With `cmd` beside it, the pass is refused                                       |
 | `prompt`  | `--prompt-file` of the role slot. Absent: the role's built-in template                                    |
 | `rules`   | `--rules-file` of the role slot                                                                           |
-| `plugins` | Plugin folders of the Mason home, each a `--plugin-dir`                                                   |
-| `profile` | The project's deck profile for this role. Needs the agent's `pluginsOut`. See the slots' § Agents/Plugins |
+| `homePlugins` | Plugin folders of the Mason home, each a `--plugin-dir`                                               |
+| `appDeckProfile` | The app's deck profile for this role, as a path: `[<app dir>/].ai/profiles/<name>`. Needs the agent's `pluginsOut`. See the slots' § Agents/Plugins |
 | `args`    | Appended to the agent's own `args`, each an `--agent-arg`                                                 |
 
-A `profile` is read in the project, not in the Mason home: the role gets the
-base plugins and that profile, as the project's committed deck locks pin them.
+An `appDeckProfile` is read in the app, not in the Mason home: the role gets the
+app's base plugins, that profile's plugins and its `prompt.md`, as the app's
+committed deck locks pin them. deck keeps profiles in `<app>/.ai/profiles/<name>`,
+so the path has that shape; `<app dir>` is where the app's `.ai/` is in the
+checkout (`.` by default, `apps/web` in a monorepo). It stays inside the checkout.
 `mason doctor` checks those locks in the work line without the network.
 
 Every tracker field lives in the `options` of its side. Host does not read them.
@@ -406,15 +418,15 @@ The config always names a producer (and a repair). Implementer can still run a
 Task as its Gate sequence alone — that is the first judgement of the assembled
 ticket, which makes nothing.
 
-### Assembly fix
+### Ticket fix
 
 Spawned in the ticket workspace when a judgement of the whole refused it
 (`--report`, `--report-from`). Same argv as a Builder otherwise. Host hands
-Implementer `assembly.fix` as that pass's only agent: there is no first-pass
+Implementer `ticket.fix` as that pass's only agent: there is no first-pass
 producer at this moment. The refusal it repairs may have come from an
-Authority or from `assembly.validate`.
+Authority or from `ticket.validate`.
 
-### Assembly validate
+### Ticket validate
 
 Spawned in the ticket workspace after align, with or without an Authority —
 `--intention`, `--id`, `--attempt`, `--context`. No `--report`: it is a
@@ -425,17 +437,18 @@ that completes cleanly but finds a problem is still a refusal.
 
 ### Gates
 
-Four independent sequences, one per role — `builder.producer`,
-`builder.repair`, `assembly.fix`, `assembly.validate` — plus `assembly.gates`
-for the one judgement-only pass with no producer of its own (re-checking the
-assembled ticket; `ci-green` reads the checks the work line ran on what the
-Publisher placed, so it belongs there). No sharing, no dispatch choosing
-between two buckets: a check right for one pass is not necessarily right for
-another, even within the same stage. `builder.repair` is the sharpest edge —
-it does not inherit `builder.producer.gates`, so a repair Attempt with no
-Gate of its own runs ungated.
+Four sequences: `builder.gates`, shared by `builder.producer` and
+`builder.repair` (a repair is judged by exactly what judged the first try),
+then one per assembly role — `ticket.fix`, `ticket.validate` — plus
+`ticket.gates` for the one judgement-only pass with no producer of its own
+(re-checking the assembled ticket; `ci-green` reads the checks the work line
+ran on what the Publisher placed, so it belongs there). The assembly lists are
+not shared with each other or with the builder, and no dispatch chooses between
+two buckets: a check right for one pass is not necessarily right for another,
+even within the same stage. `gates` written on `builder.producer` or
+`builder.repair` is refused, and the message names `builder.gates`.
 
-Implementer's Gates are told `--stage unit` or `--stage assembly` alongside
+Implementer's Gates are told `--stage unit` or `--stage ticket` alongside
 `--id`, `--attempt`, `--gate-id` and `--intention`.
 Most have no use for it. `workspace-changed` does: "nothing changed" means
 nothing was done in a unit, and is the correct outcome for an assembly that
@@ -451,11 +464,11 @@ from what another child left behind, so a slow producer cannot leave its
 Gates a millisecond to answer in.
 
 What bounds the unit is therefore what you wrote:
-`builder.maxAttempts × (builder.producer.timeoutMs + Σ builder.producer.gates timeouts)`
+`builder.maxAttempts × (builder.producer.timeoutMs + Σ builder.gates timeouts)`
 for a first pass, and the same shape with `repair` in place of `producer` once
 a Gate has refused one.
 A repair and an assembly fix each carry their own `timeoutMs`. An assembly fix
-is bounded the same way from `assembly.maxAttempts` and `assembly.fix`.
+is bounded the same way from `ticket.maxAttempts` and `ticket.fix`.
 
 ```json
 {
@@ -470,6 +483,60 @@ is bounded the same way from `assembly.maxAttempts` and `assembly.fix`.
   "timeoutMs": 900000
 }
 ```
+
+### The e2e acceptance check
+
+A Project proves each Feature by an acceptance suite, run once on the assembled Feature
+line, when its config says so, by a pair:
+
+```yaml
+builder:
+  e2e:                       # makes the Ticket that holds the suite (label `e2e` on the tracker)
+    agent: claude
+    prompt: ./prompts/e2e.md # {{task}} is the scenarios; {{report}}, {{refused_by}}, {{refusal}} on a refused pass
+    timeoutMs: 1800000
+    gates:                   # form only: it compiles, one test per manifest id, no application file touched
+      gates:
+        - { id: e2e-form, argv: [...], timeoutMs: 120000 }
+feature:
+  validate:
+    agent: false
+    gates:
+      defaultTimeoutMs: 120000
+      gates:
+        - id: e2e
+          skipWhen: skip-test-e2e      # Host does not run this Gate for a Feature that carries the label
+          timeoutMs: 720000
+          argv:
+            - node
+            - ./node_modules/@bluewombat/slots/gates/e2e.mjs
+            - --up
+            - pnpm e2e:up
+            - --ready
+            - pnpm e2e:ready
+            - --run
+            - pnpm e2e
+            - --down
+            - pnpm e2e:down
+```
+
+`skipWhen` is the one condition Host reads for a Gate, on a Feature's Gates only
+(`feature.validate`, `feature.gates`, `feature.fix`); its one value today is
+`skip-test-e2e`, whatever the tracker calls that label. A Gate left out is not a Gate that
+passed: the journal gets `gate-skipped` and the trace says "`e2e` not run: the Feature carries
+skip-test-e2e". The Gate knows nothing of the skip and no environment variable carries it.
+
+The tracker side: a Ticket carrying the e2e label (`e2eLabel` of the TicketTracker manager) is
+made by `builder.e2e` and has no tests written first; a Feature carrying the skip label
+(`skipTestE2eLabel` of the FeatureTracker manager) has that Ticket cancelled, with a line in
+the trace. The label is read again until the Feature is submitted. A Project that declares the
+check refuses a Feature that holds neither an e2e Ticket nor the skip label, or whose e2e
+Ticket is not blocked by every other Ticket, as `invalid`, with the reason as a comment.
+
+What the Gate proves is a red/green verdict; what the operator reads is its text in the
+journal (`gate-finished`) — a red suite is also in the reason of the refusal the fix is
+given and in the escalation. A passing suite's text is not shown on the pull request: see
+RESERVATIONS I17.
 
 ### Describer
 
@@ -543,25 +610,28 @@ it each stop `mason run` at boot, and `mason doctor` reports the same offline
 and is the operator's directory.
 
 ```
-assembled → align → assembly.validate (optional, local)
-              refused  → assembly.fix, then align again, then validate again
+assembled → align → recheck (builder.gates again, on the aligned work)
+              conflict or failed → ticket.fix, then align again
+          → ticket.validate (optional, local)
+              refused  → ticket.fix, then align again, recheck, validate again
               accepted → Publisher places the work → manager opens the Submission
           → submitted, and the run comes back to it on each poll
-              assembly.gates judge what was published
-              refused  → assembly.fix, then the same Submission is offered again
-              accepted → the Authority folds it → done
+              ticket.gates judge what was published
+              refused  → ticket.fix, then the same Submission is offered again
+              accepted → has the line moved on since the align? yes: align again
+                         no: the Authority folds it → done (a refused fold also aligns again)
 ```
 
-Neither half judges: that is what `assembly.gates` are for. The Authority places
-and folds; a Gate says whether the fold may happen. `assembly.validate`, when
+Neither half judges: that is what `ticket.gates` are for. The Authority places
+and folds; a Gate says whether the fold may happen. `ticket.validate`, when
 declared, judges before either half — the same verdict has the same fate
 whether or not there is an Authority to offer the work to afterwards. After the
 Authority folds, Host brings its copy of the work line up to date with a
 fast-forward — the work line moved where the Authority is, and the next
 Isolation must start from that version, not from a copy left behind.
 
-A refusal is not a second failure path: its report reaches `assembly.fix`
-exactly as a Gate's report reaches `builder.repair`. After `maxRefusals`
+A refusal is not a second failure path: its report reaches `ticket.fix`
+exactly as a Gate's report reaches `builder.repair`. After `ticket.maxRefusals`
 refusals the ticket escalates with that report as its Trace, and `done` names
 the Submission rather than a directory on the machine that ran.
 

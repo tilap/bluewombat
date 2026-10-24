@@ -19,7 +19,8 @@
   },
   "exports": {
     "./builders/*": "./builders/*",
-    "./assembly/*": "./assembly/*",
+    "./ticket/*": "./ticket/*",
+    "./feature/*": "./feature/*",
     "./agents/*": "./agents/*",
     "./gates/*": "./gates/*",
     "./publishers/*": "./publishers/*",
@@ -28,7 +29,8 @@
   },
   "files": [
     "builders",
-    "assembly",
+    "ticket",
+    "feature",
     "agents",
     "lib",
     "gates",
@@ -51,6 +53,6 @@
   },
   "dependencies": {
     "@bluewombat/slot-kit": "^0.9.0",
-    "@pinkpuma/deck": "1.0.0"
+    "@pinkpuma/deck": "1.1.0"
   }
 }

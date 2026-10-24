@@ -5,7 +5,13 @@ import { PRODUCT } from "@bluewombat/manager-kit";
 import { ISOLATION_COPY, ISOLATION_GIT } from "../config/defaults.js";
 import { DEFAULT_CONFIG_FILENAME, findConfig } from "../config/find-config.js";
 import { parseArgs } from "../config/parse-args.js";
-import type { GatedPassSpec, HostInvocation } from "../config/types.js";
+import {
+  type GatedPassSpec,
+  type HostInvocation,
+  hasAgent,
+  isOn,
+  type ReviewSpec,
+} from "../config/types.js";
 import { inspectWorkLine, resolveWorkLine, type WorkLineResolution } from "../loop/work-line.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
 import {
@@ -73,7 +79,7 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
   const target = workLine.kind === "copy" ? workLine.target : invocation.workLineBranch;
   findings.push(...isolationFindings(invocation, workLine));
   findings.push(...authorityFindings(invocation, workLine, target, input.env));
-  const judged = assemblyFinding(invocation);
+  const judged = ticketFinding(invocation);
   if (judged !== undefined) {
     findings.push(judged);
   }
@@ -97,18 +103,28 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
         }
       : { level: "ok", label: "streams", detail: "off — the journal alone" },
   );
-  findings.push(
-    ...gatedPassFindings("Builder producer", invocation.builder.producer, input.env, stable),
-  );
-  findings.push(
-    ...gatedPassFindings("Builder repair", invocation.builder.repair, input.env, stable),
-  );
-  if (invocation.assembly.fix !== undefined) {
-    findings.push(...gatedPassFindings("Assembly fix", invocation.assembly.fix, input.env, stable));
+  if (invocation.builder.tests !== undefined) {
+    findings.push(...reviewFindings("Builder tests", invocation.builder.tests, input.env, stable));
   }
-  if (invocation.assembly.validate !== undefined) {
+  if (invocation.builder.e2e !== undefined) {
+    findings.push(...gatedPassFindings("Builder e2e", invocation.builder.e2e, input.env, stable));
+  }
+  findings.push(
+    ...gatedPassFindings("Builder producer", invocation.builder.producer, input.env, stable, false),
+  );
+  findings.push(
+    ...gatedPassFindings("Builder repair", invocation.builder.repair, input.env, stable, false),
+  );
+  // One list judges both passes (builder.gates): checked once, not twice.
+  for (const gate of invocation.builder.producer.gates) {
+    findings.push(commandFinding(`Builder gate ${gate.id}`, gate.argv, input.env));
+  }
+  if (invocation.ticket.fix !== undefined) {
+    findings.push(...gatedPassFindings("Ticket fix", invocation.ticket.fix, input.env, stable));
+  }
+  if (invocation.ticket.validate !== undefined) {
     findings.push(
-      ...gatedPassFindings("Assembly validate", invocation.assembly.validate, input.env, stable),
+      ...reviewFindings("Ticket validate", invocation.ticket.validate, input.env, stable),
     );
   }
   const describeArgv = invocation.authority?.enabled
@@ -118,10 +134,28 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
     findings.push(...agentPluginFindings("Describer", describeArgv, stable));
   }
   // The judgement-only pass's own sequence — never shared with fix or validate.
-  for (const gate of invocation.assembly.gates) {
-    findings.push(commandFinding(`Assembly gate ${gate.id}`, gate.argv, input.env));
+  for (const gate of invocation.ticket.gates) {
+    findings.push(commandFinding(`Ticket gate ${gate.id}`, gate.argv, input.env));
   }
-  findings.push(...assemblyFixFindings(invocation));
+  findings.push(...ticketFixFindings(invocation));
+  // The Feature's line has its own fix and its own sequence, apart from a Ticket's.
+  if (invocation.feature !== undefined) {
+    findings.push(...gatedPassFindings("Feature fix", invocation.feature.fix, input.env, stable));
+    findings.push(
+      ...reviewFindings("Feature validate", invocation.feature.validate, input.env, stable),
+    );
+    if (!isOn(invocation.feature.validate) && invocation.feature.gates.length === 0) {
+      findings.push({
+        level: "warn",
+        label: "feature judgement",
+        detail:
+          "feature.validate is off and feature.gates is empty — nothing judges a Feature before it is folded",
+      });
+    }
+    for (const gate of invocation.feature.gates) {
+      findings.push(commandFinding(`Feature gate ${gate.id}`, gate.argv, input.env));
+    }
+  }
 
   for (const one of distinctManagers(invocation)) {
     const label = nameOfSides(one.sides);
@@ -362,65 +396,97 @@ function isolationFindings(invocation: HostInvocation, workLine: WorkLineResolut
  * then folded on the Gate sequence's word. An empty sequence is a Project that
  * publishes and merges with nothing looking at the whole.
  */
-function assemblyFinding(invocation: HostInvocation): Finding | undefined {
+function ticketFinding(invocation: HostInvocation): Finding | undefined {
   // Only an Authority publishes and merges. With the fold staying local there
   // is nothing outside to guard, and the unit Gates already judged every part.
   if (invocation.authority?.enabled !== true) {
     return undefined;
   }
-  if (invocation.assembly.gates.length > 0) {
+  if (invocation.ticket.gates.length > 0) {
     return {
       level: "ok",
-      label: "assembly gates",
-      detail: invocation.assembly.gates.map((gate) => gate.id).join(", "),
+      label: "ticket gates",
+      detail: invocation.ticket.gates.map((gate) => gate.id).join(", "),
+    };
+  }
+  if (invocation.builder.producer.gates.length > 0) {
+    // The unit's own checks run again once the work is aligned, so something does
+    // judge the ticket; what is missing is a reader of the published work (a CI).
+    return {
+      level: "ok",
+      label: "ticket gates",
+      detail:
+        'none — no CI is read. builder.gates run again after the align; add "ticket.gates" (ci-green) when a CI runs on the pull requests',
     };
   }
   return {
     level: "warn",
-    label: "assembly gates",
+    label: "ticket gates",
     detail:
-      'none — the assembled ticket is published and merged with nothing judging it. Add "assembly.gates" (ci-green reads the work line\'s own checks)',
+      'none — the assembled ticket is published and merged with nothing judging it. Add "builder.gates", which run again after the align, or "ticket.gates" (ci-green reads the work line\'s own checks)',
   };
 }
 
 /** A gated pass's command, then one finding per Gate's own command. */
+/** A review with an agent is checked as a pass; without one, its Gates are all there is. */
+function reviewFindings(
+  label: string,
+  review: ReviewSpec,
+  env: Record<string, string | undefined>,
+  workLine: string | undefined,
+): Finding[] {
+  if (hasAgent(review)) {
+    return gatedPassFindings(label, review, env, workLine);
+  }
+  if (!isOn(review)) {
+    return [{ level: "ok", label, detail: "off (agent: false, no gates)" }];
+  }
+  return [
+    { level: "ok", label, detail: "no agent (agent: false): its gates run alone" },
+    ...review.gates.map((gate) => commandFinding(`${label} gate ${gate.id}`, gate.argv, env)),
+  ];
+}
+
 function gatedPassFindings(
   label: string,
   pass: GatedPassSpec,
   env: Record<string, string | undefined>,
   workLine: string | undefined,
+  withGates = true,
 ): Finding[] {
   const findings = [commandFinding(label, pass.cmd, env)];
   findings.push(...agentPluginFindings(label, pass.cmd, workLine));
-  for (const gate of pass.gates) {
-    findings.push(commandFinding(`${label} gate ${gate.id}`, gate.argv, env));
+  if (withGates) {
+    for (const gate of pass.gates) {
+      findings.push(commandFinding(`${label} gate ${gate.id}`, gate.argv, env));
+    }
   }
   return findings;
 }
 
 /**
  * A refusal that comes back needs a command that can fix what it named. The
- * work is sent back to `assembly.fix` by an Authority, by `assembly.validate`,
+ * work is sent back to `ticket.fix` by an Authority, by `ticket.validate`,
  * or by both — `fix` is dead only when neither refuser exists.
  */
-function assemblyFixFindings(invocation: HostInvocation): Finding[] {
-  const fixDeclared = invocation.assembly.fix !== undefined;
-  const validateDeclared = invocation.assembly.validate !== undefined;
+function ticketFixFindings(invocation: HostInvocation): Finding[] {
+  const fixDeclared = invocation.ticket.fix !== undefined;
+  const validateDeclared = isOn(invocation.ticket.validate);
   const offering = invocation.authority?.enabled === true;
   const findings: Finding[] = [];
   if (offering && !fixDeclared) {
     findings.push({
       level: "fail",
-      label: "assembly fix",
-      detail: 'authority.enabled is true, so a Submission can come back. Name "assembly.fix"',
+      label: "ticket fix",
+      detail: 'authority.enabled is true, so a Submission can come back. Name "ticket.fix"',
     });
   }
   if (fixDeclared && !offering && !validateDeclared) {
     findings.push({
       level: "warn",
-      label: "assembly fix",
+      label: "ticket fix",
       detail:
-        "declared, but nothing sends a Submission back without an Authority or assembly.validate — it will never run",
+        "declared, but nothing sends a Submission back without an Authority or ticket.validate — it will never run",
     });
   }
   if (validateDeclared && !fixDeclared) {
@@ -428,9 +494,9 @@ function assemblyFixFindings(invocation: HostInvocation): Finding[] {
     // escalate on the spot. Said here so it reads as a choice, not a bug.
     findings.push({
       level: "warn",
-      label: "assembly fix",
+      label: "ticket fix",
       detail:
-        "assembly.validate is declared with no assembly.fix — its refusals escalate immediately, with nothing to repair them",
+        "ticket.validate is declared with no ticket.fix — its refusals escalate immediately, with nothing to repair them",
     });
   }
   return findings;

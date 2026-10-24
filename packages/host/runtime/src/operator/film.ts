@@ -80,10 +80,6 @@ function builderFailed(line: Record<string, unknown>): boolean {
   return typeof kind === "string" && kind !== "completed" && kind !== "skipped";
 }
 
-function keyOf(line: Record<string, unknown>): string {
-  return typeof line.key === "string" ? line.key : "";
-}
-
 function headlineOf(line: Record<string, unknown>): string {
   if (typeof line.label === "string") {
     return line.label;

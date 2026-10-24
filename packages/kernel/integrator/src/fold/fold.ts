@@ -7,7 +7,7 @@ import {
 } from "./working-files.js";
 
 export type FoldResult =
-  | { ok: true }
+  | { ok: true; changed?: boolean }
   | { ok: false; stop: FoldStop }
   | { ok: false; conflict: true; report: string }
   | { ok: false; detail: string };

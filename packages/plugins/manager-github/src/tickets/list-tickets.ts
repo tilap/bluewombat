@@ -16,6 +16,8 @@ export type ListTicketsRequest = {
   priorityLabelPrefix: string;
   resumeLabel: string;
   ticketReadyLabel: string;
+  noTestsLabel: string;
+  e2eLabel: string;
   deadlineMs: number;
   now: () => number;
   shouldInterrupt: () => boolean;
@@ -89,6 +91,7 @@ function entryOf(
       priorityLabelPrefix: request.priorityLabelPrefix,
       resumeLabel: request.resumeLabel,
       mergeWhenReadyLabel: "",
+      skipTestE2eLabel: "",
       normalizedAt: new Date(request.now()).toISOString(),
     },
   );
@@ -117,6 +120,8 @@ function entryOf(
     },
     task_ready: payloadHasLabel(issue, request.ticketReadyLabel),
     resume: payloadHasLabel(issue, request.resumeLabel),
+    no_tests: payloadHasLabel(issue, request.noTestsLabel),
+    e2e: payloadHasLabel(issue, request.e2eLabel),
     open: issue.state !== "closed",
   };
 }

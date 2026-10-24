@@ -1,4 +1,4 @@
-import type { AuthorityPort } from "@bluewombat/conductor";
+import type { AuthorityPort, LinePort } from "@bluewombat/conductor";
 import type { SubmissionRequest, TicketTrackerPort } from "@bluewombat/manager-kit";
 import type { PassSpec } from "../config/types.js";
 import { describe } from "./describe.js";
@@ -37,6 +37,7 @@ export function openAuthority(input: {
   }
   const submit = manager.submit.bind(manager);
   const fold = manager.fold.bind(manager);
+  const behind = manager.behind?.bind(manager);
 
   return {
     async submit(offer) {
@@ -106,13 +107,15 @@ export function openAuthority(input: {
       }
       return submitted;
     },
+    // Only a manager that can say whether the line moved on gets the question.
+    ...(behind === undefined ? {} : { behind }),
     async fold(asked) {
       return await fold(asked);
     },
   };
 }
 
-type Published = { ok: true; ref: string } | { ok: false; reason: string };
+export type Published = { ok: true; ref: string } | { ok: false; reason: string };
 
 /**
  * Run the Publisher slot in the work line and read the one line it answers.
@@ -121,7 +124,7 @@ type Published = { ok: true; ref: string } | { ok: false; reason: string };
  * that cannot run at all is a refusal like any other here — the Submission does
  * not happen, the reason reaches the tracker, and the next pass tries again.
  */
-async function publish(input: {
+export async function publish(input: {
   argv: string[];
   cwd: string;
   id: string;
@@ -183,6 +186,47 @@ function lastJsonLine(stdout: string): Record<string, unknown> | undefined {
 }
 
 /**
+ * The shared work line copy, kept current for Conductor. Each refresh says in
+ * the journal how it went, since a copy that cannot move stops a Ticket cold.
+ */
+export function openLine(input: {
+  workLineStable: string;
+  refreshArgv: string[];
+  timeoutMs: number;
+  env?: Record<string, string> | undefined;
+  journal?: Journal | undefined;
+  trace?: ((line: string) => void) | undefined;
+}): LinePort {
+  return {
+    async refresh(target) {
+      const refreshed = await refreshWorkLine({
+        workLineStable: input.workLineStable,
+        workLineTarget: target,
+        refreshArgv: input.refreshArgv,
+        timeoutMs: input.timeoutMs,
+        env: input.env,
+      });
+      if (!refreshed.ok) {
+        input.journal?.append({
+          event: "refresh",
+          outcome: "failed",
+          target,
+          ...(refreshed.detail === undefined ? {} : { detail: refreshed.detail }),
+        });
+        input.trace?.(
+          `work line  cannot fast-forward onto ${target}, so nothing started. ${refreshed.detail ?? ""}`,
+        );
+        return {
+          ok: false,
+          ...(refreshed.detail === undefined ? {} : { detail: refreshed.detail }),
+        };
+      }
+      return { ok: true };
+    },
+  };
+}
+
+/**
  * Bring the work line copy up to what the Authority holds, through the slot the
  * Project named.
  *
@@ -193,6 +237,8 @@ function lastJsonLine(stdout: string): Record<string, unknown> | undefined {
 export async function refreshWorkLine(input: {
   workLineStable: string;
   workLineTarget: string;
+  /** The line `workLineTarget` was cut from, when it is a Feature's line. */
+  workLineBase?: string | undefined;
   refreshArgv: string[];
   timeoutMs: number;
   env?: Record<string, string> | undefined;
@@ -203,7 +249,12 @@ export async function refreshWorkLine(input: {
   }
   const run = await runSlot({
     command,
-    args: [...rest, "--target", input.workLineTarget],
+    args: [
+      ...rest,
+      "--target",
+      input.workLineTarget,
+      ...(input.workLineBase === undefined ? [] : ["--base", input.workLineBase]),
+    ],
     cwd: input.workLineStable,
     timeoutMs: input.timeoutMs,
     env: { ...process.env, ...input.env },

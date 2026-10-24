@@ -26,12 +26,13 @@ function sandbox(config: Record<string, unknown>): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
+        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,
-          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
+        gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
       },
       timeoutMs: 1000,
       ...config,
@@ -44,7 +45,17 @@ function sandbox(config: Record<string, unknown>): string {
 function offering(): Record<string, unknown> {
   return {
     authority: { enabled: true, publish: [node, gate], refresh: [node, gate] },
-    assembly: {
+    feature: {
+      fix: { cmd: [node, builder], timeoutMs: 600_000 },
+      validate: {
+        cmd: [node, builder],
+        timeoutMs: 600_000,
+        gates: { gates: [{ id: "tests", argv: [node, gate], timeoutMs: 10_000 }] },
+      },
+      gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+    },
+    ticket: {
+      validate: { agent: false },
       fix: { cmd: [node, builder], timeoutMs: 600_000 },
       gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
     },
@@ -110,7 +121,17 @@ describe("runDoctor", () => {
       },
       workLine: { stable: "./stable", branch: "main", isolation: "@bluewombat/isolation-copy" },
       authority: { enabled: true, publish: [node, noop], refresh: [node, noop] },
-      assembly: {
+      feature: {
+        fix: { cmd: [node, builder], timeoutMs: 600_000 },
+        validate: {
+          cmd: [node, builder],
+          timeoutMs: 600_000,
+          gates: { gates: [{ id: "tests", argv: [node, noop], timeoutMs: 10_000 }] },
+        },
+        gates: { gates: [{ id: "check", argv: [node, noop], timeoutMs: 10_000 }] },
+      },
+      ticket: {
+        validate: { agent: false },
         fix: { cmd: [node, builder], timeoutMs: 600_000 },
       },
     });
@@ -283,17 +304,18 @@ describe("runDoctor", () => {
         options: { source: "./source", target: "./threads" },
       },
       builder: {
+        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,
-          gates: { gates: [{ id: "check", argv: ["definitely-not-a-command"], timeoutMs: 1000 }] },
         },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
+        gates: { gates: [{ id: "check", argv: ["definitely-not-a-command"], timeoutMs: 1000 }] },
       },
     });
     const { code, output } = await doctorIn(cwd);
     assert.equal(code, 1);
-    assert.match(output, /FAIL {2}Builder producer gate check/);
+    assert.match(output, /FAIL {2}Builder gate check/);
   });
 
   it("fails an Authority that cannot fix a Submission sent back", async () => {
@@ -309,14 +331,23 @@ describe("runDoctor", () => {
         },
         workLine: { stable: "./stable", branch: "main", isolation: "@bluewombat/isolation-copy" },
         authority: { enabled: true, publish: [node, noop], refresh: [node, noop] },
+        feature: {
+          fix: { cmd: [node, builder], timeoutMs: 600_000 },
+          validate: {
+            cmd: [node, builder],
+            timeoutMs: 600_000,
+            gates: { gates: [{ id: "tests", argv: [node, noop], timeoutMs: 10_000 }] },
+          },
+          gates: { gates: [{ id: "check", argv: [node, noop], timeoutMs: 10_000 }] },
+        },
       }),
     );
     assert.equal(code, 1);
-    assert.match(output, /FAIL {2}assembly fix/);
-    assert.match(output, /assembly\.fix/);
+    assert.match(output, /FAIL {2}ticket fix/);
+    assert.match(output, /ticket\.fix/);
   });
 
-  it("checks assembly.validate's command when declared, and says nothing new when absent", async () => {
+  it("checks ticket.validate's command when declared, and says nothing new when absent", async () => {
     const withValidate = await doctorIn(
       sandbox({
         featureTracker: {
@@ -327,13 +358,13 @@ describe("runDoctor", () => {
           package: "@bluewombat/manager-fake",
           options: { source: "./source", target: "./threads" },
         },
-        assembly: {
+        ticket: {
           validate: { cmd: [node, builder], timeoutMs: 600_000 },
           gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
       }),
     );
-    assert.match(withValidate.output, /ok {4}Assembly validate/);
+    assert.match(withValidate.output, /ok {4}Ticket validate/);
 
     const withoutValidate = await doctorIn(
       sandbox({
@@ -347,7 +378,7 @@ describe("runDoctor", () => {
         },
       }),
     );
-    assert.doesNotMatch(withoutValidate.output, /Assembly validate/);
+    assert.doesNotMatch(withoutValidate.output, /Ticket validate/);
   });
 
   it("no longer warns that fix is dead without an Authority, once validate can send work back to it", async () => {
@@ -361,14 +392,14 @@ describe("runDoctor", () => {
           package: "@bluewombat/manager-fake",
           options: { source: "./source", target: "./threads" },
         },
-        assembly: {
+        ticket: {
           fix: { cmd: [node, builder], timeoutMs: 600_000 },
           validate: { cmd: [node, builder], timeoutMs: 600_000 },
           gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
       }),
     );
-    assert.doesNotMatch(output, /assembly fix.*it will never run/);
+    assert.doesNotMatch(output, /ticket fix.*it will never run/);
   });
 
   it("still warns that fix is dead without an Authority or a validate to feed it", async () => {
@@ -382,13 +413,14 @@ describe("runDoctor", () => {
           package: "@bluewombat/manager-fake",
           options: { source: "./source", target: "./threads" },
         },
-        assembly: {
+        ticket: {
+          validate: { agent: false },
           fix: { cmd: [node, builder], timeoutMs: 600_000 },
           gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
       }),
     );
-    assert.match(output, /warn {2}assembly fix.*it will never run/);
+    assert.match(output, /warn {2}ticket fix.*it will never run/);
   });
 
   it("says a validate with no fix escalates rather than failing the check", async () => {
@@ -402,13 +434,13 @@ describe("runDoctor", () => {
           package: "@bluewombat/manager-fake",
           options: { source: "./source", target: "./threads" },
         },
-        assembly: {
+        ticket: {
           validate: { cmd: [node, builder], timeoutMs: 600_000 },
           gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
         },
       }),
     );
     assert.equal(code, 0);
-    assert.match(output, /warn {2}assembly fix.*escalate/);
+    assert.match(output, /warn {2}ticket fix.*escalate/);
   });
 });

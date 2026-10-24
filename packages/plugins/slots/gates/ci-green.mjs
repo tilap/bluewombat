@@ -88,7 +88,7 @@ for (;;) {
     // yet, and an empty list then says nothing. Ask again, until the wait
     // runs out: a commit no check ever picks up is not a refusal of the work.
     if (Date.now() >= stopAt) {
-      stopWaiting(pull, "no check has appeared");
+      stopWaiting(pull, "no check has appeared", true);
     }
     await sleep(Math.min(options.pollMs, Math.max(0, stopAt - Date.now())));
     continue;
@@ -128,16 +128,25 @@ function stopTime(from, raw) {
  * could change: blocking, so a person reads it instead of an agent being sent
  * to repair what was never judged.
  *
- * @param {{ number: number; sha: string }} pr
+ * When no check ever appeared, the cause is on the repository's side, and the
+ * message says the three it can be: no CI at all, a CI that does not run on pull
+ * requests into this branch, or a CI that is late.
+ *
+ * @param {{ number: number; sha: string; base?: string }} pr
  * @param {string} what
+ * @param {boolean} [never]
  * @returns {never}
  */
-function stopWaiting(pr, what) {
+function stopWaiting(pr, what, never = false) {
   const seconds = Math.round((Date.now() - startedAt) / 1000);
   const lasted = seconds >= 120 ? `${Math.round(seconds / 60)} min` : `${seconds} s`;
+  const into = pr.base === undefined ? "this branch" : `"${pr.base}"`;
+  const hint = never
+    ? ` Either this repository has no CI (then take ci-green out of the Gate list), or its workflows do not run on pull requests into ${into}, or the CI was removed or is late.`
+    : "";
   emitVerdict(
     "fail-blocking",
-    `ci-green stopped waiting after ${lasted}: ${what} on ${pr.sha.slice(0, 7)} (pull request #${pr.number}). The CI did not answer in time; this is not a refusal of the work, and no change to it can make the CI answer.`,
+    `ci-green stopped waiting after ${lasted}: ${what} on ${pr.sha.slice(0, 7)} (pull request #${pr.number}). The CI did not answer in time; this is not a refusal of the work, and no change to it can make the CI answer.${hint}`,
   );
   process.exit(0);
 }
@@ -221,7 +230,7 @@ function repoFrom(url) {
 
 /**
  * @param {string} head
- * @returns {Promise<{ number: number; sha: string } | undefined>}
+ * @returns {Promise<{ number: number; sha: string; base?: string } | undefined>}
  */
 async function openPullFor(head) {
   const listed = await api(
@@ -232,8 +241,10 @@ async function openPullFor(head) {
   if (first === undefined || headOf === undefined) {
     return undefined;
   }
+  const baseOf = record(first.base);
+  const base = typeof baseOf?.ref === "string" ? baseOf.ref : undefined;
   return typeof first.number === "number" && typeof headOf.sha === "string"
-    ? { number: first.number, sha: headOf.sha }
+    ? { number: first.number, sha: headOf.sha, ...(base === undefined ? {} : { base }) }
     : undefined;
 }
 

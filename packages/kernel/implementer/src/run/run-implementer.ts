@@ -104,7 +104,11 @@ async function runLoop(input: {
   let previousReport: string | undefined = invocation.report;
   let previousRefusedBy: string | undefined = invocation.reportFrom;
 
-  for (let attempt = 1; attempt <= invocation.maxAttempts; attempt += 1) {
+  for (
+    let attempt = invocation.firstAttempt ?? 1;
+    attempt <= invocation.maxAttempts;
+    attempt += 1
+  ) {
     if (shouldInterrupt()) {
       return finishInterrupted({
         cwd: input.cwd,
@@ -184,7 +188,14 @@ async function runLoop(input: {
     const gateEntries: Trace["gates"] = [];
     let ended: AttemptEnded;
 
-    if (builderRun.attemptEnded !== undefined) {
+    // A producer killed at its clock may have finished and been verifying: what it left is the
+    // work, so the Gates judge it before the Attempt is called a failure. With no Gate there is
+    // nothing to judge it by, and it stays one.
+    const judgeAfterTimeout =
+      builderRun.result.kind === "timed_out" &&
+      (usedRepair ? invocation.repairGates : invocation.gates).length > 0;
+
+    if (builderRun.attemptEnded !== undefined && !judgeAfterTimeout) {
       ended = builderRun.attemptEnded;
       if (ended === "fail-retryable" || ended === "fail-blocking") {
         previousReport = builderRun.reportForRetry;

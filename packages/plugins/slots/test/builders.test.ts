@@ -10,8 +10,12 @@ const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
 const producer = join(here, "../builders/producer.mjs");
 const repair = join(here, "../builders/repair.mjs");
-const assemblyFix = join(here, "../assembly/fix.mjs");
-const assemblyValidate = join(here, "../assembly/validate.mjs");
+const e2eRole = join(here, "../builders/e2e.mjs");
+const testsRole = join(here, "../builders/tests.mjs");
+const ticketFix = join(here, "../ticket/fix.mjs");
+const featureFix = join(here, "../feature/fix.mjs");
+const ticketValidate = join(here, "../ticket/validate.mjs");
+const featureValidate = join(here, "../feature/validate.mjs");
 const cursor = join(here, "../agents/cursor.mjs");
 const claude = join(here, "../agents/claude.mjs");
 const fixtures = join(here, "../fixtures");
@@ -327,11 +331,11 @@ describe("builder repair", () => {
   });
 });
 
-describe("assembly fix", () => {
+describe("ticket fix", () => {
   it("places the report and not a first-pass heading", () => {
     const cwd = sandbox();
     const result = runRole(
-      assemblyFix,
+      ticketFix,
       cursor,
       cwd,
       ["--bin", agentEchoArgv],
@@ -347,16 +351,107 @@ describe("assembly fix", () => {
   });
 });
 
-describe("assembly validate", () => {
+describe("builder tests", () => {
+  it("asks for the tests of the task and nothing else, to fail now", () => {
+    const cwd = sandbox();
+    const result = runRole(testsRole, cursor, cwd, ["--bin", agentEchoArgv]);
+    assert.equal(result.status, 0, result.stderr);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /WRITE THE TESTS OF THIS TASK, AND ONLY THE TESTS/);
+    assert.match(prompt, /must FAIL now/);
+    assert.match(prompt, /minimal stub/);
+    // The tests are proved passable by running them green on a throwaway implementation.
+    assert.match(prompt, /red, green, red/);
+    assert.match(prompt, /Put every stub body back to no behaviour/);
+    assert.match(prompt, /no "Tests" section/);
+    assert.match(prompt, /Write delivered\.txt/);
+  });
+
+  it("takes the refusal of an earlier attempt from the history, not from --report", () => {
+    const cwd = sandbox();
+    const result = runRole(
+      testsRole,
+      cursor,
+      cwd,
+      ["--bin", agentEchoArgv],
+      [],
+      [
+        "--report",
+        "they pass",
+        "--report-from",
+        "tests-red",
+        "--history",
+        "Attempt 1 was refused by tests-red: they pass",
+      ],
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(echoedPrompt(cwd), /Attempt 1 was refused by tests-red/);
+  });
+});
+
+describe("feature fix", () => {
+  it("speaks of the whole feature, with its own cases, and not of a ticket", () => {
+    const cwd = sandbox();
+    const result = runRole(
+      featureFix,
+      cursor,
+      cwd,
+      ["--bin", agentEchoArgv],
+      [],
+      ["--report", "tests fail", "--report-from", "tests"],
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /a whole feature/);
+    assert.match(prompt, /branch it will be merged into/);
+    assert.match(prompt, /Refused by: tests/);
+    assert.match(prompt, /tests fail/);
+    assert.doesNotMatch(prompt, /one ticket|ticket\.validate|The review/);
+  });
+
+  it("refuses to run without a report", () => {
+    const result = runRole(featureFix, cursor, sandbox(), ["--bin", agentEchoArgv]);
+    assert.notEqual(result.status, 0);
+  });
+});
+
+describe("feature validate", () => {
+  it("reads the verdict, and speaks of the whole feature", () => {
+    const cwd = sandbox();
+    const ok = runRole(featureValidate, cursor, cwd, ["--bin", agentReviewValidated]);
+    assert.equal(ok.status, 0, ok.stderr);
+    const refused = runRole(featureValidate, cursor, cwd, ["--bin", agentReviewRefused]);
+    assert.notEqual(refused.status, 0);
+    runRole(featureValidate, cursor, cwd, ["--bin", agentEchoArgv]);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /a whole feature/);
+    assert.match(prompt, /what no ticket covers|no ticket covers/);
+    assert.match(prompt, /read-only review/);
+  });
+
+  it("refuses a report: a review is not a repair", () => {
+    const result = runRole(
+      featureValidate,
+      cursor,
+      sandbox(),
+      ["--bin", agentOk],
+      [],
+      ["--report", "x"],
+    );
+    assert.notEqual(result.status, 0);
+  });
+});
+
+describe("ticket validate", () => {
   it("exits 0 when the review validates the assembled ticket", () => {
     const cwd = sandbox();
-    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentReviewValidated]);
+    const result = runRole(ticketValidate, cursor, cwd, ["--bin", agentReviewValidated]);
     assert.equal(result.status, 0, result.stderr);
   });
 
   it("fail-retryable with the report when the review refuses", () => {
     const cwd = sandbox();
-    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentReviewRefused]);
+    const result = runRole(ticketValidate, cursor, cwd, ["--bin", agentReviewRefused]);
     assert.notEqual(result.status, 0);
     const failure = failureOf(result.stdout);
     assert.equal(failure.outcome, "fail-retryable");
@@ -370,7 +465,7 @@ describe("assembly validate", () => {
     // preamble that happens to use either word in prose — this fixture's
     // does, on purpose.
     const cwd = sandbox();
-    const result = runRole(assemblyValidate, cursor, cwd, [
+    const result = runRole(ticketValidate, cursor, cwd, [
       "--bin",
       agentReviewValidatedWithPreamble,
     ]);
@@ -379,7 +474,7 @@ describe("assembly validate", () => {
 
   it("fail-retryable when the answer has no MASON_VERDICT: line", () => {
     const cwd = sandbox();
-    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentOk]);
+    const result = runRole(ticketValidate, cursor, cwd, ["--bin", agentOk]);
     assert.notEqual(result.status, 0);
     const failure = failureOf(result.stdout);
     assert.equal(failure.outcome, "fail-retryable");
@@ -390,7 +485,7 @@ describe("assembly validate", () => {
     const cwd = sandbox();
     const result = spawnSync(
       node,
-      [assemblyValidate, "--", node, cursor, "--bin", agentReviewValidated],
+      [ticketValidate, "--", node, cursor, "--bin", agentReviewValidated],
       { cwd, encoding: "utf8" },
     );
     assert.notEqual(result.status, 0);
@@ -400,7 +495,7 @@ describe("assembly validate", () => {
   it("fail-blocking when a --report arrives — validate is read-only, fix repairs", () => {
     const cwd = sandbox();
     const result = runRole(
-      assemblyValidate,
+      ticketValidate,
       cursor,
       cwd,
       ["--bin", agentReviewValidated],
@@ -415,7 +510,7 @@ describe("assembly validate", () => {
 
   it("places the intention and asks for a VALIDATED or REFUSED answer, not a repair prompt", () => {
     const cwd = sandbox();
-    runRole(assemblyValidate, cursor, cwd, ["--bin", agentEchoArgv]);
+    runRole(ticketValidate, cursor, cwd, ["--bin", agentEchoArgv]);
     const prompt = echoedPrompt(cwd);
     assert.match(prompt, /read-only review/);
     assert.match(prompt, /Write delivered\.txt/);
@@ -426,7 +521,7 @@ describe("assembly validate", () => {
 
   it("does not crash the run when the underlying CLI itself fails", () => {
     const cwd = sandbox();
-    const result = runRole(assemblyValidate, cursor, cwd, ["--bin", agentFail]);
+    const result = runRole(ticketValidate, cursor, cwd, ["--bin", agentFail]);
     assert.notEqual(result.status, 0);
     const failure = failureOf(result.stdout);
     assert.equal(failure.outcome, "fail-retryable");
@@ -637,8 +732,8 @@ describe("what the Task went through, and the way out", () => {
   const history =
     "History of this Task, oldest first:\n\nRefused by ci-green, before this Task's first attempt:\n   Deployment has failed";
 
-  it("places the history in a repair prompt and in an assembly fix prompt", () => {
-    for (const role of [repair, assemblyFix]) {
+  it("places the history in a repair prompt and in a ticket fix prompt", () => {
+    for (const role of [repair, ticketFix]) {
       const cwd = sandbox();
       const result = runRole(
         role,
@@ -664,7 +759,7 @@ describe("what the Task went through, and the way out", () => {
   });
 
   it("tells every producer it may stop with MASON_BLOCKED", () => {
-    for (const role of [producer, repair, assemblyFix]) {
+    for (const role of [producer, repair, ticketFix]) {
       const cwd = sandbox();
       const result = runRole(
         role,
@@ -680,7 +775,7 @@ describe("what the Task went through, and the way out", () => {
   });
 
   it("answers fail-blocking, with the agent's reason, when it says it cannot act", () => {
-    for (const role of [producer, repair, assemblyFix]) {
+    for (const role of [producer, repair, ticketFix]) {
       const cwd = sandbox();
       const result = runRole(
         role,
@@ -702,5 +797,61 @@ describe("what the Task went through, and the way out", () => {
     const result = run(cwd, ["--bin", agentOk]);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout.trim()), { said: "done" });
+  });
+});
+
+describe("builder e2e", () => {
+  it("writes the suite from the scenarios, and tells the agent the form it takes", () => {
+    const cwd = sandbox();
+    const result = runRole(e2eRole, cursor, cwd, ["--bin", agentEchoArgv]);
+    assert.equal(result.status, 0, result.stderr);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /Write delivered\.txt/);
+    assert.match(prompt, /e2e\/scenarios\.json/);
+    assert.match(prompt, /start the name of each test with its scenario id/);
+    assert.match(prompt, /do not run the suite/);
+    assert.doesNotMatch(prompt, /It was refused/);
+  });
+
+  it("is the one command of a refused pass too: the refusal reaches the prompt, with who said it", () => {
+    const cwd = sandbox();
+    const result = runRole(
+      e2eRole,
+      cursor,
+      cwd,
+      ["--bin", agentEchoArgv],
+      [],
+      ["--attempt", "2", "--report", "S3 has no test", "--report-from", "e2e-form"],
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const prompt = echoedPrompt(cwd);
+    assert.match(prompt, /refused\s+by e2e-form/);
+    assert.match(prompt, /S3 has no test/);
+  });
+
+  it("takes the Project's own template, with the report and the refusal as placeholders", () => {
+    const cwd = sandbox();
+    const template = join(cwd, "prompt.md");
+    writeFileSync(template, "Scenarios: {{task}}\n[{{refused_by}}] {{report}}\n{{rules}}\n");
+    const result = runRole(
+      e2eRole,
+      cursor,
+      cwd,
+      ["--bin", agentEchoArgv],
+      ["--prompt-file", template],
+      ["--report", "no manifest", "--report-from", "e2e-form"],
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(echoedPrompt(cwd), /\[e2e-form\] no manifest/);
+  });
+
+  it("fail-blocking when there is no intention", () => {
+    const cwd = sandbox();
+    const result = spawnSync(node, [e2eRole, "--", node, cursor, "--bin", agentOk], {
+      cwd,
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(failureOf(result.stdout).outcome, "fail-blocking");
   });
 });

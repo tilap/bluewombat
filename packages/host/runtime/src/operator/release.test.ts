@@ -34,8 +34,10 @@ function sandbox(): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
-        producer: { cmd: [node, builder], timeoutMs: 30_000, gates: { gates: [] } },
+        tests: { agent: false, gates: [] },
+        producer: { cmd: [node, builder], timeoutMs: 30_000 },
         repair: { cmd: [node, builder], timeoutMs: 30_000 },
+        gates: { gates: [] },
       },
       timeoutMs: 30_000,
     }),
@@ -88,10 +90,11 @@ describe("runRelease", () => {
       workspaceRoot: join(cwd, ".mason/workspaces"),
       ledgerRoot: join(cwd, ".mason/ledger"),
       builder: {
+        tests: { agent: false, gates: [] },
         producer: { cmd: [node, builder], timeoutMs: 30_000, gates: [] },
         repair: { cmd: [node, builder], timeoutMs: 30_000, gates: [] },
       },
-      assembly: { gates: [] },
+      ticket: { gates: [] },
       timeoutMs: 30_000,
     });
     await host.ledger.admit({
@@ -133,10 +136,11 @@ describe("runRelease", () => {
       workspaceRoot: join(cwd, ".mason/workspaces"),
       ledgerRoot: join(cwd, ".mason/ledger"),
       builder: {
+        tests: { agent: false, gates: [] },
         producer: { cmd: [node, builder], timeoutMs: 30_000, gates: [] },
         repair: { cmd: [node, builder], timeoutMs: 30_000, gates: [] },
       },
-      assembly: { gates: [] },
+      ticket: { gates: [] },
       timeoutMs: 30_000,
     });
     const got = await check.ledger.get("fake:42");
@@ -169,10 +173,11 @@ describe("runRelease", () => {
       workspaceRoot: join(cwd, ".mason/workspaces"),
       ledgerRoot: join(cwd, ".mason/ledger"),
       builder: {
+        tests: { agent: false, gates: [] },
         producer: { cmd: [node, builder], timeoutMs: 30_000, gates: [] },
         repair: { cmd: [node, builder], timeoutMs: 30_000, gates: [] },
       },
-      assembly: { gates: [] },
+      ticket: { gates: [] },
       timeoutMs: 30_000,
     });
     await host.ledger.admit({

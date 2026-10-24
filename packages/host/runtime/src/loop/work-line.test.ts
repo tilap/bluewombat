@@ -247,7 +247,16 @@ function bootOptions(root: string, manager: ManagerModule) {
       producer: { cmd: [node, "-e", ""], timeoutMs: 1000, gates: [] },
       repair: { cmd: [node, "-e", ""], timeoutMs: 1000, gates: [] },
     },
-    assembly: { gates: [] },
+    ticket: { gates: [] },
+    feature: {
+      validate: {
+        cmd: [node, "-e", ""],
+        timeoutMs: 1000,
+        gates: [{ id: "check", argv: [node, "-e", ""], timeoutMs: 1000 }],
+      },
+      gates: [{ id: "check", argv: [node, "-e", ""], timeoutMs: 1000 }],
+      fix: { cmd: [node, "-e", ""], timeoutMs: 1000, gates: [] },
+    },
     authority: { enabled: true, publishArgv: [node, "-e", ""], refreshArgv: [node, "-e", ""] },
     timeoutMs: 1000,
     write: () => {},

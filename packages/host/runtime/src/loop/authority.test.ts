@@ -284,6 +284,23 @@ describe("the Authority against a real remote", () => {
     assert.deepEqual(refreshed, { ok: true });
   });
 
+  it("tells the Refresher the line the target was cut from", async () => {
+    const { copy } = remoteAndCopy();
+    const echoing = join(mkdtempSync(join(tmpdir(), "refresher-")), "echo.mjs");
+    writeFileSync(
+      echoing,
+      'const at = process.argv.indexOf("--base"); console.log(JSON.stringify(at > 0 && process.argv[at + 1] === "main" ? { ok: true } : { ok: false, reason: "no base" }));',
+    );
+    const refreshed = await refreshWorkLine({
+      workLineStable: copy,
+      workLineTarget: TARGET,
+      workLineBase: "main",
+      refreshArgv: ["node", echoing],
+      timeoutMs: 60_000,
+    });
+    assert.deepEqual(refreshed, { ok: true });
+  });
+
   it("asks the Describer for the work's own words, in the ticket workspace, and offers them", async () => {
     const { copy } = remoteAndCopy();
     const root = mkdtempSync(join(tmpdir(), "workspaces-"));
@@ -450,5 +467,47 @@ describe("bringing the work line copy up to date", () => {
     assert.deepEqual(await refreshOn(copy), {
       ok: true,
     });
+  });
+});
+
+describe("the Authority and a line that moved on", () => {
+  function managerAnswering(
+    answer: Awaited<ReturnType<NonNullable<TicketTrackerPort["behind"]>>> | undefined,
+  ): TicketTrackerPort {
+    return {
+      ...stubManager([]),
+      ...(answer === undefined
+        ? {}
+        : {
+            async behind() {
+              return answer;
+            },
+          }),
+    };
+  }
+
+  function authorityOf(manager: TicketTrackerPort) {
+    const authority = openAuthority({
+      manager,
+      workLineStable: "/not/read",
+      publishArgv: ["node", GIT_PUBLISHER],
+      timeoutMs: 60_000,
+      refOf: strategy.refOf,
+    });
+    assert.ok(authority !== undefined);
+    return authority;
+  }
+
+  it("passes the manager's answer on, when the manager can give one", async () => {
+    const authority = authorityOf(managerAnswering({ outcome: "behind", commits: 3 }));
+    assert.deepEqual(await authority.behind?.({ reference: "ref-1" }), {
+      outcome: "behind",
+      commits: 3,
+    });
+  });
+
+  it("asks nothing of a manager that cannot say, so the fold is not held up", () => {
+    const authority = authorityOf(managerAnswering(undefined));
+    assert.equal(authority.behind, undefined);
   });
 });

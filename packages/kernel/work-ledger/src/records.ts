@@ -45,6 +45,10 @@ export type TicketIntention = {
   feature?: string;
   /** Tickets that must be `done` before this one may start. */
   blocked_by?: string[];
+  /** The tracker says no tests are written before its code. */
+  no_tests?: boolean;
+  /** The tracker says it holds the e2e acceptance suite of its Feature. */
+  e2e?: boolean;
   /** The line this Ticket lands on, when it is not the Project's final one. */
   line?: string;
 };
@@ -98,6 +102,12 @@ export type SubmissionRecord = {
   last_report?: string;
   /** What refused it, when the refusal came with a name. */
   last_refused_by?: string;
+  /**
+   * How many times the line moved on while this Submission waited, and the work
+   * was sent back to be brought up to date with it. Not a refusal: nothing was
+   * wrong with the work. Shares the `maxRefusals` budget as a ceiling of its own.
+   */
+  realigns?: number;
 };
 
 export type InvalidRecord = {
@@ -134,6 +144,12 @@ export type TicketAggregate = {
   bail?: BailRecord;
   /** The isolated directory the work is made in, once Isolation made one. */
   workspace?: string;
+  /**
+   * The stage made before the unit's producer ran (the tests, when they are written first)
+   * is complete in `workspace`, so a unit picked up again there does not make it again.
+   * Gone with the workspace.
+   */
+  first_stage_done?: boolean;
   escalation?: EscalationRecord;
   submission?: SubmissionRecord;
   /** The work line's own name for the fold that made it `done`, when the Authority gave one. Opaque. */
@@ -183,11 +199,20 @@ export type FeatureIntention = {
   blocked_by: string[];
   /** The line may be folded without a human. */
   merge_when_ready: boolean;
+  /** The tracker says the Feature is not put through the e2e acceptance check. */
+  skip_e2e?: boolean;
 };
 
 export type FeatureSubmissionRecord = {
   reference: string;
   submitted_at: number;
+  /** Times the Authority's judgement sent the line back. */
+  refusals?: number;
+  /** Times the line it is offered to moved on under the Submission. */
+  realigns?: number;
+  /** Why it was last sent back; kept until a realign says nothing was wrong. */
+  last_report?: string;
+  last_refused_by?: string;
 };
 
 export type FeatureAggregate = {
@@ -200,6 +225,10 @@ export type FeatureAggregate = {
   /** Keys of the Tickets admitted when the Feature opened. */
   tickets: string[];
   submission?: FeatureSubmissionRecord;
+  /** A check refused the line before it was offered: why, for the fix. Cleared once the line is checked again. */
+  parked_refusal?: { report: string; refused_by?: string };
+  /** Corrective rounds the parked refusals used. Kept when one is cleared: it is budget spent. */
+  parked_refusals?: number;
   /** Why it stopped, in the words of whatever refused it. */
   escalation?: { report?: string };
   /** How many times a human's resume was taken. */

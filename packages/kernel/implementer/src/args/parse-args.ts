@@ -79,7 +79,7 @@ export function parseArgs(argv: string[]): ParseResult {
   let report: string | undefined;
   let reportFrom: string | undefined;
   let context: string | undefined;
-  let stage: "unit" | "assembly" | undefined;
+  let stage: "unit" | "tests" | "ticket" | "feature" | undefined;
   let workspace: string | undefined;
   let builderArgv: string[] | undefined;
   let repairArgv: string[] | undefined;
@@ -146,8 +146,16 @@ export function parseArgs(argv: string[]): ParseResult {
       if (!taken) {
         return { ok: false, reason: "Missing value for --stage." };
       }
-      if (taken.value !== "unit" && taken.value !== "assembly") {
-        return { ok: false, reason: `--stage is unit or assembly, not "${taken.value}".` };
+      if (
+        taken.value !== "unit" &&
+        taken.value !== "tests" &&
+        taken.value !== "ticket" &&
+        taken.value !== "feature"
+      ) {
+        return {
+          ok: false,
+          reason: `--stage is unit, tests, ticket or feature, not "${taken.value}".`,
+        };
       }
       stage = taken.value;
       i = taken.next;

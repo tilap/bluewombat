@@ -28,7 +28,7 @@ export const BUILDER_FLAGS: ReadonlySet<string> = new Set([
 
 export const PUBLISHER_FLAGS: ReadonlySet<string> = new Set(["--id", "--ref", "--target"]);
 
-export const REFRESHER_FLAGS: ReadonlySet<string> = new Set(["--target"]);
+export const REFRESHER_FLAGS: ReadonlySet<string> = new Set(["--target", "--base"]);
 
 /** Flags Host appends after a Describer's own argv. */
 export const MESSAGE_FLAGS: ReadonlySet<string> = new Set([

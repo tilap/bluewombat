@@ -1,4 +1,8 @@
-import type { ProjectRunResult } from "@bluewombat/conductor";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
+import type { DeliveryStore, DeliveryUnit, ProjectRunResult } from "@bluewombat/conductor";
+import { pathSegment } from "@bluewombat/conductor";
 import type {
   FeatureRef,
   FeatureStandard,
@@ -12,7 +16,7 @@ import type {
   TicketState,
   TicketSummary,
 } from "@bluewombat/work-ledger";
-import { refreshWorkLine } from "./authority.js";
+import { publish, refreshWorkLine } from "./authority.js";
 import type { HostDeliveryInput, HostRunInput } from "./context.js";
 import {
   type CancelResult,
@@ -101,6 +105,21 @@ async function admitFeature(input: HostDeliveryInput, feature: FeatureStandard):
   // about work already made: nothing here restarts it.
   const before = await input.ledger.getFeature(feature.key);
   if (before.ok && before.aggregate.state !== "waiting") {
+    // The label that leaves the e2e check out is the one thing a human can still change: it is
+    // honoured until the Feature is submitted, and read again by the check each time it runs.
+    if (before.aggregate.intention.skip_e2e !== feature.skip_e2e) {
+      const moved = await input.ledger.setFeatureSkipE2e({
+        key: feature.key,
+        skip: feature.skip_e2e,
+      });
+      if (moved.ok) {
+        input.journal.append({ event: "skip-e2e", key: feature.key, skip: feature.skip_e2e });
+        input.trace(
+          `feature    ${feature.key} ${feature.skip_e2e ? "now" : "no longer"} skips the e2e check`,
+        );
+        return;
+      }
+    }
     input.journal.append({ event: "skipped", key: feature.key, state: before.aggregate.state });
     return;
   }
@@ -114,6 +133,7 @@ async function admitFeature(input: HostDeliveryInput, feature: FeatureStandard):
     external_id: feature.external_id,
     blocked_by: feature.blocked_by,
     merge_when_ready: feature.merge_when_ready,
+    ...(feature.skip_e2e ? { skip_e2e: true } : {}),
     ...(feature.title === undefined ? {} : { title: feature.title }),
     ...(feature.source === undefined ? {} : { source: feature.source }),
   };
@@ -173,6 +193,9 @@ export async function cancelFeatureFlow(input: HostDeliveryInput, key: string): 
   if (feature.line !== undefined) {
     await input.tickets.dropLine?.(feature.line);
   }
+  if (input.featureDelivery !== undefined) {
+    await rm(featureWorkspace(input.featureDelivery, key), { recursive: true, force: true });
+  }
   const cancelled = await input.ledger.cancelFeature(key);
   if (!cancelled.ok) {
     return;
@@ -229,6 +252,11 @@ export async function advanceProject(
   }
 }
 
+/** What the tracker says of a Ticket beside its words. */
+function marksOf(entry: TicketEntry): { noTests: boolean; e2e: boolean } {
+  return { noTests: entry.no_tests, e2e: entry.e2e === true };
+}
+
 function refOf(feature: FeatureAggregate): FeatureRef {
   const { intention } = feature;
   return {
@@ -249,6 +277,7 @@ function admissionOf(
   ticket: TicketStandard,
   feature: FeatureAggregate,
   among: ReadonlySet<string>,
+  marks: { noTests: boolean; e2e: boolean },
 ): TicketAdmission {
   return {
     key: ticket.key,
@@ -263,7 +292,55 @@ function admissionOf(
     ...(feature.line === undefined ? {} : { line: feature.line }),
     ...(ticket.title === undefined ? {} : { title: ticket.title }),
     ...(ticket.source === undefined ? {} : { source: ticket.source }),
+    // The Ticket that holds the acceptance suite writes the tests itself: none are written first.
+    ...(marks.noTests || marks.e2e ? { no_tests: true } : {}),
+    ...(marks.e2e ? { e2e: true } : {}),
   };
+}
+
+/**
+ * What is wrong with a Feature of a Project that proves its Features by an e2e suite: it holds
+ * no e2e Ticket and is not marked to skip the check, holds several, or its e2e Ticket may start
+ * before the others have landed. Nothing: a Project without the check, or a Feature that skips it.
+ */
+function e2eRefusal(
+  input: HostDeliveryInput,
+  feature: FeatureAggregate,
+  live: readonly TicketEntry[],
+): string | undefined {
+  if (input.options.builder.e2e === undefined || feature.intention.skip_e2e === true) {
+    return undefined;
+  }
+  const holding = live.filter((entry) => entry.e2e);
+  const head =
+    "This Project proves each Feature by an e2e acceptance suite, run once on the whole Feature.";
+  if (holding.length === 0) {
+    return `${head} The Feature has no e2e Ticket and is not marked skip-test-e2e: add the e2e Ticket (the scenarios agreed with the operator, blocked by every other Ticket), or mark the Feature to skip the check.`;
+  }
+  if (holding.length > 1) {
+    return `${head} The Feature holds ${holding.length} e2e Tickets: it holds one, with all its scenarios.`;
+  }
+  const only = holding[0];
+  const others = live.filter((entry) => !entry.e2e).map((entry) => entry.ticket.key);
+  const missing = others.filter((key) => !only?.ticket.blocked_by.includes(key));
+  if (only !== undefined && missing.length > 0) {
+    return `${head} The e2e Ticket ${only.ticket.key} must be blocked by every other Ticket of the Feature, so that it lands last. It is not blocked by: ${missing.join(", ")}.`;
+  }
+  return undefined;
+}
+
+/** Whether a Feature still holds an e2e Ticket that was not cancelled. */
+async function holdsLiveE2eTicket(
+  input: HostDeliveryInput,
+  feature: FeatureAggregate,
+): Promise<boolean> {
+  for (const key of feature.tickets) {
+    const got = await input.ledger.get(key);
+    if (got.ok && got.aggregate.intention.e2e === true && got.aggregate.state !== "cancelled") {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -292,6 +369,23 @@ async function openNextFeature(input: HostDeliveryInput, project: string): Promi
       key: feature.intention.key,
       reason: live.length === 0 ? "it has no Ticket yet" : "a Ticket is not ready yet",
     });
+    return;
+  }
+
+  const refusal = e2eRefusal(input, feature, live);
+  if (refusal !== undefined) {
+    input.journal.append({ event: "invalid", key: feature.intention.key, reason: refusal });
+    await pushReport(
+      input,
+      {
+        event: "invalid",
+        key: feature.intention.key,
+        project,
+        eventId: `${feature.intention.key}:invalid:e2e:${refusal}`,
+        fields: { reason: refusal },
+      },
+      TO,
+    );
     return;
   }
 
@@ -339,7 +433,7 @@ async function openNextFeature(input: HostDeliveryInput, project: string): Promi
   }
   const withLine: FeatureAggregate = { ...feature, ...(line === undefined ? {} : { line }) };
   for (const entry of live) {
-    await input.ledger.admit(admissionOf(entry.ticket, withLine, among));
+    await input.ledger.admit(admissionOf(entry.ticket, withLine, among, marksOf(entry)));
   }
   input.journal.append({
     event: "feature-opened",
@@ -381,6 +475,9 @@ async function refreshOnto(input: HostDeliveryInput, branch: string | undefined)
   const refreshed = await refreshWorkLine({
     workLineStable: input.workLine.stable,
     workLineTarget: branch,
+    // A Feature's line that has not moved is brought up to the final branch
+    // first, so its Tickets read the code as it now is.
+    workLineBase: branch === input.workLine.target ? undefined : input.workLine.target,
     refreshArgv: input.options.authority?.refreshArgv ?? [],
     timeoutMs: input.options.timeoutMs,
     env: input.workLine.env,
@@ -440,8 +537,31 @@ async function syncTicket(
   }
   // Only a Ticket that has not started takes the new words: the tracker's
   // fingerprint moves with every comment, and a unit in flight is not rewritten.
-  if (state === "received" && current.aggregate.intention.fingerprint !== ticket.fingerprint) {
-    await input.ledger.admit(admissionOf(ticket, feature, known));
+  // The label that says no tests are written first is not in the words, so it moves no
+  // fingerprint: it is compared on its own.
+  const marks = marksOf(entry);
+  const flagged = current.aggregate.intention.no_tests === true;
+  const holdsE2e = current.aggregate.intention.e2e === true;
+  if (
+    state === "received" &&
+    (current.aggregate.intention.fingerprint !== ticket.fingerprint ||
+      flagged !== (marks.noTests || marks.e2e) ||
+      holdsE2e !== marks.e2e)
+  ) {
+    await input.ledger.admit(admissionOf(ticket, feature, known, marks));
+  }
+  // A Feature that is not put through the e2e check has no use of the Ticket that holds it.
+  if (feature.intention.skip_e2e === true && marks.e2e && LIVE.has(state)) {
+    input.journal.append({
+      event: "e2e-ticket-cancelled",
+      key: ticket.key,
+      feature: feature.intention.key,
+    });
+    input.trace(
+      `feature    ${feature.intention.key} skips the e2e check: ticket ${ticket.key} is cancelled`,
+    );
+    await cancelTicketByKey({ key: ticket.key, project: ticket.project }, input);
+    return;
   }
   if (entry.resume && state === "escalated") {
     await resumeTicketByKey({ key: ticket.key, project: ticket.project }, input);
@@ -455,34 +575,22 @@ async function advanceOpenFeature(
   const project = feature.intention.project;
   await syncTickets(input, feature);
 
-  const held = await input.ledger.activeOn(project);
-  if (held?.state === "escalated") {
-    return undefined;
-  }
-  const refreshed = await refreshOnto(input, feature.line ?? input.workLine.target);
-  if (!refreshed) {
+  const limit = input.options.ticket.maxParallel ?? 1;
+  // A Ticket waiting for a person holds its place. When every place is held
+  // that way, nothing can move until someone answers.
+  const holding = await input.ledger.activeTickets(project);
+  if (holding.length >= limit && holding.every((summary) => summary.state === "escalated")) {
     return undefined;
   }
 
-  let tickets = await ticketsOf(input, feature);
-  let run: ProjectRunResult | undefined;
-  let pending = tickets.find((summary) => LIVE.has(summary.state));
-  // A Ticket that landed moved the line: the next one is cut from where it is
-  // now, in this same pass, not a poll later.
-  while (pending !== undefined) {
-    run = await driveUntilBlocked(input, project, pending.key);
-    tickets = await ticketsOf(input, feature);
-    pending = tickets.find((summary) => LIVE.has(summary.state));
-    const interrupted = input.options.interruptFlag?.interrupted === true;
-    if (
-      run.outcome !== "done" ||
-      interrupted ||
-      pending === undefined ||
-      !(await refreshOnto(input, feature.line ?? input.workLine.target))
-    ) {
-      break;
-    }
+  // Nothing is taken if the line cannot be reached. Conductor refreshes it again
+  // for each Ticket it cuts and aligns, which is what keeps a Ticket current
+  // while others land; this is the check that starts nothing at all.
+  if (!(await refreshOnto(input, feature.line ?? input.workLine.target))) {
+    return undefined;
   }
+  const run = await driveTickets(input, feature, project, limit);
+  const tickets = await ticketsOf(input, feature);
 
   await reportLanded(input, feature, tickets);
   const settled = tickets.every(
@@ -500,6 +608,62 @@ async function advanceOpenFeature(
     );
   }
   return run;
+}
+
+/** Where a Ticket is while Host has something to drive it through. */
+const DRIVEN: ReadonlySet<TicketState> = new Set([
+  "running",
+  "integrating",
+  "submitted",
+  "merging",
+]);
+
+/**
+ * Work the Tickets of an open Feature, up to `limit` at a time.
+ *
+ * Each place is a worker: it drives a Ticket the Project already holds, else
+ * takes the next one that may start, and goes on to another when its own is
+ * done or is only waiting for the outside. A Ticket waiting on a check holds a
+ * place but not a worker, so the others do not wait with it. With a limit of 1
+ * this is one Ticket after the other.
+ */
+async function driveTickets(
+  input: HostDeliveryInput,
+  feature: FeatureAggregate,
+  project: string,
+  limit: number,
+): Promise<ProjectRunResult | undefined> {
+  // Once, before anything runs at the same time: it clears what a dead process
+  // left, which must not be done under a Ticket that is being driven.
+  await input.conductor.reconcile(project);
+  const interrupted = (): boolean => input.options.interruptFlag?.interrupted === true;
+  const queue = (await ticketsOf(input, feature))
+    .filter((summary) => DRIVEN.has(summary.state))
+    .map((summary) => summary.key);
+  let last: ProjectRunResult | undefined;
+
+  const worker = async (): Promise<void> => {
+    while (!interrupted()) {
+      const key = queue.shift() ?? (await input.conductor.claimNext(project))?.key;
+      if (key === undefined) {
+        return;
+      }
+      const run = await driveUntilBlocked(input, project, key, true);
+      last = run;
+      // A refusal is about the run, not the Ticket: the next one would meet it too.
+      if (run.outcome === "refused") {
+        return;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, limit) }, worker));
+
+  if (last === undefined && (await input.ledger.activeTickets(project)).length === 0) {
+    const waiting = (await ticketsOf(input, feature)).some((s) => s.state === "received");
+    // Nothing held and nothing could start: what remains waits on what cannot finish.
+    return waiting ? { outcome: "idle" } : undefined;
+  }
+  return last;
 }
 
 /** One `progress` per Ticket that landed, in the words the tracker already has. */
@@ -552,9 +716,104 @@ async function escalateFeature(
   );
 }
 
+/** Where a Feature's own work is done: apart from every Ticket's workspace, which Host clears of strays. */
+function featureWorkspace(
+  delivery: NonNullable<HostDeliveryInput["featureDelivery"]>,
+  key: string,
+) {
+  return join(delivery.workspaces, pathSegment(key));
+}
+
+/** Where the Feature's work is, and where it goes: the Feature stands where a Ticket stood, the final line where the Feature's was. */
+function featureUnit(
+  input: HostDeliveryInput,
+  delivery: NonNullable<HostDeliveryInput["featureDelivery"]>,
+  feature: FeatureAggregate,
+): DeliveryUnit {
+  return {
+    key: feature.intention.key,
+    intention: feature.intention.intention,
+    title: feature.intention.title,
+    noun: "feature",
+    workspace: featureWorkspace(delivery, feature.intention.key),
+    // The Gates read the published branch, and the copy of the Feature's line is on it.
+    judgeWorkspace: input.workLine.stable,
+    target: input.workLine.target ?? "",
+    line: delivery.targetStable,
+  };
+}
+
+/** What a Feature's delivery reads of it, and how the Feature keeps what the delivery decides. */
+function featureStore(input: HostDeliveryInput, feature: FeatureAggregate): DeliveryStore {
+  const key = feature.intention.key;
+  const failed = (result: { ok: boolean }): ProjectRunResult | undefined =>
+    result.ok ? undefined : { outcome: "refused", code: "illegal-transition" };
+  return {
+    async read() {
+      const got = await input.ledger.getFeature(key);
+      if (!got.ok) {
+        return undefined;
+      }
+      const aggregate = got.aggregate;
+      const parked = aggregate.parked_refusal;
+      const report = parked?.report ?? aggregate.submission?.last_report;
+      const refusedBy = parked?.refused_by ?? aggregate.submission?.last_refused_by;
+      return {
+        sentBack: report === undefined ? undefined : { report, refusedBy },
+        spent:
+          (aggregate.submission?.refusals ?? 0) +
+          (aggregate.parked_refusals ?? 0) +
+          (aggregate.submission?.realigns ?? 0),
+        submission:
+          aggregate.submission === undefined
+            ? undefined
+            : { reference: aggregate.submission.reference },
+      };
+    },
+    async freeze(frozen) {
+      await escalateFeature(
+        input,
+        feature,
+        frozen.report ?? "The line was stopped, with no reason given.",
+      );
+      return { outcome: "escalated", key };
+    },
+    async park(why) {
+      return failed(
+        await input.ledger.recordFeatureParkedRefusal({
+          key,
+          report: why.report,
+          ...(why.refusedBy === undefined ? {} : { refusedBy: why.refusedBy }),
+        }),
+      );
+    },
+    async unpark() {
+      return failed(await input.ledger.clearFeatureParkedRefusal(key));
+    },
+    async refuse(why) {
+      return failed(
+        await input.ledger.recordFeatureRefusal({
+          key,
+          report: why.report,
+          ...(why.refusedBy === undefined ? {} : { refusedBy: why.refusedBy }),
+        }),
+      );
+    },
+    async realign() {
+      return failed(await input.ledger.recordFeatureRealign(key));
+    },
+  };
+}
+
 /**
- * Every Ticket has landed: the line goes to the Authority. With none, the work
+ * Every Ticket has landed: the line is brought up to date with the one it is
+ * folded into, checked, and put in front of the Authority. With none, the work
  * is already in the work line and the Feature is done.
+ *
+ * It is delivered the way a Ticket is — see `openDelivery` — with the final line
+ * merged into the Feature's work, its own checks run on the result, and a fix
+ * when something refuses it. Only where the work is offered differs: the line
+ * is pushed under its own name rather than a name made for it.
  */
 async function closeFeature(
   input: HostDeliveryInput,
@@ -567,18 +826,98 @@ async function closeFeature(
     await escalateFeature(input, feature, "Every Ticket was abandoned, so nothing was made.");
     return;
   }
+  if (
+    input.options.builder.e2e !== undefined &&
+    feature.intention.skip_e2e !== true &&
+    !(await holdsLiveE2eTicket(input, feature))
+  ) {
+    await escalateFeature(
+      input,
+      feature,
+      "This Feature is not marked skip-test-e2e and holds no e2e Ticket: it was cancelled while the Feature skipped the check, and the mark was taken off since. Mark the Feature skip-test-e2e again to leave the check out.",
+    );
+    return;
+  }
   if (input.authority === undefined || feature.line === undefined) {
     await input.ledger.markFeatureSubmitted({ key, reference: "local" });
     await input.ledger.markFeatureDone(key);
     await reportDone(input, feature, undefined, undefined);
     return;
   }
-  if (feature.submission !== undefined) {
-    await input.ledger.markFeatureSubmitted({ key, reference: feature.submission.reference });
+  const delivery = input.featureDelivery;
+  const target = input.workLine.target;
+  const publishArgv = input.options.authority?.publishArgv;
+  if (delivery === undefined || target === undefined || publishArgv === undefined) {
     return;
   }
-  const target = input.workLine.target;
-  if (target === undefined) {
+  const unit = featureUnit(input, delivery, feature);
+  const clean = async (): Promise<void> => {
+    await rm(unit.workspace, { recursive: true, force: true });
+  };
+
+  // The Feature's work is cut from its line the way a Ticket's is, once; a
+  // pass that sent it to the fix finds it where it was left.
+  if (!existsSync(unit.workspace)) {
+    if (!(await refreshOnto(input, feature.line))) {
+      return;
+    }
+    const isolated = await input.transformers.isolate({
+      id: `${key}:close`,
+      context: key,
+      parent: input.workLine.stable,
+      child: unit.workspace,
+      durationMs: input.options.timeoutMs,
+    });
+    if (isolated.outcome !== "isolated") {
+      // Nothing was spent: the next pass tries again.
+      await clean();
+      return;
+    }
+    // The checks run here, so it is prepared the way a Ticket's workspace is.
+    const warmed = await delivery.warm?.prepare({
+      workspace: unit.workspace,
+      durationMs: delivery.warm.durationMs,
+    });
+    if (warmed !== undefined && warmed.outcome !== "warmed") {
+      await clean();
+      return;
+    }
+  }
+  const prepared = await delivery.delivery.prepare(unit, featureStore(input, feature));
+  if (prepared !== "ready") {
+    return;
+  }
+
+  // Offer it. What was made in the workspace goes back into the Feature's line
+  // and the line is pushed under its own name, which is where the Authority
+  // reads it and where its Submission is.
+  const folded = await input.transformers.integrate({
+    id: `${key}:close`,
+    context: key,
+    parent: input.workLine.stable,
+    child: unit.workspace,
+    durationMs: input.options.timeoutMs,
+    subject: `Merge ${target} into ${feature.line}`,
+    mergeSubject: `Merge ${target} into ${feature.line}`,
+  });
+  if (folded.outcome === "interrupted") {
+    return;
+  }
+  if (folded.outcome !== "integrated") {
+    await escalateFeature(input, feature, "The Feature's work could not be folded into its line.");
+    return;
+  }
+  const published = await publish({
+    argv: publishArgv,
+    cwd: input.workLine.stable,
+    id: key,
+    ref: feature.line,
+    target,
+    timeoutMs: input.options.timeoutMs,
+    env: input.workLine.env,
+  });
+  if (!published.ok) {
+    await escalateFeature(input, feature, published.reason);
     return;
   }
   const submitted = await input.authority.submit({
@@ -599,6 +938,7 @@ async function closeFeature(
     return;
   }
   await input.ledger.markFeatureSubmitted({ key, reference: submitted.reference });
+  await clean();
   await pushReport(
     input,
     {
@@ -613,8 +953,10 @@ async function closeFeature(
 }
 
 /**
- * The line is with the Authority. If the Feature merges by itself, the checks
- * decide; otherwise a human folds it and the system waits, starting nothing.
+ * The line is with the Authority. If the Feature merges by itself, its gates
+ * decide, and a line the target moved on from goes back to be brought up to
+ * date, exactly as a Ticket does; otherwise a human folds it and the system
+ * waits, starting nothing.
  */
 async function settleFeature(input: HostDeliveryInput, feature: FeatureAggregate): Promise<void> {
   const submission = feature.submission;
@@ -637,40 +979,19 @@ async function settleFeature(input: HostDeliveryInput, feature: FeatureAggregate
     }
     return;
   }
-  if (!(await refreshOnto(input, feature.line))) {
+  const delivery = input.featureDelivery;
+  if (delivery === undefined || !(await refreshOnto(input, feature.line))) {
     return;
   }
-  const judged = await input.transformers.implement({
-    id: `${key}:judgement`,
-    context: key,
-    stage: "assembly",
-    produce: false,
-    intention: feature.intention.intention,
-    workspace: input.workLine.stable,
-  });
-  if (judged.outcome === "interrupted" || judged.outcome === "invalid-invocation") {
+  const settled = await delivery.delivery.settle(
+    featureUnit(input, delivery, feature),
+    featureStore(input, feature),
+  );
+  if (!("folded" in settled)) {
     return;
   }
-  if (judged.outcome === "escalated") {
-    const last = judged.traces.at(-1);
-    const why = last?.report ?? "The line was refused, with no reason given.";
-    await escalateFeature(
-      input,
-      feature,
-      last?.refusedBy === undefined ? why : `${last.refusedBy}: ${why}`,
-    );
-    return;
-  }
-  const folded = await input.authority.fold({ reference: submission.reference });
-  if (folded.outcome === "unavailable") {
-    return;
-  }
-  if (folded.outcome === "conflict") {
-    await escalateFeature(input, feature, folded.reason);
-    return;
-  }
-  await input.ledger.markFeatureDone(key, { reference: folded.reference });
-  await reportDone(input, feature, submission.reference, folded.reference);
+  await input.ledger.markFeatureDone(key, { reference: settled.reference });
+  await reportDone(input, feature, submission.reference, settled.reference);
 }
 
 async function reportDone(

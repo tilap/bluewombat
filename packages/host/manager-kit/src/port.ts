@@ -57,6 +57,8 @@ export type FeatureStandard = {
   blocked_by: string[];
   /** Its line may be folded without a human. */
   merge_when_ready: boolean;
+  /** It is not put through the e2e acceptance check, and its e2e Ticket is not worked. */
+  skip_e2e: boolean;
   source?: { ref?: string; revision?: string };
   fingerprint: string;
   normalized_at: string;
@@ -85,6 +87,10 @@ export type TicketEntry = {
   task_ready: boolean;
   /** A human unblocked it after an escalation. */
   resume: boolean;
+  /** No tests are written before its code: the tracker says so, in the words of nobody. */
+  no_tests: boolean;
+  /** It holds the e2e acceptance suite of its Feature: the tracker says so, in the words of nobody. */
+  e2e: boolean;
   /** False once it is closed on the tracker. */
   open: boolean;
 };
@@ -185,6 +191,19 @@ export type LineResult =
  */
 export type SettledResult = "open" | "folded" | "closed" | "unavailable";
 
+/**
+ * Whether the line a Submission is offered to has moved on since the work was
+ * last brought up to date with it.
+ *
+ * `current`: the work holds everything the line holds. `behind`: the line has
+ * `commits` the work does not, so what the Gates judged is not what a fold would
+ * produce. An Authority that cannot tell answers `unavailable`, never `current`.
+ */
+export type BehindResult =
+  | { outcome: "current" }
+  | { outcome: "behind"; commits: number }
+  | { outcome: "unavailable" };
+
 export type FoldResult =
   /** `reference`: the work line's own name for the fold, when the Authority can give one. Opaque. */
   | { outcome: "folded"; reference?: string }
@@ -262,6 +281,11 @@ export type TicketTrackerPort = {
   dropLine?(line: string): Promise<void>;
   /** Offer an assembled Ticket, or a Feature's line, to the Authority. */
   submit?(input: SubmissionRequest): Promise<SubmissionResult>;
+  /**
+   * Whether the line has moved on since the Submission was aligned with it.
+   * Asked just before a fold: absent, nothing is checked and the fold goes ahead.
+   */
+  behind?(input: { reference: string }): Promise<BehindResult>;
   /** Have the Authority fold a Submission the Gates accepted into the line it was offered to. */
   fold?(input: { reference: string }): Promise<FoldResult>;
   /** Where a Submission stands, for the ones a human folds. */

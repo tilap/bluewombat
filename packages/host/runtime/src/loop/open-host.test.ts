@@ -138,7 +138,7 @@ async function hostFor(paths: Paths, gates: GateSpec[], over: Partial<HostOption
       producer: { cmd: builder(), timeoutMs: 30_000, gates },
       repair: { cmd: builder(), timeoutMs: 30_000, gates: [] },
     },
-    assembly: { gates: [] },
+    ticket: { gates: [] },
     timeoutMs: 30_000,
   });
 }

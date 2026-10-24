@@ -6,7 +6,14 @@ import {
 } from "@bluewombat/implementer";
 import { type FoldBackend, runIntegrator } from "@bluewombat/integrator";
 import { type IsolationBackend, runIsolator } from "@bluewombat/isolator";
-import type { AssemblySpec, StageSpec } from "../config/types.js";
+import {
+  type FeatureSpec,
+  type HostGateSpec,
+  hasAgent,
+  type ReviewSpec,
+  type StageSpec,
+  type TicketSpec,
+} from "../config/types.js";
 import type { Journal } from "./journal.js";
 import type { Streams } from "./streams.js";
 import { failureNote, type Trace } from "./trace.js";
@@ -24,11 +31,18 @@ export type TransformerSlots = {
   /** Making the unit of work, and the Gates judging what came out of it. */
   builder: StageSpec;
   /** Judging the assembled ticket, and the command that fixes a refusal. */
-  assembly: AssemblySpec;
+  ticket: TicketSpec;
+  /** Judging the whole Feature, and its own fix. Present whenever there is an Authority to fold it. */
+  feature?: FeatureSpec;
   /** How Isolator produces the Child. Host chooses; Isolator does not sniff. */
   isolation: IsolationBackend;
   /** How Integrator folds. Must match `isolation`. */
   fold: FoldBackend;
+  /**
+   * What the tracker says of the piece of work a pass is about, read when the pass starts: a
+   * label can move while a Feature is made. Absent: nothing is marked.
+   */
+  marks?: Marks;
   /** How long any one child outside a Task may run: manager, isolations. */
   timeoutMs: number;
   /**
@@ -39,7 +53,25 @@ export type TransformerSlots = {
   interruptFlag?: { interrupted: boolean };
 };
 
+/** What a Task's key says of the work behind it, as the tracker last said it. */
+export type Marks = {
+  /** The key is a Ticket that holds the e2e acceptance suite of its Feature. */
+  ticketIsE2e(key: string): Promise<boolean>;
+  /** The key is a Feature that is not put through the e2e acceptance check. */
+  featureSkipsE2e(key: string): Promise<boolean>;
+};
+
+type Marked = { e2e: boolean; skipsE2e: boolean };
+
 const DEFAULT_MAX_ATTEMPTS = 3;
+
+/** The Feature's config; a Feature is only judged when an Authority exists, and Host refuses to open without it. */
+function featureOf(slots: TransformerSlots): FeatureSpec {
+  if (slots.feature === undefined) {
+    throw new Error('A Feature was judged, but no "feature" is configured.');
+  }
+  return slots.feature;
+}
 
 const silent = (): void => {};
 
@@ -110,20 +142,35 @@ function reasonOf(trace: ImplementerTrace): { report: string; from?: string } | 
 /**
  * How long the agent of this pass may run.
  *
- * The unit names its producer. An assembly names a fix, and only when something
- * already refused the whole — or, before that, a validate.
+ * The unit names its producer. A Ticket or a Feature names a fix, and only when
+ * something already refused the whole — or, for a Ticket, before that, a validate.
  */
 function commandTimeoutMs(
   input: { stage?: string; validate?: boolean },
   slots: TransformerSlots,
+  marked: Marked,
 ): number {
+  if (input.stage === "feature") {
+    const feature = featureOf(slots);
+    if (input.validate === true) {
+      return hasAgent(feature.validate) ? feature.validate.timeoutMs : slots.timeoutMs;
+    }
+    return feature.fix.timeoutMs;
+  }
+  if (input.stage === "tests") {
+    const tests = slots.builder.tests;
+    return tests !== undefined && hasAgent(tests) ? tests.timeoutMs : slots.timeoutMs;
+  }
   if (input.validate === true) {
-    return slots.assembly.validate?.timeoutMs ?? slots.timeoutMs;
+    const validate = slots.ticket.validate;
+    return validate !== undefined && hasAgent(validate) ? validate.timeoutMs : slots.timeoutMs;
   }
-  if (input.stage === "assembly") {
-    return slots.assembly.fix?.timeoutMs ?? slots.timeoutMs;
+  if (input.stage === "ticket") {
+    return slots.ticket.fix?.timeoutMs ?? slots.timeoutMs;
   }
-  return slots.builder.producer.timeoutMs;
+  return marked.e2e && slots.builder.e2e !== undefined
+    ? slots.builder.e2e.timeoutMs
+    : slots.builder.producer.timeoutMs;
 }
 
 function attemptBudget(
@@ -133,7 +180,10 @@ function attemptBudget(
   if (input.produce === false || input.validate === true) {
     return 1;
   }
-  const stage = input.stage === "assembly" ? slots.assembly : slots.builder;
+  if (input.stage === "feature") {
+    return featureOf(slots).maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  }
+  const stage = input.stage === "ticket" ? slots.ticket : slots.builder;
   return stage.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 }
 
@@ -144,7 +194,36 @@ type RoleWiring = {
   gates: GateSpec[];
   /** Judges the Attempt that ran `repairArgv`, when present. Ignored otherwise. */
   repairGates: GateSpec[];
+  /** Gates Host did not run for this Feature, with the condition that left them out. */
+  skipped?: { id: string; why: string }[];
 };
+
+/**
+ * Implementer's Gates from the config's: the condition Host reads is Host's, and the Gate
+ * knows nothing of it. A Feature's Gate whose condition holds is left out, and said so.
+ */
+function gatesFor(
+  gates: readonly HostGateSpec[],
+  marked: Marked,
+): { gates: GateSpec[]; skipped: { id: string; why: string }[] } {
+  const kept: GateSpec[] = [];
+  const skipped: { id: string; why: string }[] = [];
+  for (const { skipWhen, ...gate } of gates) {
+    if (skipWhen === "skip-test-e2e" && marked.skipsE2e) {
+      skipped.push({ id: gate.id, why: skipWhen });
+    } else {
+      kept.push(gate);
+    }
+  }
+  return { gates: kept, skipped };
+}
+
+/** A review runs its agent and then its Gates; with no agent, the Gates alone. */
+function reviewWiring(review: ReviewSpec): RoleWiring {
+  return hasAgent(review)
+    ? { builderArgv: review.cmd, gates: review.gates, repairGates: [] }
+    : { gates: review.gates, repairGates: [] };
+}
 
 /**
  * Which command runs, and which Gate sequence judges it — decided together,
@@ -152,30 +231,74 @@ type RoleWiring = {
  * independently, no shared list, no dispatch choosing between two buckets).
  */
 function roleWiring(
-  input: { stage?: string; produce?: boolean; validate?: boolean },
+  input: {
+    stage?: string;
+    produce?: boolean;
+    validate?: boolean;
+    recheck?: boolean;
+  },
   slots: TransformerSlots,
+  marked: Marked,
 ): RoleWiring {
-  if (input.validate === true) {
-    const validate = slots.assembly.validate;
-    return validate === undefined
+  if (input.stage === "tests") {
+    // The tests are written by their own agent, judged by their own Gates.
+    const tests = slots.builder.tests;
+    return tests === undefined || !hasAgent(tests)
       ? { gates: [], repairGates: [] }
-      : { builderArgv: validate.cmd, gates: validate.gates, repairGates: [] };
+      : { builderArgv: tests.cmd, gates: tests.gates, repairGates: [] };
+  }
+  if (input.stage === "feature") {
+    // The Feature's own sequences and its own fix, and nothing of a Ticket's.
+    const feature = featureOf(slots);
+    if (input.validate === true) {
+      const wiring = reviewWiring(feature.validate);
+      const own = gatesFor(feature.validate.gates, marked);
+      return { ...wiring, gates: own.gates, skipped: own.skipped };
+    }
+    if (input.produce === false) {
+      const own = gatesFor(feature.gates, marked);
+      return { gates: own.gates, repairGates: [], skipped: own.skipped };
+    }
+    const own = gatesFor(feature.fix.gates, marked);
+    return {
+      builderArgv: feature.fix.cmd,
+      gates: own.gates,
+      repairGates: [],
+      skipped: own.skipped,
+    };
+  }
+  if (input.validate === true) {
+    const validate = slots.ticket.validate;
+    return validate === undefined ? { gates: [], repairGates: [] } : reviewWiring(validate);
+  }
+  if (input.recheck === true) {
+    // The unit's own checks again, once the work has been aligned with the line:
+    // `builder.gates`, the one list that says the code stands. Nothing is produced. The e2e
+    // Ticket's own Gates, when it is that Ticket.
+    const own = marked.e2e ? slots.builder.e2e : undefined;
+    return { gates: (own ?? slots.builder.producer).gates, repairGates: [] };
   }
   if (input.produce === false) {
     // The one remaining judgement-only pass: re-checking the assembled
     // ticket with no producer of its own. No named role maps to it; it is
-    // judged by `assembly.gates`, its own sequence, untouched by any of the
-    // five roles' own lists (see AssemblySpec's doc comment).
-    return { gates: slots.assembly.gates, repairGates: [] };
+    // judged by `ticket.gates`, its own sequence, untouched by any of the
+    // roles' own lists (see TicketSpec's doc comment).
+    return { gates: slots.ticket.gates, repairGates: [] };
   }
-  if (input.stage === "assembly") {
-    const fix = slots.assembly.fix;
+  if (input.stage === "ticket") {
+    const fix = slots.ticket.fix;
     if (fix === undefined) {
       return { gates: [], repairGates: [] };
     }
     // Implementer picks repairArgv only when a report is present, and Conductor
-    // never produces at assembly without one. The fix command is the producer.
+    // never produces for a ticket without one. The fix command is the producer.
     return { builderArgv: fix.cmd, gates: fix.gates, repairGates: [] };
+  }
+  if (marked.e2e && slots.builder.e2e !== undefined) {
+    // One command and one list for the first pass and for a repair: nothing of the shared
+    // builder is borrowed, so no refusal reaches an agent the Project did not name for it.
+    const { cmd, gates } = slots.builder.e2e;
+    return { builderArgv: cmd, gates, repairGates: gates };
   }
   const { producer, repair } = slots.builder;
   return {
@@ -185,6 +308,24 @@ function roleWiring(
     gates: producer.gates,
     repairGates: repair.gates,
   };
+}
+
+/** What the tracker says of the work this pass is about, read once as the pass starts. */
+async function markedBy(
+  input: { stage?: string; context?: string },
+  slots: TransformerSlots,
+): Promise<Marked> {
+  const key = input.context;
+  if (slots.marks === undefined || key === undefined) {
+    return { e2e: false, skipsE2e: false };
+  }
+  if (input.stage === "feature") {
+    return { e2e: false, skipsE2e: await slots.marks.featureSkipsE2e(key) };
+  }
+  if (input.stage === undefined || input.stage === "unit") {
+    return { e2e: await slots.marks.ticketIsE2e(key), skipsE2e: false };
+  }
+  return { e2e: false, skipsE2e: false };
 }
 
 export function createTransformers(slots: TransformerSlots): TransformerPort {
@@ -209,7 +350,18 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
     },
 
     async implement(input): Promise<ImplementResult> {
-      const wiring = roleWiring(input, slots);
+      const marked = await markedBy(input, slots);
+      const wiring = roleWiring(input, slots, marked);
+      for (const gate of wiring.skipped ?? []) {
+        // A Gate that was not run is not one that passed: the film and the trace say so.
+        write({
+          event: "gate-skipped",
+          task_id: input.id,
+          gate_id: gate.id,
+          why: gate.why,
+          label: `${gate.id} not run: the Feature carries ${gate.why}`,
+        });
+      }
       const result = await runImplementer({
         invocation: {
           id: input.id,
@@ -219,6 +371,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           // the producer, and the Attempt repeats blind.
           ...(input.report === undefined ? {} : { report: input.report }),
           ...(input.reportFrom === undefined ? {} : { reportFrom: input.reportFrom }),
+          ...(input.firstAttempt === undefined ? {} : { firstAttempt: input.firstAttempt }),
           ...(input.context === undefined ? {} : { context: input.context }),
           ...(input.stage === undefined ? {} : { stage: input.stage }),
           ...(wiring.builderArgv === undefined ? {} : { builderArgv: wiring.builderArgv }),
@@ -231,7 +384,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           // A pass that makes nothing cannot make a different result on a second
           // try: whoever asked for the judgement owns the retrying.
           maxAttempts: attemptBudget(input, slots),
-          builderTimeoutMs: commandTimeoutMs(input, slots),
+          builderTimeoutMs: commandTimeoutMs(input, slots, marked),
         },
         write,
         ...interrupt,
@@ -278,7 +431,10 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
         write,
         ...interrupt,
       });
-      return { outcome: result.outcome };
+      return {
+        outcome: result.outcome,
+        ...(result.changed === undefined ? {} : { changed: result.changed }),
+      };
     },
   };
 }

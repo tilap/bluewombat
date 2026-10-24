@@ -36,15 +36,15 @@ Shared flags: --config FILE --feature-tracker NAME --feature-tracker-option KEY=
               --builder -- CMD --builder-timeout-ms N --builder-max-attempts N
               --builder-repair -- CMD --builder-repair-timeout-ms N
               --builder-gate ID -- CMD --builder-gate-timeout-ms N
-              --assembly-fix -- CMD --assembly-fix-timeout-ms N --assembly-max-attempts N
-              --assembly-validate -- CMD --assembly-validate-timeout-ms N
-              --assembly-gate ID -- CMD --assembly-gate-timeout-ms N
+              --ticket-fix -- CMD --ticket-fix-timeout-ms N --ticket-max-attempts N
+              --ticket-validate -- CMD --ticket-validate-timeout-ms N
+              --ticket-gate ID -- CMD --ticket-gate-timeout-ms N
               --timeout-ms N --poll-interval-ms N
 
 A gate's --*-gate-timeout-ms comes before the --*-gate it bounds.
 
 watch / status also take --json (snapshot as JSON). explain takes an optional role
-(builder.producer, builder.repair, assembly.fix, assembly.validate, authority.describe) and --json.
+(builder.producer, builder.repair, ticket.fix, ticket.validate, authority.describe) and --json.
 
 log also takes --problems, --all, and --json (every kept line).
 --tail N limits the text film (0 = no limit). With --json it names kept and shown when it drops lines.

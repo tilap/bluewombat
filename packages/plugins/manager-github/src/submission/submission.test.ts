@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createClient } from "../github/client.js";
-import { bodyOf, commitOf, foldPullRequest, submitPullRequest, titleOf } from "./submission.js";
+import {
+  behindPullRequest,
+  bodyOf,
+  commitOf,
+  foldPullRequest,
+  submitPullRequest,
+  titleOf,
+} from "./submission.js";
 
 const KEY = "github:tilap/mason#7";
 const REPO = { owner: "tilap", name: "mason" };
@@ -237,5 +244,81 @@ describe("submitPullRequest / foldPullRequest", () => {
       calls.some((call) => call.method === "PUT"),
       true,
     );
+  });
+});
+
+describe("behindPullRequest", () => {
+  function lineOf(compare: { status: number; body: unknown }): {
+    context: Parameters<typeof submitPullRequest>[1];
+    calls: Call[];
+  } {
+    const calls: Call[] = [];
+    const handler = (async (input: unknown, init: { method?: string } = {}) => {
+      const method = String(init.method ?? "GET").toUpperCase();
+      const path = decodeURIComponent(new URL(String(input)).pathname);
+      calls.push({ method, path, body: {} });
+      if (method === "GET" && path === "/repos/tilap/mason/pulls/12") {
+        return json(200, { number: 12, base: { ref: "feature/7" }, head: { sha: "headsha" } });
+      }
+      if (method === "GET" && path === "/repos/tilap/mason/git/ref/heads/feature/7") {
+        return json(200, { object: { sha: "linesha" } });
+      }
+      if (method === "GET" && path === "/repos/tilap/mason/compare/linesha...headsha") {
+        return json(compare.status, compare.body);
+      }
+      return json(404, { message: `No fixture for ${method} ${path}` });
+    }) as unknown as typeof globalThis.fetch;
+    const now = (): number => Date.now();
+    return {
+      calls,
+      context: {
+        repo: REPO,
+        github: createClient({
+          token: "t",
+          apiBase: "https://api.github.com",
+          requestRetries: 0,
+          deadlineMs: now() + 10_000,
+          now,
+          shouldInterrupt: () => false,
+          throttle: false,
+          fetch: handler,
+        }),
+        deadlineMs: now() + 10_000,
+        now,
+        shouldInterrupt: () => false,
+      },
+    };
+  }
+
+  const PULL = "https://github.com/tilap/mason/pull/12";
+
+  it("is current when the line holds nothing the pull request lacks", async () => {
+    const { context, calls } = lineOf({ status: 200, body: { behind_by: 0, ahead_by: 3 } });
+    assert.deepEqual(await behindPullRequest(PULL, context), { outcome: "current" });
+    // Reads only: it never touches the pull request.
+    assert.equal(
+      calls.every((call) => call.method === "GET"),
+      true,
+    );
+  });
+
+  it("is behind, and says by how many commits, when the line moved on", async () => {
+    const { context } = lineOf({ status: 200, body: { behind_by: 2, ahead_by: 3 } });
+    assert.deepEqual(await behindPullRequest(PULL, context), { outcome: "behind", commits: 2 });
+  });
+
+  it("does not guess when GitHub does not answer: unavailable, never current", async () => {
+    const { context } = lineOf({ status: 500, body: { message: "boom" } });
+    assert.deepEqual(await behindPullRequest(PULL, context), { outcome: "unavailable" });
+    const odd = lineOf({ status: 200, body: {} });
+    assert.deepEqual(await behindPullRequest(PULL, odd.context), { outcome: "unavailable" });
+  });
+
+  it("is unavailable for a reference that is not a pull request", async () => {
+    const { context, calls } = lineOf({ status: 200, body: { behind_by: 0 } });
+    assert.deepEqual(await behindPullRequest("not a pull request", context), {
+      outcome: "unavailable",
+    });
+    assert.equal(calls.length, 0);
   });
 });

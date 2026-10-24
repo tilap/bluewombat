@@ -35,6 +35,8 @@ function requestOf(routes: Routes, urls: string[] = []) {
     priorityLabelPrefix: "priority:",
     resumeLabel: "to-resume",
     ticketReadyLabel: "task-ready",
+    noTestsLabel: "no-tests",
+    e2eLabel: "e2e",
     deadlineMs: Date.now() + 10_000,
     now: () => Date.now(),
     shouldInterrupt: () => false,
@@ -164,5 +166,59 @@ describe("listTickets", () => {
       }),
       { outcome: "unavailable" },
     );
+  });
+
+  it("reads the e2e label beside the words, under whatever name the config gave it", async () => {
+    const routes = {
+      [SUBS]: {
+        body: [
+          issue(11, { labels: [{ name: "task-ready" }, { name: "E2E" }] }),
+          issue(12, { labels: [{ name: "task-ready" }] }),
+          issue(13, { labels: [{ name: "task-ready" }, { name: "acceptance" }] }),
+        ],
+      },
+      [blockedBy(11)]: { body: [] },
+      [blockedBy(12)]: { body: [] },
+      [blockedBy(13)]: { body: [] },
+    };
+    const flags = async (request: Awaited<ReturnType<typeof requestOf>>) => {
+      const result = await listTickets(request);
+      assert.equal(result.outcome, "listed");
+      return result.outcome === "listed" ? result.tickets.map((entry) => entry.e2e) : [];
+    };
+    assert.deepEqual(await flags(requestOf(routes)), [true, false, false]);
+    assert.deepEqual(await flags({ ...requestOf(routes), e2eLabel: "acceptance" }), [
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it("reads the no-tests label beside the words, under whatever name the config gave it", async () => {
+    const routes = {
+      [SUBS]: {
+        body: [
+          issue(11, { labels: [{ name: "task-ready" }, { name: "No-Tests" }] }),
+          issue(12, { labels: [{ name: "task-ready" }] }),
+          issue(13, { labels: [{ name: "task-ready" }, { name: "sans-tests" }] }),
+        ],
+      },
+      [blockedBy(11)]: { body: [] },
+      [blockedBy(12)]: { body: [] },
+      [blockedBy(13)]: { body: [] },
+    };
+    const flags = async (request: Awaited<ReturnType<typeof requestOf>>) => {
+      const result = await listTickets(request);
+      assert.equal(result.outcome, "listed");
+      return result.outcome === "listed" ? result.tickets.map((entry) => entry.no_tests) : [];
+    };
+    // The default name, compared without case.
+    assert.deepEqual(await flags(requestOf(routes)), [true, false, false]);
+    // Another name: only that one counts.
+    assert.deepEqual(await flags({ ...requestOf(routes), noTestsLabel: "sans-tests" }), [
+      false,
+      false,
+      true,
+    ]);
   });
 });

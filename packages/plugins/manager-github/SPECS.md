@@ -60,7 +60,7 @@ edit. Ticking a box is not.
 A Feature is listed when the issue has no parent (`parent_issue_url` is null) and carries `featureReadyLabel`
 (`labels=<featureReadyLabel>` on the list call). Its `blocked_by` are read from
 `GET /issues/{n}/dependencies/blocked_by`, its `merge_when_ready` from
-`mergeWhenReadyLabel`. `tickets(feature)` reads `GET /issues/{n}/sub_issues`
+`mergeWhenReadyLabel` and its `skip_e2e` from `skipTestE2eLabel`. `tickets(feature)` reads `GET /issues/{n}/sub_issues`
 and, per sub-issue, its blockers; `task_ready` is `ticketReadyLabel`, `resume` is
 `resumeLabel`, `open` is the issue state. Every failed read is `unavailable`,
 never an empty list.
@@ -79,10 +79,12 @@ run. It reads the repository once — that single response answers reachable,
 issues enabled, and whether the token may write — then lists the labels the
 configuration names against the labels that exist.
 
-Without `apply` it reports a plan and sends no `POST`. With `apply` it creates
-the missing labels and nothing else: an existing label is never renamed,
-recoloured, or deleted, and a repeated name is created once. A second `apply`
-reports everything `satisfied`.
+Without `apply` it reports a plan and sends no write. With `apply` it creates the
+missing labels, and recolours an existing label whose colour differs from the one the
+config chose for it (`labelColors`, keyed by the label's identifier: `feature-ready`,
+`ticket-ready`, `merge-when-ready`, `no-tests`, `e2e`, `skip-test-e2e`, `resume`, `project`, `state-<event>`): an existing label is never renamed or deleted, a label with no
+chosen colour keeps whatever colour it has, and a repeated name is created once. A
+second `apply` reports everything `satisfied`.
 
 A 404 on the repository is reported as "not found, or this token cannot see
 it", because from here the two are the same answer.
@@ -118,6 +120,13 @@ path that may read a 404 as absence.
 at that commit; a 422 (the ref exists) is a success. `dropLine` deletes the ref
 and ignores a refusal. `settled({reference})` reads the pull request: merged is
 `folded`, closed unmerged is `closed`, otherwise `open`.
+
+## 7c. Behind
+
+`behind({reference})` reads the pull request, the tip of the branch it is offered
+to (`git/ref/heads/<base>`), and compares the two by commit, `behind_by` of
+`<tip>...<head>`. `0` is `current`; more is `behind` with that count; any failed
+read, or an answer with no count, is `unavailable`. It writes nothing.
 
 ## 8. Acceptance
 
@@ -156,5 +165,7 @@ and ignores a refusal. `settled({reference})` reads the pull request: merged is
     a blocker read that fails is `unavailable`, never an empty list.
 15. `openLine` of an existing line succeeds; `settled` distinguishes a merge
     from a close.
+16. `behind` is `current` at `behind_by` 0, `behind` with the count above it, and
+    `unavailable` when GitHub does not answer or the reference is not a pull request.
 
 How to build and configure: [README.md](./README.md).

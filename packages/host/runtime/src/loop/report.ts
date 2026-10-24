@@ -100,7 +100,10 @@ export async function reportAfterRun(
         eventId,
         fields: {
           stage: "integrating",
-          reason: "The assembled work was refused and no attempt is left.",
+          reason:
+            spentOf(aggregate) + 1 >= (input.options.ticket.maxRefusals ?? DEFAULT_MAX_REFUSALS)
+              ? "The assembled work was refused and no attempt is left."
+              : "The assembled work was refused.",
           ...(aggregate.escalation?.report === undefined
             ? {}
             : { trace: aggregate.escalation.report }),
@@ -115,7 +118,10 @@ export async function reportAfterRun(
         eventId,
         fields: {
           stage: "submitting",
-          reason: submittedReason(aggregate, input.options.maxRefusals ?? DEFAULT_MAX_REFUSALS),
+          reason: submittedReason(
+            aggregate,
+            input.options.ticket.maxRefusals ?? DEFAULT_MAX_REFUSALS,
+          ),
           ...((aggregate.escalation?.report ?? aggregate.submission?.last_report) === undefined
             ? {}
             : {
@@ -149,9 +155,22 @@ function submittedReason(aggregate: TicketAggregate, maxRefusals: number): strin
     return "The work could not be submitted.";
   }
   // The refusal that stopped it is never recorded as one (open-conductor).
-  return submission.refusals + 1 >= maxRefusals
+  return spentOf(aggregate) + 1 >= maxRefusals
     ? "The Submission was refused and no attempt is left."
     : "The Submission was refused.";
+}
+
+/**
+ * What the corrective rounds of a Ticket have used: refusals, parked refusals
+ * and times the line moved on, against the one `maxRefusals` budget. The same
+ * sum the Conductor draws on, so what the tracker is told matches what happens.
+ */
+function spentOf(aggregate: TicketAggregate): number {
+  return (
+    (aggregate.submission?.refusals ?? 0) +
+    (aggregate.parked_refusals ?? 0) +
+    (aggregate.submission?.realigns ?? 0)
+  );
 }
 
 /** `<key>:escalated:<round>:<kind>` — the same escalation hashes the same after a restart. */
@@ -207,12 +226,12 @@ function unitEscalation(input: HostDeliveryInput, aggregate: TicketAggregate): E
 }
 
 /**
- * A refusal sent the work back to `assembly.fix` and a repair is on its way.
+ * A refusal sent the work back to `ticket.fix` and a repair is on its way.
  * Between that and the next verdict the tracker would otherwise say nothing,
  * and a reader would take the silence for waiting.
  *
  * Two refusers write here: the Authority (`submission.last_report`, once there
- * is a Submission) and `assembly.validate` (`parked_refusal`, which can exist
+ * is a Submission) and `ticket.validate` (`parked_refusal`, which can exist
  * before one does, or without an Authority at all). The parked one is fresher
  * when both are set, the same priority `open-conductor` gives it.
  */
@@ -220,11 +239,11 @@ async function reportRefusal(input: HostDeliveryInput, aggregate: TicketAggregat
   if (aggregate.state !== "integrating") {
     return;
   }
-  const max = input.options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
+  const max = input.options.ticket.maxRefusals ?? DEFAULT_MAX_REFUSALS;
   const parked = aggregate.parked_refusal;
   if (parked !== undefined) {
     const parkedRefusals = aggregate.parked_refusals ?? 0;
-    const spent = (aggregate.submission?.refusals ?? 0) + parkedRefusals;
+    const spent = spentOf(aggregate);
     await pushReport(input, {
       event: "progress",
       key: aggregate.intention.key,
@@ -233,7 +252,7 @@ async function reportRefusal(input: HostDeliveryInput, aggregate: TicketAggregat
       // in the same round would otherwise collide with this id.
       eventId: `${aggregate.intention.key}:refused:parked:${parkedRefusals}`,
       fields: {
-        summary: `${parked.refused_by ?? "assembly.validate"} refused the assembled work; a repair is on its way (refusal ${spent} of ${max}).`,
+        summary: `${parked.refused_by ?? "ticket.validate"} refused the assembled work; a repair is on its way (refusal ${spent} of ${max}).`,
         stage: "integrating",
         trace: parked.report,
       },
@@ -257,7 +276,7 @@ async function reportRefusal(input: HostDeliveryInput, aggregate: TicketAggregat
     fields: {
       // Who refused, what happens next, and how many refusals the Authority may
       // still send back before this escalates — in one sentence.
-      summary: `${submission.last_refused_by ?? "The Authority"} refused the Submission; a repair is on its way (refusal ${submission.refusals} of ${max}).`,
+      summary: `${submission.last_refused_by ?? "The Authority"} refused the Submission; a repair is on its way (refusal ${spentOf(aggregate)} of ${max}).`,
       stage: "submitting",
       trace: submission.last_report,
     },

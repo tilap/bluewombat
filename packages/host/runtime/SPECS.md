@@ -103,6 +103,7 @@ The FeatureTracker's `listen` delivers Features whose specification is final.
 | `invalid` (new, or the intention changed)   | emit `invalid` on the Feature, keyed by fingerprint                                                                                                                                                                 |
 | `invalid` (same fingerprint as recorded)    | leave it; the tracker was told, and telling it is what delivered it again                                                                                                                                           |
 | `upsert` (absent or `waiting`)              | `admitFeature`, emit `accepted`. Nothing is driven here: the sweep does it                                                                                                                                          |
+| `upsert` (`open` or `escalated`) whose `skip_e2e` differs from the ledger's | `setFeatureSkipE2e`; journal `skip-e2e`; no other change |
 | `upsert` (any other state)                  | leave it; journal `skipped`. An echo of a Host report is this row                                                                                                                                                   |
 | `upsert` + `signalsResume` while `escalated` | same as `resume` — a poll snapshot has no `labeled` edge                                                                                                                                                             |
 | `resume`                                     | resume the Feature, emit `resumed`                                                                                                                                                                                  |
@@ -138,6 +139,22 @@ advanced (`advanceProject`):
    folds it. No other Feature opens on the Project meanwhile.
 4. A Feature whose Tickets are all blocked escalates; one that cannot be
    settled because the Authority lacks `settled` waits.
+
+The e2e acceptance check, when the Project declares it (`builder.e2e`):
+
+- A Feature does not open (and is reported `invalid`, once per reason) unless it holds exactly
+  one e2e Ticket (`TicketEntry.e2e`), blocked by every other live Ticket, or carries `skip_e2e`.
+- A Ticket with `e2e` is admitted with `e2e` and `no_tests`: no tests are written first, and
+  Transformers makes it with `builder.e2e` (its command, its Gates, for the first pass, a refused
+  pass and the recheck) instead of the producer and the repair.
+- A Feature with `skip_e2e` has its e2e Ticket cancelled by the sweep (journal
+  `e2e-ticket-cancelled`, a trace line), and Transformers leaves out, for that Feature, every
+  Gate of `feature.validate`, `feature.gates` and `feature.fix` that has `skipWhen:
+  skip-test-e2e`: the journal gets `gate-skipped` with the Gate id and the reason, and the trace
+  says "`<id>` not run: the Feature carries skip-test-e2e". The mark is read from the ledger as
+  each pass starts (`TransformerSlots.marks`).
+- A Feature that is not marked and no longer holds a live e2e Ticket (it was cancelled while the
+  mark was on) escalates when it closes.
 
 Host never drives an `escalated` unit: that state is frozen until a human `resume`.
 
@@ -212,22 +229,22 @@ and the Gate sequence starts empty. Example Gates live in
 `@bluewombat/slots/gates/` (`parent-clean`, `sensitive-path`,
 `workspace-changed`, `ci-green`).
 
-Four independent Gate sequences, one per role — `builder.producer.gates`, `builder.repair.gates`, `assembly.fix.gates`,
-`assembly.validate.gates` — plus `assembly.gates` for the one judgement-only
-pass with no producer of its own. No sequence is shared and nothing is
-dispatched between buckets: a check that is right for one pass can be wrong
+Four Gate sequences: `builder.gates`, shared by `builder.producer` and
+`builder.repair`, then `ticket.fix.gates`, `ticket.validate.gates` and
+`ticket.gates` for the one judgement-only pass with no producer of its own.
+The assembly sequences are not shared and nothing is dispatched between buckets: a check that is right for one pass can be wrong
 for another, even within the same stage — `workspace-changed` says an Attempt
 that changed nothing did nothing, which is true of `builder.producer`/`repair`
-and false of `assembly.gates`'s pass, whose correct outcome is that nothing
-was left to do. `builder.repair` does not inherit `builder.producer.gates`: a
-repair Attempt with no Gate of its own runs ungated. The assembly's
+and false of `ticket.gates`'s pass, whose correct outcome is that nothing
+was left to do. A repair Attempt is judged by `builder.gates`, the same list as the
+producer's (Host hands Implementer that list as both `gates` and `repairGates`). The assembly's
 judgement-only pass produces nothing unless something refused it first: it is
-a judgement, and a refusal is `assembly.fix`, not a second first-pass. Two
-things may judge it: `assembly.gates` (and an Authority's own checks on what
-was published) and, optionally, `assembly.validate` — a local, read-only pass
-that runs before either, judged by its own `assembly.validate.gates`, not
-`assembly.gates`. Both send a refusal to the same `fix` and spend the same
-`maxRefusals` budget.
+a judgement, and a refusal is `ticket.fix`, not a second first-pass. Two
+things may judge it: `ticket.gates` (and an Authority's own checks on what
+was published) and, optionally, `ticket.validate` — a local, read-only pass
+that runs before either, judged by its own `ticket.validate.gates`, not
+`ticket.gates`. Both send a refusal to the same `fix` and spend the same
+`ticket.maxRefusals` budget.
 
 Every child of a Task carries its own ceiling and no other. Every `cmd` names
 its own `timeoutMs`, and none is inherited from a neighbour — nothing else
@@ -236,7 +253,7 @@ or its sequence's `defaultTimeoutMs`, and a Gate that would end up with neither
 is refused when the config loads. Nothing is derived from what another child
 left behind, so what bounds a whole Task is arithmetic the Project can do:
 the builder's `maxAttempts` times its producer's ceiling plus the sum of its Gates'.
-An assembly fix is bounded the same way from `assembly.maxAttempts` and `assembly.fix`.
+An assembly fix is bounded the same way from `ticket.maxAttempts` and `ticket.fix`.
 Root `timeoutMs` bounds what is outside a Task — the manager, the
 isolations. Host has no flag named after a tracker (`--repo` is not a Host
 flag): tracker fields come from that package.
@@ -406,6 +423,11 @@ positional: `release github:owner/name#19`.
     open, escalated or submitted. A Feature blocked by another does not open
     until it is `done`. A Feature whose Tickets are not all `task-ready` does
     not open.
+16b. With the e2e check declared: a Feature without an e2e Ticket nor `skip_e2e` does not open and
+    is reported `invalid`; with `skip_e2e` its e2e Ticket is cancelled and the e2e Gate is not run,
+    the journal and the trace saying so; with an e2e Ticket the line is judged once by the suite,
+    red goes to `feature.fix` and green lets the line be offered. A Project without `builder.e2e`
+    is unchanged.
 17. After an escalation, a `probe` of `gone` cancels that Ticket (or Feature)
     and the sweep goes on. `unavailable` leaves the
     escalation. A listen that missed the source does not probe. GitHub: a 404

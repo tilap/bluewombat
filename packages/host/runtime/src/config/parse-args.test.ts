@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "./find-config.js";
 import { parseArgs } from "./parse-args.js";
+import { hasAgent } from "./types.js";
 
 const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
@@ -83,17 +84,28 @@ function configOf(dir: ReturnType<typeof dirs>, over: Record<string, unknown> = 
     workspaceRoot: dir.workspaceRoot,
     ledger: dir.ledgerRoot,
     builder: {
+      tests: { agent: false },
       producer: {
         cmd: [node, builder],
         timeoutMs: 600_000,
-        gates: { defaultTimeoutMs: 60_000, gates: [{ id: "check", argv: [node, gate] }] },
       },
       repair: { cmd: [node, builder], timeoutMs: 600_000 },
+      gates: { defaultTimeoutMs: 60_000, gates: [{ id: "check", argv: [node, gate] }] },
     },
     timeoutMs: 1000,
     ...over,
   };
 }
+
+const FEATURE = {
+  fix: { cmd: ["node", "fix.mjs"], timeoutMs: 1000 },
+  validate: {
+    cmd: ["node", "validate.mjs"],
+    timeoutMs: 1000,
+    gates: { gates: [{ id: "tests", argv: ["node", "tests.mjs"], timeoutMs: 1000 }] },
+  },
+  gates: { gates: [{ id: "check", argv: ["node", "check.mjs"], timeoutMs: 1000 }] },
+};
 
 describe("parseArgs", () => {
   it("takes both managers and their options from flags alone", () => {
@@ -345,12 +357,13 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
+            tests: { agent: false },
             producer: {
               cmd: [node, builder],
               timeoutMs: 600_000,
-              gates: { defaultTimeoutMs: 60_000, gates: [] },
             },
             repair: { cmd: [node, builder], timeoutMs: 600_000 },
+            gates: { defaultTimeoutMs: 60_000, gates: [] },
           },
         }),
       ),
@@ -397,6 +410,7 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
+            tests: { agent: false },
             producer: {
               cmd: [node, builder, "--transcript-dir", "./.mason/transcripts"],
               timeoutMs: 600_000,
@@ -425,6 +439,7 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
+            tests: { agent: false },
             producer: {
               cmd: [node, builder, "--agent-home", "./.mason/agent-home"],
               timeoutMs: 600_000,
@@ -593,11 +608,12 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir),
         builder: {
+          tests: { agent: false },
           producer: { cmd: [node, builder], timeoutMs: 60_000 },
           repair: { cmd: [node, builder], timeoutMs: 60_000 },
           maxAttempts: 5,
         },
-        maxRefusals: 2,
+        ticket: { validate: { agent: false }, maxRefusals: 2 },
       }),
     );
     const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
@@ -609,7 +625,7 @@ describe("parseArgs", () => {
     }
     assert.equal(parsed.invocation.builder.maxAttempts, 5);
     assert.equal(parsed.invocation.builder.producer.timeoutMs, 60_000);
-    assert.equal(parsed.invocation.maxRefusals, 2);
+    assert.equal(parsed.invocation.ticket.maxRefusals, 2);
   });
 
   it("reads a separate Gate sequence for the assembled ticket", () => {
@@ -619,17 +635,19 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir),
         builder: {
+          tests: { agent: false },
           producer: {
             cmd: [node, builder],
             timeoutMs: 600_000,
-            gates: {
-              defaultTimeoutMs: 60_000,
-              gates: [{ id: "unit", argv: ["node", "gate.mjs"] }],
-            },
           },
           repair: { cmd: [node, builder], timeoutMs: 600_000 },
+          gates: {
+            defaultTimeoutMs: 60_000,
+            gates: [{ id: "unit", argv: ["node", "gate.mjs"] }],
+          },
         },
-        assembly: {
+        ticket: {
+          validate: { agent: false },
           gates: {
             defaultTimeoutMs: 900_000,
             gates: [{ id: "whole", argv: ["node", "gate.mjs"] }],
@@ -645,7 +663,7 @@ describe("parseArgs", () => {
       return;
     }
     assert.equal(parsed.invocation.builder.producer.gates[0]?.id, "unit");
-    assert.equal(parsed.invocation.assembly.gates[0]?.id, "whole");
+    assert.equal(parsed.invocation.ticket.gates[0]?.id, "whole");
   });
 
   it("reads the Authority block and resolves its Publisher against the config", () => {
@@ -656,6 +674,7 @@ describe("parseArgs", () => {
       join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
+        feature: FEATURE,
         authority: {
           enabled: true,
           publish: ["node", "./publish.mjs"],
@@ -689,6 +708,7 @@ describe("parseArgs", () => {
       config,
       stringifyYaml({
         ...configOf(dir),
+        feature: FEATURE,
         authority: { ...authority, describe: ["node", "./describe.mjs", "--scope", "api"] },
       }),
     );
@@ -742,13 +762,14 @@ describe("parseArgs", () => {
     assert.equal(parsed.invocation.authority?.enabled, false);
   });
 
-  it("reads assembly.fix, and says why assembly has no producer or repair", () => {
+  it("reads ticket.fix, and says why ticket has no producer or repair", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
-        assembly: {
+        ticket: {
+          validate: { agent: false },
           fix: { cmd: [node, builder], timeoutMs: 60_000 },
           maxAttempts: 2,
         },
@@ -761,15 +782,16 @@ describe("parseArgs", () => {
     if (!parsed.ok) {
       return;
     }
-    assert.deepEqual(parsed.invocation.assembly.fix?.cmd, [node, builder]);
-    assert.equal(parsed.invocation.assembly.fix?.timeoutMs, 60_000);
-    assert.equal(parsed.invocation.assembly.maxAttempts, 2);
+    assert.deepEqual(parsed.invocation.ticket.fix?.cmd, [node, builder]);
+    assert.equal(parsed.invocation.ticket.fix?.timeoutMs, 60_000);
+    assert.equal(parsed.invocation.ticket.maxAttempts, 2);
 
     writeFileSync(
       join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
-        assembly: {
+        ticket: {
+          validate: { agent: false },
           producer: { cmd: [node, builder], timeoutMs: 60_000 },
           repair: { cmd: [node, builder], timeoutMs: 60_000 },
         },
@@ -779,16 +801,16 @@ describe("parseArgs", () => {
       cwd: dir.root,
     });
     assert.equal(refused.ok, false);
-    assert.match(refused.ok === false ? refused.reason : "", /assembly\.fix/);
+    assert.match(refused.ok === false ? refused.reason : "", /ticket\.fix/);
   });
 
-  it("reads assembly.validate from the config, beside assembly.fix", () => {
+  it("reads ticket.validate from the config, beside ticket.fix", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir),
-        assembly: {
+        ticket: {
           fix: { cmd: [node, builder], timeoutMs: 60_000 },
           validate: { cmd: [node, builder, "--review"], timeoutMs: 30_000 },
         },
@@ -801,12 +823,14 @@ describe("parseArgs", () => {
     if (!parsed.ok) {
       return;
     }
-    assert.deepEqual(parsed.invocation.assembly.validate?.cmd, [node, builder, "--review"]);
-    assert.equal(parsed.invocation.assembly.validate?.timeoutMs, 30_000);
-    assert.equal(parsed.invocation.assembly.fix?.cmd[0], node);
+    const validate = parsed.invocation.ticket.validate;
+    assert.ok(validate !== undefined && hasAgent(validate));
+    assert.deepEqual(validate.cmd, [node, builder, "--review"]);
+    assert.equal(validate.timeoutMs, 30_000);
+    assert.equal(parsed.invocation.ticket.fix?.cmd[0], node);
   });
 
-  it("--assembly-validate sets the command and timeout, alongside --assembly-fix", () => {
+  it("--ticket-validate sets the command and timeout, alongside --ticket-fix", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
@@ -816,18 +840,18 @@ describe("parseArgs", () => {
         "@bluewombat/manager-github",
         ...paths(dir),
         ...slots(),
-        "--assembly-fix",
+        "--ticket-fix",
         "--",
         node,
         builder,
-        "--assembly-fix-timeout-ms",
+        "--ticket-fix-timeout-ms",
         "60000",
-        "--assembly-validate",
+        "--ticket-validate",
         "--",
         node,
         builder,
         "--review",
-        "--assembly-validate-timeout-ms",
+        "--ticket-validate-timeout-ms",
         "30000",
       ],
       { cwd: dir.root },
@@ -836,12 +860,14 @@ describe("parseArgs", () => {
     if (!parsed.ok) {
       return;
     }
-    assert.deepEqual(parsed.invocation.assembly.validate?.cmd, [node, builder, "--review"]);
-    assert.equal(parsed.invocation.assembly.validate?.timeoutMs, 30_000);
-    assert.deepEqual(parsed.invocation.assembly.fix?.cmd, [node, builder]);
+    const validate = parsed.invocation.ticket.validate;
+    assert.ok(validate !== undefined && hasAgent(validate));
+    assert.deepEqual(validate.cmd, [node, builder, "--review"]);
+    assert.equal(validate.timeoutMs, 30_000);
+    assert.deepEqual(parsed.invocation.ticket.fix?.cmd, [node, builder]);
   });
 
-  it("gives builder.repair, assembly.fix and assembly.validate each their own Gate, via the CLI", () => {
+  it("gives builder.repair, ticket.fix and ticket.validate each their own Gate, via the CLI", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
@@ -858,28 +884,28 @@ describe("parseArgs", () => {
         "--",
         node,
         gate,
-        "--assembly-fix",
+        "--ticket-fix",
         "--",
         node,
         builder,
-        "--assembly-fix-timeout-ms",
+        "--ticket-fix-timeout-ms",
         "60000",
-        "--assembly-fix-gate-timeout-ms",
+        "--ticket-fix-gate-timeout-ms",
         "1000",
-        "--assembly-fix-gate",
+        "--ticket-fix-gate",
         "fix-check",
         "--",
         node,
         gate,
-        "--assembly-validate",
+        "--ticket-validate",
         "--",
         node,
         builder,
-        "--assembly-validate-timeout-ms",
+        "--ticket-validate-timeout-ms",
         "30000",
-        "--assembly-validate-gate-timeout-ms",
+        "--ticket-validate-gate-timeout-ms",
         "1000",
-        "--assembly-validate-gate",
+        "--ticket-validate-gate",
         "validate-check",
         "--",
         node,
@@ -896,11 +922,11 @@ describe("parseArgs", () => {
       ["repair-check"],
     );
     assert.deepEqual(
-      parsed.invocation.assembly.fix?.gates.map((g) => g.id),
+      parsed.invocation.ticket.fix?.gates.map((g) => g.id),
       ["fix-check"],
     );
     assert.deepEqual(
-      parsed.invocation.assembly.validate?.gates.map((g) => g.id),
+      parsed.invocation.ticket.validate?.gates.map((g) => g.id),
       ["validate-check"],
     );
     // --builder-gate (in slots()) and --builder-repair-gate never cross-populate.
@@ -910,16 +936,23 @@ describe("parseArgs", () => {
     );
   });
 
-  it("rejects the old shared builder.gates shape as an unknown key", () => {
+  it("reads builder.gates once and gives it to the producer and to the repair", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir, {
           builder: {
+            tests: { agent: false },
             producer: { cmd: [node, builder], timeoutMs: 600_000 },
             repair: { cmd: [node, builder], timeoutMs: 600_000 },
-            gates: { defaultTimeoutMs: 60_000, gates: [] },
+            gates: {
+              defaultTimeoutMs: 60_000,
+              gates: [
+                { id: "typecheck", argv: [node, gate] },
+                { id: "tests", argv: [node, gate], timeoutMs: 5000 },
+              ],
+            },
           },
         }),
       }),
@@ -927,9 +960,42 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
       cwd: dir.root,
     });
-    assert.equal(parsed.ok, false);
+    assert.equal(parsed.ok, true);
     if (!parsed.ok) {
-      assert.match(parsed.reason, /unknown key "gates"/);
+      return;
+    }
+    const ids = (gates: { id: string }[]) => gates.map((g) => g.id);
+    assert.deepEqual(ids(parsed.invocation.builder.producer.gates), ["typecheck", "tests"]);
+    assert.deepEqual(ids(parsed.invocation.builder.repair.gates), ["typecheck", "tests"]);
+    assert.equal(parsed.invocation.builder.repair.gates[1]?.timeoutMs, 5000);
+    assert.equal(parsed.invocation.builder.repair.gates[0]?.timeoutMs, 60_000);
+  });
+
+  it("refuses gates written on builder.producer or builder.repair, and names builder.gates", () => {
+    for (const pass of ["producer", "repair"]) {
+      const dir = dirs();
+      const passes: Record<string, unknown> = {
+        tests: { agent: false },
+        producer: { cmd: [node, builder], timeoutMs: 600_000 },
+        repair: { cmd: [node, builder], timeoutMs: 600_000 },
+      };
+      passes[pass] = {
+        cmd: [node, builder],
+        timeoutMs: 600_000,
+        gates: { defaultTimeoutMs: 60_000, gates: [] },
+      };
+      writeFileSync(
+        join(dir.root, DEFAULT_CONFIG_FILENAME),
+        stringifyYaml({ ...configOf(dir, { builder: passes }) }),
+      );
+      const parsed = parseArgs(["--config", join(dir.root, DEFAULT_CONFIG_FILENAME)], {
+        cwd: dir.root,
+      });
+      assert.equal(parsed.ok, false);
+      if (!parsed.ok) {
+        assert.match(parsed.reason, new RegExp(`builder\\.${pass}" has no "gates"`));
+        assert.match(parsed.reason, /builder\.gates/);
+      }
     }
   });
 
@@ -1043,6 +1109,7 @@ describe("parseArgs", () => {
         `  stable: ${dir.workLineStable}`,
         '  isolation: "@bluewombat/isolation-copy"',
         `builder:`,
+        `  tests: { agent: false }`,
         `  producer: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         `  repair: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         "timeoutMs: 1000",

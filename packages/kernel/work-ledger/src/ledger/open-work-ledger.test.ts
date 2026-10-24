@@ -309,7 +309,7 @@ describe("openWorkLedger (test-double Port)", () => {
     assert.equal((await requireAggregate(ledger, "fake:42")).state, "integrating");
   });
 
-  it("10e. releaseBail while running spends the Attempt and forgets the workspace, without waiting for the bail", async () => {
+  it("10e. releaseBail while running spends no Attempt and keeps the workspace, without waiting for the bail", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await ledger.admit(ticket());
     await claimKey(ledger, "proj");
@@ -323,8 +323,8 @@ describe("openWorkLedger (test-double Port)", () => {
     const after = await requireAggregate(ledger, "fake:42");
     assert.equal(after.state, "running");
     assert.equal(after.bail, undefined);
-    assert.equal(after.attempts_used, 1);
-    assert.equal(after.workspace, undefined);
+    assert.equal(after.attempts_used, 0);
+    assert.equal(after.workspace, "/tmp/ws");
   });
 
   it("10f. releaseBail on a running Ticket with nothing held is success with no rewrite", async () => {
@@ -354,7 +354,7 @@ describe("openWorkLedger (test-double Port)", () => {
     assert.deepEqual(after.bail, before.bail);
   });
 
-  it("10h. expireBail on a running Ticket waits for the clock, then starts the unit over", async () => {
+  it("10h. expireBail on a running Ticket waits for the clock, then spends an Attempt and keeps the workspace", async () => {
     const nowMs = { value: 1_000 };
     const ledger = ledgerAt(nowMs);
     await ledger.admit(ticket());
@@ -371,7 +371,49 @@ describe("openWorkLedger (test-double Port)", () => {
     assert.equal(after.state, "running");
     assert.equal(after.bail, undefined);
     assert.equal(after.attempts_used, 1);
+    assert.equal(after.workspace, "/tmp/ws");
+  });
+
+  it("10i. markFirstStageDone is remembered with the workspace and forgotten with it", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(ticket());
+    await claimKey(ledger, "proj");
+    assert.deepEqual(await ledger.markFirstStageDone("fake:42"), {
+      ok: false,
+      code: "illegal-transition",
+    });
+    await ledger.declareWorkspace({ key: "fake:42", path: "/tmp/ws" });
+    assert.deepEqual(await ledger.markFirstStageDone("fake:42"), { ok: true });
+    assert.equal((await requireAggregate(ledger, "fake:42")).first_stage_done, true);
+    await ledger.startUnit("fake:42");
+    await ledger.releaseBail("fake:42");
+    assert.equal((await requireAggregate(ledger, "fake:42")).first_stage_done, true);
+    await ledger.clearWorkspace("fake:42");
+    assert.equal((await requireAggregate(ledger, "fake:42")).first_stage_done, undefined);
+  });
+
+  it("10j. a human's resume of a unit forgets the workspace: the unit starts from zero", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(ticket());
+    await claimKey(ledger, "proj");
+    await ledger.declareWorkspace({ key: "fake:42", path: "/tmp/ws" });
+    await ledger.markFirstStageDone("fake:42");
+    await ledger.escalate({ key: "fake:42", kind: "unit", report: "red" });
+    await ledger.resumeTicket("fake:42");
+    const after = await requireAggregate(ledger, "fake:42");
+    assert.equal(after.state, "running");
     assert.equal(after.workspace, undefined);
+    assert.equal(after.first_stage_done, undefined);
+  });
+
+  it("keeps the tracker's no_tests flag on the Ticket, and nothing when it is not set", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(ticket({ key: "fake:1", no_tests: true }));
+    await ledger.admit(ticket({ key: "fake:2" }));
+    await ledger.admit(ticket({ key: "fake:3", no_tests: false }));
+    assert.equal((await requireAggregate(ledger, "fake:1")).intention.no_tests, true);
+    assert.equal((await requireAggregate(ledger, "fake:2")).intention.no_tests, undefined);
+    assert.equal((await requireAggregate(ledger, "fake:3")).intention.no_tests, undefined);
   });
 
   it("11. declareWorkspace then listDeclaredWorkspaces includes the path; clearWorkspace removes it", async () => {
@@ -506,6 +548,57 @@ describe("a Submission offered again", () => {
     // leaves the next escalation with a frozen Ticket and no cause.
     assert.equal(got.aggregate.submission?.last_report, "still red");
     assert.equal(got.aggregate.submission?.last_refused_by, "ci-green");
+  });
+});
+
+describe("recordRealign", () => {
+  it("sends a submitted ticket back to integrating, counts it, and keeps the reference", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+
+    assert.deepEqual(await ledger.recordRealign({ key: "fake:42" }), { ok: true });
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.state, "integrating");
+    assert.equal(aggregate.submission?.reference, "ref-1");
+    assert.equal(aggregate.submission?.realigns, 1);
+    // Not a refusal: the budget of refusals is untouched.
+    assert.equal(aggregate.submission?.refusals, 0);
+  });
+
+  it("drops the report of an earlier refusal: it was repaired, and must not be repaired again", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRefusal({ key: "fake:42", report: "still red", refusedBy: "ci-green" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRealign({ key: "fake:42" });
+
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.submission?.last_report, undefined);
+    assert.equal(aggregate.submission?.last_refused_by, undefined);
+    assert.equal(aggregate.submission?.refusals, 1);
+  });
+
+  it("counts again each time, and the count survives an offer again", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRealign({ key: "fake:42" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.recordRealign({ key: "fake:42" });
+
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.submission?.realigns, 2);
+  });
+
+  it("is refused from any state but submitted", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await toIntegrating(ledger);
+    assert.deepEqual(await ledger.recordRealign({ key: "fake:42" }), {
+      ok: false,
+      code: "illegal-transition",
+    });
   });
 });
 
@@ -691,6 +784,39 @@ describe("Features", () => {
     assert.equal(got.aggregate.intention.fingerprint, "ffp-1");
   });
 
+  it("keeps the e2e skip mark of a Feature, and moves it while the Feature is not submitted", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admitFeature(intentionOf({ skip_e2e: true }));
+    const waiting = await ledger.getFeature("fake:F1");
+    assert.ok(waiting.ok);
+    assert.equal(waiting.aggregate.intention.skip_e2e, true);
+
+    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:F1", skip: false }), { ok: true });
+    const cleared = await ledger.getFeature("fake:F1");
+    assert.ok(cleared.ok);
+    assert.equal(cleared.aggregate.intention.skip_e2e, undefined);
+
+    await ledger.openFeature({ key: "fake:F1", line: "feature/1", tickets: ["fake:1"] });
+    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:F1", skip: true }), { ok: true });
+    await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "pr-1" });
+    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:F1", skip: false }), {
+      ok: false,
+      code: "illegal-transition",
+    });
+    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:nope", skip: true }), {
+      ok: false,
+      code: "not-found",
+    });
+  });
+
+  it("keeps the e2e mark of a Ticket on its admission", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(ticket({ e2e: true }));
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.intention.e2e, true);
+  });
+
   it("opens the highest priority, then the oldest, that no Feature blocks", async () => {
     const nowMs = { value: 1_000 };
     const ledger = ledgerAt(nowMs);
@@ -809,5 +935,66 @@ describe("Features", () => {
       code: "too-late",
     });
     assert.deepEqual(await ledger.cancelFeature("fake:none"), { ok: false, code: "not-found" });
+  });
+});
+
+describe("claiming several Tickets of a Project", () => {
+  it("claims up to the limit, then says the Project is busy", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    for (const n of [1, 2, 3]) {
+      await ledger.admit(ticket({ key: `fake:${n}`, fingerprint: `fp-${n}`, priority: 10 - n }));
+    }
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: true, key: "fake:1" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: true, key: "fake:2" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: false, code: "project-busy" });
+    assert.equal((await ledger.activeTickets("proj")).length, 2);
+  });
+
+  it("holds a place for an escalated Ticket", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket({ key: "fake:1", fingerprint: "fp-1" }));
+    await ledger.admit(ticket({ key: "fake:2", fingerprint: "fp-2", priority: 0 }));
+    await ledger.claim("proj", 2);
+    await ledger.recordAttempt({ key: "fake:1", number: 1, trace: { ended: "fail-blocking" } });
+    await ledger.escalate({ key: "fake:1", kind: "unit" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: true, key: "fake:2" });
+    assert.deepEqual(await ledger.claim("proj", 2), { ok: false, code: "project-busy" });
+  });
+
+  it("never hands the same Ticket to two claims made together", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    for (const n of [1, 2, 3]) {
+      await ledger.admit(ticket({ key: `fake:${n}`, fingerprint: `fp-${n}`, priority: 10 - n }));
+    }
+    const claims = await Promise.all([1, 2, 3].map(() => ledger.claim("proj", 3)));
+    const keys = claims.map((claim) => ("key" in claim ? claim.key : undefined));
+    assert.deepEqual([...keys].sort(), ["fake:1", "fake:2", "fake:3"]);
+  });
+
+  it("does not go past the limit when claims are made together", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    for (const n of [1, 2, 3]) {
+      await ledger.admit(ticket({ key: `fake:${n}`, fingerprint: `fp-${n}` }));
+    }
+    const claims = await Promise.all([1, 2, 3].map(() => ledger.claim("proj", 2)));
+    assert.equal(claims.filter((claim) => "key" in claim).length, 2);
+    assert.equal((await ledger.activeTickets("proj")).length, 2);
+  });
+
+  it("starts a Ticket only once every Ticket it waits on is done", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket({ key: "fake:a", fingerprint: "fp-a" }));
+    await ledger.admit(
+      ticket({ key: "fake:c", fingerprint: "fp-c", priority: 99, blocked_by: ["fake:a"] }),
+    );
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, key: "fake:a" });
+    // The dependent has the higher priority, and still waits.
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, empty: true });
+    await ledger.recordAttempt({ key: "fake:a", number: 1, trace: { ended: "validated" } });
+    await ledger.markIntegrating("fake:a");
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, empty: true });
+    await ledger.markMerging("fake:a");
+    await ledger.markDone("fake:a");
+    assert.deepEqual(await ledger.claim("proj", 3), { ok: true, key: "fake:c" });
   });
 });

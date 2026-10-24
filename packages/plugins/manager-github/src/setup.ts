@@ -6,6 +6,7 @@ import {
   type SetupStep,
 } from "@bluewombat/manager-kit";
 import { callSignal, createClient, type GithubClient, readFailure } from "./github/client.js";
+import type { LabelColorKey, LabelColors } from "./label-colors.js";
 import type { Repository } from "./repo.js";
 import type { StateLabels } from "./state-labels.js";
 
@@ -16,6 +17,9 @@ const RESUME_COLOUR = "0e8a16";
 const ADMISSION_COLOUR = "1d76db";
 const STATE_COLOUR = "5319e7";
 const PROJECT_COLOUR = "c5def5";
+const NO_TESTS_COLOUR = "fbca04";
+const E2E_COLOUR = "0e8a16";
+const SKIP_E2E_COLOUR = "fbca04";
 
 export type SetupSettings = {
   repo: Repository;
@@ -24,11 +28,16 @@ export type SetupSettings = {
   resumeLabel: string;
   featureReadyLabel: string;
   ticketReadyLabel: string;
+  noTestsLabel: string;
+  e2eLabel: string;
+  skipTestE2eLabel: string;
   mergeWhenReadyLabel: string;
   /** The sides this manager is built for: only their labels are wanted. */
   sides: readonly ManagerSide[];
   defaultProject: string | undefined;
   stateLabels: StateLabels | undefined;
+  /** The colours the config chose; absent, the defaults, and an existing label is left alone. */
+  labelColors?: LabelColors | undefined;
   /** The branch pull requests are opened onto, and whether the config named it. */
   branch: string;
   branchConfigured: boolean;
@@ -37,7 +46,13 @@ export type SetupSettings = {
   githubFetch: typeof fetch | undefined;
 };
 
-type WantedLabel = { name: string; colour: string; description: string };
+type WantedLabel = {
+  name: string;
+  colour: string;
+  description: string;
+  /** The config chose this colour: a label that exists with another one is recoloured. */
+  chosen: boolean;
+};
 
 /**
  * Bring one repository to the shape a run expects: reachable, issues on, a
@@ -82,9 +97,23 @@ export async function runSetup(
     return { ok: false, steps };
   }
 
-  const known = new Set(present.names.map((name) => name.toLowerCase()));
+  const known = new Map(present.labels.map((label) => [label.name.toLowerCase(), label.colour]));
   for (const wanted of wantedLabels(settings)) {
-    if (known.has(wanted.name.toLowerCase())) {
+    const has = known.get(wanted.name.toLowerCase());
+    if (has !== undefined) {
+      if (wanted.chosen && has.toLowerCase() !== wanted.colour) {
+        if (!input.apply) {
+          steps.push({
+            id: `label:${wanted.name}`,
+            summary: `recolour label ${wanted.name}`,
+            state: "missing",
+            detail: `it is ${has}, the config says ${wanted.colour}`,
+          });
+          continue;
+        }
+        steps.push(await recolourLabel(github, settings.repo, wanted, context));
+        continue;
+      }
       steps.push({
         id: `label:${wanted.name}`,
         summary: `label ${wanted.name}`,
@@ -118,10 +147,14 @@ export function wantedLabels(settings: {
   resumeLabel: string;
   featureReadyLabel: string;
   ticketReadyLabel: string;
+  noTestsLabel: string;
+  e2eLabel: string;
+  skipTestE2eLabel: string;
   mergeWhenReadyLabel: string;
   sides?: readonly ManagerSide[];
   defaultProject: string | undefined;
   stateLabels: StateLabels | undefined;
+  labelColors?: LabelColors | undefined;
 }): WantedLabel[] {
   const sides = settings.sides ?? ["featureTracker", "ticketTracker"];
   const forFeatures = sides.includes("featureTracker");
@@ -132,19 +165,24 @@ export function wantedLabels(settings: {
     forFeatures &&
     forTickets &&
     settings.featureReadyLabel.toLowerCase() === settings.ticketReadyLabel.toLowerCase();
+  // The colour of a label: the one the config chose for what it is for, else the default.
+  const colourOf = (key: LabelColorKey, fallback: string) => {
+    const colour = settings.labelColors?.[key];
+    return { colour: colour ?? fallback, chosen: colour !== undefined };
+  };
   const wanted: WantedLabel[] = [];
   if (forFeatures) {
     wanted.push(
       shared
         ? {
             name: settings.featureReadyLabel,
-            colour: ADMISSION_COLOUR,
+            ...colourOf("feature-ready", ADMISSION_COLOUR),
             description:
               "on a Feature: its content is final; on a Ticket: its specification is final",
           }
         : {
             name: settings.featureReadyLabel,
-            colour: ADMISSION_COLOUR,
+            ...colourOf("feature-ready", ADMISSION_COLOUR),
             description: `on a Feature: its content is final, ${PRODUCT} may build it once its Tickets are ready`,
           },
     );
@@ -152,26 +190,41 @@ export function wantedLabels(settings: {
   if (forTickets) {
     wanted.push({
       name: settings.ticketReadyLabel,
-      colour: ADMISSION_COLOUR,
+      ...colourOf("ticket-ready", ADMISSION_COLOUR),
       description: "on a Ticket: its specification is final",
+    });
+    wanted.push({
+      name: settings.noTestsLabel,
+      ...colourOf("no-tests", NO_TESTS_COLOUR),
+      description: `on a Ticket: ${PRODUCT} writes no tests before its code`,
+    });
+    wanted.push({
+      name: settings.e2eLabel,
+      ...colourOf("e2e", E2E_COLOUR),
+      description: `on a Ticket: it holds the e2e acceptance suite of its Feature, run once on the whole Feature`,
     });
   }
   if (forFeatures) {
     wanted.push({
       name: settings.mergeWhenReadyLabel,
-      colour: ADMISSION_COLOUR,
+      ...colourOf("merge-when-ready", ADMISSION_COLOUR),
       description: `on a Feature: ${PRODUCT} folds its line without a human`,
+    });
+    wanted.push({
+      name: settings.skipTestE2eLabel,
+      ...colourOf("skip-test-e2e", SKIP_E2E_COLOUR),
+      description: `on a Feature: ${PRODUCT} does not run its e2e acceptance suite`,
     });
   }
   wanted.push({
     name: settings.resumeLabel,
-    colour: RESUME_COLOUR,
+    ...colourOf("resume", RESUME_COLOUR),
     description: `on an escalated Feature or Ticket, ${PRODUCT} resumes it`,
   });
   if (settings.defaultProject !== undefined) {
     wanted.push({
       name: `project:${settings.defaultProject}`,
-      colour: PROJECT_COLOUR,
+      ...colourOf("project", PROJECT_COLOUR),
       description: `routes the issue to this ${PRODUCT} Project`,
     });
   }
@@ -179,7 +232,7 @@ export function wantedLabels(settings: {
     for (const event of EVENT_NAMES) {
       wanted.push({
         name: settings.stateLabels[event],
-        colour: STATE_COLOUR,
+        ...colourOf(`state-${event}`, STATE_COLOUR),
         description: `${PRODUCT} state: ${event}`,
       });
     }
@@ -329,8 +382,10 @@ async function readLabels(
   github: GithubClient,
   repo: Repository,
   context: CallContext,
-): Promise<{ ok: true; names: string[] } | { ok: false; step: SetupStep }> {
-  const names: string[] = [];
+): Promise<
+  { ok: true; labels: { name: string; colour: string }[] } | { ok: false; step: SetupStep }
+> {
+  const labels: { name: string; colour: string }[] = [];
   let page = 1;
   for (;;) {
     const call = callSignal(context.deadlineMs, context.now, context.shouldInterrupt);
@@ -343,10 +398,10 @@ async function readLabels(
         request: { signal: call.signal },
       });
       for (const label of response.data) {
-        names.push(label.name);
+        labels.push({ name: label.name, colour: String(label.color ?? "") });
       }
       if (response.data.length < PER_PAGE) {
-        return { ok: true, names };
+        return { ok: true, labels };
       }
       page += 1;
     } catch (error) {
@@ -362,6 +417,38 @@ async function readLabels(
     } finally {
       call.release();
     }
+  }
+}
+
+async function recolourLabel(
+  github: GithubClient,
+  repo: Repository,
+  wanted: WantedLabel,
+  context: CallContext,
+): Promise<SetupStep> {
+  const call = callSignal(context.deadlineMs, context.now, context.shouldInterrupt);
+  try {
+    await github.request("PATCH /repos/{owner}/{repo}/labels/{name}", {
+      owner: repo.owner,
+      repo: repo.name,
+      name: wanted.name,
+      color: wanted.colour,
+      request: { signal: call.signal },
+    });
+    return {
+      id: `label:${wanted.name}`,
+      summary: `recolour label ${wanted.name}`,
+      state: "applied",
+    };
+  } catch (error) {
+    return {
+      id: `label:${wanted.name}`,
+      summary: `recolour label ${wanted.name}`,
+      state: "blocked",
+      detail: readFailure(error).detail,
+    };
+  } finally {
+    call.release();
   }
 }
 

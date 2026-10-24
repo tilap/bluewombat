@@ -193,13 +193,13 @@ describe("runImplementer acceptance", () => {
             { id: "echo", argv: [node, join(fixtures, "gate-echo-argv.mjs")], timeoutMs: 5_000 },
           ],
         }),
-        stage: "assembly",
+        stage: "ticket",
       },
       write: () => {},
     });
     assert.equal(result.outcome, "validated");
     const argv = JSON.parse(readFileSync(join(ws, "gate-argv.json"), "utf8")) as string[];
-    assert.deepEqual(argv.slice(-2), ["--stage", "assembly"]);
+    assert.deepEqual(argv.slice(-2), ["--stage", "ticket"]);
   });
 
   it("2d. a Gate is told the ceiling it will be killed at", async () => {
@@ -565,5 +565,107 @@ describe("which ticket a Task's progress belongs to", () => {
       lines.filter((line) => "key" in line),
       [],
     );
+  });
+});
+
+describe("runImplementer firstAttempt", () => {
+  it("f1. numbers its Attempts from firstAttempt and leaves only what remains of the budget", async () => {
+    const ws = workspace();
+    const sink = collectLines();
+    const result = await runImplementer({
+      invocation: baseInvocation({
+        workspace: ws,
+        builderArgv: [node, join(fixtures, "builder-fail-retryable.mjs")],
+        firstAttempt: 2,
+        maxAttempts: 3,
+      }),
+      write: sink.write,
+    });
+    assert.deepEqual(
+      result.traces.map((trace) => trace.attempt),
+      [2, 3],
+    );
+    assert.equal(result.outcome, "escalated");
+  });
+
+  it("f2. escalates at once when the earlier runs already used the whole budget", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: baseInvocation({ workspace: ws, firstAttempt: 4, maxAttempts: 3 }),
+      write: collectLines().write,
+    });
+    assert.equal(result.outcome, "escalated");
+    assert.deepEqual(result.traces, []);
+  });
+});
+
+describe("runImplementer after a producer killed at its clock", () => {
+  const slow = (ws: string, over: Partial<Invocation> = {}) =>
+    baseInvocation({
+      workspace: ws,
+      builderArgv: [node, join(fixtures, "sleep.mjs"), "5000"],
+      builderTimeoutMs: 50,
+      ...over,
+    });
+
+  it("k1. judges what it left: the Gates pass, the Attempt is validated and none is spent", async () => {
+    const result = await runImplementer({
+      invocation: slow(workspace(), {
+        gates: [{ id: "checks", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 5_000 }],
+        maxAttempts: 1,
+      }),
+      write: () => {},
+    });
+    assert.equal(result.outcome, "validated");
+    assert.equal(result.traces.length, 1);
+    assert.equal(result.traces[0]?.builder.result.kind, "timed_out");
+    assert.equal(result.traces[0]?.ended, "validated");
+    assert.equal(result.traces[0]?.gates[0]?.verdict, "pass");
+  });
+
+  it("k2. a red Gate is what the next Attempt is told, not that the producer was killed", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: slow(ws, {
+        builderArgv: [node, join(fixtures, "builder-log-argv.mjs"), "hang-first"],
+        builderTimeoutMs: 400,
+        gates: [
+          { id: "lint", argv: [node, join(fixtures, "gate-fail-once.mjs")], timeoutMs: 5_000 },
+        ],
+        maxAttempts: 2,
+      }),
+      write: () => {},
+    });
+    assert.equal(result.traces[0]?.builder.result.kind, "timed_out");
+    assert.equal(result.traces[0]?.ended, "fail-retryable");
+    assert.equal(result.traces[0]?.gates[0]?.id, "lint");
+    const second = readFileSync(join(ws, "argv.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[])[1];
+    const at = second?.indexOf("--report") ?? -1;
+    assert.doesNotMatch(second?.[at + 1] ?? "", /^killed after/);
+    assert.equal(second?.[(second?.indexOf("--report-from") ?? -1) + 1], "lint");
+  });
+
+  it("k3. with no Gate there is nothing to judge it by: it stays a failure, with a short report", async () => {
+    const ws = workspace();
+    const result = await runImplementer({
+      invocation: slow(ws, {
+        builderArgv: [node, join(fixtures, "builder-log-argv.mjs"), "hang-first"],
+        builderTimeoutMs: 400,
+        maxAttempts: 2,
+      }),
+      write: () => {},
+    });
+    assert.equal(result.traces[0]?.ended, "fail-retryable");
+    assert.equal(result.outcome, "validated");
+    const second = readFileSync(join(ws, "argv.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[])[1];
+    const report = second?.[(second?.indexOf("--report") ?? -1) + 1] ?? "";
+    assert.match(report, /^killed after 400ms, its own ceiling\. It left no answer\./);
+    assert.ok(report.length < 300, "the report is a sentence, not the tail of the child's output");
   });
 });

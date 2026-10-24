@@ -11,7 +11,7 @@ const CLEANUP_TIMEOUT_MS = 5_000;
 const INCOMING_REF = "refs/integrator/incoming";
 
 export type GitMergeResult =
-  | { ok: true }
+  | { ok: true; changed: boolean }
   | { ok: false; stop: FoldStop }
   | { ok: false; conflict: true; report: string }
   | { ok: false; detail: string };
@@ -154,7 +154,7 @@ export async function gitMerge(input: {
   };
 
   /** HEAD is this commit now; the working tree already matches it. */
-  const settle = async (oid: string): Promise<GitMergeResult> => {
+  const settle = async (oid: string, changed: boolean): Promise<GitMergeResult> => {
     if (oid !== savedHead) {
       const updated = await git(["update-ref", "HEAD", oid], timed());
       if (!updated.ok) {
@@ -162,6 +162,19 @@ export async function gitMerge(input: {
       }
       if (updated.exitCode !== 0) {
         return failRestore(gitFailed(updated));
+      }
+      // HEAD now holds work that was loose a moment ago, and the index still
+      // describes the tree from before: `git status` would show every file of it
+      // as staged for deletion and untracked. Where nothing was checked out, line
+      // the index up with the commit — the working files are not touched.
+      if (!changed) {
+        const aligned = await git(["reset", "-q"], timed());
+        if (!aligned.ok) {
+          return failRestore(aligned);
+        }
+        if (aligned.exitCode !== 0) {
+          return failRestore(gitFailed(aligned));
+        }
       }
     }
     await git(["update-ref", "-d", INCOMING_REF], {
@@ -172,7 +185,7 @@ export async function gitMerge(input: {
     if (indexBackup !== undefined) {
       await rm(indexBackup, { force: true });
     }
-    return { ok: true };
+    return { ok: true, changed };
   };
 
   try {
@@ -221,13 +234,20 @@ export async function gitMerge(input: {
       return failRestore(parentCommit);
     }
 
-    const childCommit = await writeWorkingTreeCommit({
-      cwd: child,
-      subject,
-      deadlineMs,
-      now,
-      shouldInterrupt,
-    });
+    // The same directory on both sides is a checkpoint of what is loose in it. Its snapshot is
+    // taken once: taken twice, the two commits carry the second they were made in, and across a
+    // second boundary they differ, so the fold would see both sides moved and add a merge commit
+    // that hides the one named after the work.
+    const childCommit =
+      resolve(parent) === resolve(child)
+        ? parentCommit
+        : await writeWorkingTreeCommit({
+            cwd: child,
+            subject,
+            deadlineMs,
+            now,
+            shouldInterrupt,
+          });
     if (!childCommit.ok) {
       return failRestore(childCommit);
     }
@@ -248,14 +268,14 @@ export async function gitMerge(input: {
 
     // Nothing to fold: the Parent already holds everything the Child has.
     if (incoming.oid === parentCommit.oid) {
-      return await settle(parentCommit.oid);
+      return await settle(parentCommit.oid, false);
     }
     const behind = await isAncestor(incoming.oid, parentCommit.oid, timed());
     if (!behind.ok) {
       return failRestore(behind);
     }
     if (behind.value) {
-      return await settle(parentCommit.oid);
+      return await settle(parentCommit.oid, false);
     }
     // Only the Child moved: the Parent takes its history as is.
     const ahead = await isAncestor(parentCommit.oid, incoming.oid, timed());
@@ -279,7 +299,7 @@ export async function gitMerge(input: {
       if (checkout.exitCode !== 0) {
         return failRestore(gitFailed(checkout));
       }
-      return await settle(incoming.oid);
+      return await settle(incoming.oid, true);
     }
 
     const merged = await git(
@@ -335,7 +355,7 @@ export async function gitMerge(input: {
       });
     }
 
-    return await settle(mergeOid);
+    return await settle(mergeOid, true);
   } catch (error) {
     if (error instanceof IntegrationStoppedError) {
       await restoreGitState({ parent, savedHead, indexBackup });

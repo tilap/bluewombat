@@ -215,6 +215,7 @@ Idempotence is on `key` unless a row says otherwise.
 | `markIntegrating`       | The unit passed its Gates. State → `integrating`, bail renewed                                                                                                                                                | Not `running`                                                                                                                                                       |
 | `markSubmitted`         | Ticket → `submitted`. Records the Authority's opaque `reference`. A second call keeps the first reference and any `last_report`                                                                              | Not `integrating` or `submitted`                                                                                                                                    |
 | `recordRefusal`         | Authority / assembly Gates sent the work back. Increment `refusals`, store `last_report`, Ticket → `integrating`. Clears a stale parked refusal, if one is held                                              | Not `submitted`                                                                                                                                                     |
+| `recordRealign`         | The line moved on while the Submission waited. Ticket → `integrating`, `realigns` + 1, the report of an earlier refusal dropped (it was repaired), no refusal counted. Only from `submitted`. `markSubmitted` keeps `realigns` |
 | `recordParkedRefusal`   | `assembly.validate` sent the work back before any Submission exists. Store the parked report, increment `parked_refusals`                                                                                     | Not `integrating`                                                                                                                                                   |
 | `clearParkedRefusal`    | `assembly.validate` accepted. Drop the parked report; the counter stays — it is the budget already spent                                                                                                      | —                                                                                                                                                                   |
 | `markMerging`           | Ticket → `merging`                                                                                                                                                                                           | Not `integrating` or `submitted`                                                                                                                                    |
@@ -224,8 +225,8 @@ Idempotence is on `key` unless a row says otherwise.
 | `cancel`                | Ticket → `cancelled`                                                                                                                                                                                         | `merging` or `done`; an escalation that was born in `merging`                                                                                                       |
 | `declareWorkspace`      | Record the workspace path **before** glue creates it                                                                                                                                                          | Ticket `done` or `cancelled`                                                                                                                                       |
 | `clearWorkspace`        | Drop the declared path after glue deleted that directory                                                                                                                                                      | —                                                                                                                                                                   |
-| `expireBail`            | Bail past expiry: a `running` Ticket starts the unit over (consume an Attempt, forget the workspace); any other state only loses its bail                                                                    | No bail, or bail not expired                                                                                                                                        |
-| `releaseBail`           | Same ledger outcome as an expired bail on a `running` Ticket, without waiting for the clock. A `running` Ticket with no bail is success with no rewrite                                                    | Ticket not `running`                                                                                                                                               |
+| `expireBail`            | Bail past expiry: a `running` Ticket's unit stops (consume an Attempt; the workspace stays declared); any other state only loses its bail                                                                    | No bail, or bail not expired                                                                                                                                        |
+| `releaseBail`           | A `running` Ticket's unit stops, without waiting for the clock and without consuming an Attempt (the stopped pass recorded its own); the workspace stays declared. A `running` Ticket with no bail is success with no rewrite                                                    | Ticket not `running`                                                                                                                                               |
 | `renewBail`             | Push bail expiry forward by the configured duration. Allowed while a bail is held                                                                                                                             | No bail                                                                                                                                                             |
 
 `resumeTicket` from `invalid` requires `admit` of a corrected TicketStandard
@@ -271,6 +272,7 @@ A Feature is stored through the same Port, beside the Tickets, with
 
 | Command                | Meaning                                                                                                                                                                          | Refused when                                                        |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `setFeatureSkipE2e`    | Put on or take off the tracker's e2e skip mark of a Feature (`intention.skip_e2e`), while it is `waiting`, `open` or `escalated`. A Ticket's `intention.e2e` is set by its admission | `submitted`, `done`, `cancelled` (`illegal-transition`); unknown key (`not-found`) |
 | `admitFeature`         | Store as `waiting`. While waiting, an edit replaces the intention; once held (`open` / `submitted` / `escalated`), it is recorded as pending and the echo of an edit is a success | `done` (`too-late`); `cancelled` (`illegal-transition`)             |
 | `openFeature`          | `waiting` → `open`, recording the line and the keys of its Tickets                                                                                                               | Not `waiting`; the Project already holds a Feature (`project-busy`) |
 | `markFeatureSubmitted` | `open` → `submitted`, recording the Authority's opaque `reference`                                                                                                               | Not `open`                                                          |
@@ -298,12 +300,17 @@ in this implementation. Glue renews with `startUnit` / `markIntegrating` /
 `markSubmitted`; `renewBail` exists if expiry would otherwise pass during a
 long Attempt.
 
-Expired bail: `expireBail`. A `running` Ticket starts the unit over from zero
-and consumes an Attempt. The declared workspace is forgotten (glue deletes the
-directory). The ledger decides; glue acts.
+Expired bail: `expireBail`. A `running` Ticket's unit stops and consumes an
+Attempt. The declared workspace stays declared, with `first_stage_done` if the
+stage before the producer was complete in it: the next pass picks it up, or
+starts over if the directory is gone (`clearWorkspace`, `releaseBail` + glue).
+A human's `resumeTicket` of a unit forgets both: that unit starts from zero.
+The ledger decides; glue acts.
 
 A clean stop (or an operator) that knows the holder is gone calls
-`releaseBail`: the same `running` outcome, without the clock. It refuses
+`releaseBail`: the same `running` outcome, without the clock and without
+consuming an Attempt (`markFirstStageDone` records that the stage before the
+producer is complete in the declared workspace; `declareWorkspace` resets it). It refuses
 `integrating`, `submitted`, `merging`, and every terminal state — those do not
 hold a unit. A `running` Ticket that holds no bail is success with no rewrite.
 

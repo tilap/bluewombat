@@ -44,7 +44,7 @@ function detailOf(aggregate: TicketAggregate): string {
     case "integrating":
       return aggregate.parked_refusal === undefined
         ? "assembling"
-        : "assembly.validate sent it back (repair on its way)";
+        : "ticket.validate sent it back (repair on its way)";
     case "invalid":
       return aggregate.invalid?.reason ?? "";
     default:

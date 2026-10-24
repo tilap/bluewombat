@@ -146,12 +146,13 @@ export type Invocation = {
   /** Which Gate produced `report`, when a Gate did. */
   reportFrom?: string;
   /**
-   * One piece of work, or the whole that pieces assemble into.
+   * One piece of work, or a whole that pieces assemble into: a Ticket, or a
+   * Feature made of Tickets.
    *
    * A check written for one can be wrong for the other, so each is told which
    * it is looking at rather than left to guess. Absent: a piece of work.
    */
-  stage?: "unit" | "assembly";
+  stage?: "unit" | "tests" | "ticket" | "feature";
   /**
    * What this Task belongs to, passed to the producer and used for nothing else.
    *
@@ -161,6 +162,12 @@ export type Invocation = {
    */
   context?: string;
   maxAttempts: number;
+  /**
+   * The number of the first Attempt of this run: 1, unless an earlier run of the same Task
+   * already made some. They count against `maxAttempts` and are the numbers the status and
+   * the journal show, so a Task picked up again goes on instead of starting its count over.
+   */
+  firstAttempt?: number;
   /** How long the producer may run, at most. Required: nothing else bounds it. */
   builderTimeoutMs: number;
   /** The same, for `repairArgv`. Absent: `builderTimeoutMs`. */

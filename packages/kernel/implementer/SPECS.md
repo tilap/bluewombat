@@ -53,10 +53,11 @@ not read configuration from the workspace.
 | `--repair-gate <id> -- <argv…>` | One Gate judging the Attempt that ran `--repair-builder`, instead of `--gate`'s list. Repeatable; same rules as `--gate`. **May be omitted** (empty sequence) — a repair Attempt with no `--repair-gate` of its own runs ungated, even when `--gate` names Gates. |
 | `--repair-gate-timeout-ms`    | Positive integer. **Required before each `--repair-gate`.** Wall clock of that Gate.                                        |
 | `--max-attempts`              | Positive integer. Attempts this invocation may start.                                                                       |
+| `firstAttempt` (library only) | Number of the first Attempt, default 1, when earlier runs of the same Task already made some: they count against `--max-attempts` and the numbers go on from them. Above `--max-attempts`, the run escalates at once. |
 | `--report`                    | Optional. Failure report passed to the producer on Attempt 1 (and kept for retries).                                        |
 | `--report-from`               | Optional. Which Gate produced `--report`, when a Gate did.                                                                  |
 | `--context`                   | Optional. Larger piece of work this Task belongs to. Passed through to the producer, and named as `key` on every progress line. |
-| `--stage`                     | Optional. `unit` or `assembly`. Passed to Gates. Absent: Gates receive `unit`.                                              |
+| `--stage`                     | Optional. `unit` or `ticket`. Passed to Gates. Absent: Gates receive `unit`.                                              |
 | `--on-status -- <argv…>`      | Optional. Command to run each time Status changes. Omitted: Status still goes to stdout.                                    |
 
 No other argument is read.
@@ -147,6 +148,13 @@ are cut two seconds later, so a process that still escaped cannot hold the
 outcome back. What is
 still running when the invocation itself exits is killed.
 
+**A producer killed at its clock is not a failed Attempt by itself.** It may have
+finished and been verifying when the clock ran out, and what it left in the workspace is
+the work. The Attempt's Gates judge it as they would a producer that exited 0, and the
+Attempt ends on their verdict: `validated` if they pass, else the refusal of the Gate
+that refused, which is what the next producer is told. With no Gate in the list there is
+nothing to judge it by, and the Attempt stays `fail-retryable`.
+
 **Nothing is derived from what another child left behind.** There is no Attempt
 clock and no Task clock. A budget computed from a deadline is how a producer
 that overran left its Gates a millisecond to answer in — they were killed on
@@ -188,7 +196,8 @@ producer's own last words; Implementer keeps it in the Attempt's trace
 | Stdout is JSON `{ "outcome": "fail-blocking", "report": "..." }`  | `fail-blocking`      | that `report`                          |
 | Stdout is JSON `{ "outcome": "fail-retryable", "report": "..." }` | `fail-retryable`     | that `report`                          |
 | Non-zero exit, no such JSON                                       | `fail-retryable`     | the end of stdout and stderr (8 KiB)                     |
-| Killed by a clock                                                 | `fail-retryable`     | which clock, then what the child wrote                   |
+| Killed by a clock, with Gates to judge it by                      | the Gates' verdict   | none for the kill: the red Gate's report, if one refused |
+| Killed by a clock, with no Gate                                   | `fail-retryable`     | which clock, and that it left no answer (a sentence; what the child wrote stays in the Trace, clipped to its end) |
 | Stop signal                                                       | `interrupted`        | none                                                     |
 | Cannot spawn (not found, not executable)                          | `fail-blocking`      | why                                                      |
 
@@ -237,7 +246,7 @@ command. No `--report`: the Gate judges the workspace.
 | `--gate-id`            | This Gate's `id`                      |
 | `--intention`          | Same as the Builder                   |
 | `--timeout-ms`         | The ceiling this Gate is killed at, in milliseconds. A Gate that waits on others (a CI) uses it to answer before the kill, because a kill reads as a refusal of the work |
-| `--stage`              | `unit` or `assembly` (default `unit`) |
+| `--stage`              | `unit` or `ticket` (default `unit`) |
 
 Stdout: one JSON object.
 
