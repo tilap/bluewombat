@@ -7,11 +7,14 @@ import {
   type TicketAggregate,
   type WorkLedger,
 } from "@bluewombat/work-ledger";
+import { findConfig } from "../config/find-config.js";
 import { parseArgs } from "../config/parse-args.js";
 import type { HostInvocation } from "../config/types.js";
 import { journalPath, parseJournalChunk } from "../loop/journal.js";
+import { hostVersion } from "../loop/open-host.js";
 import { openPersist } from "../plugins/persist.js";
 import { buildDossier, renderDossier } from "./incident-dossier.js";
+import { systemOf } from "./incident-system.js";
 import { transcriptDir } from "./log.js";
 
 export type IncidentInput = {
@@ -23,6 +26,7 @@ export type IncidentInput = {
 
 type Flags = {
   json: boolean;
+  withConfig: boolean;
   out?: string;
   rest: string[];
   error?: string;
@@ -81,6 +85,12 @@ export async function runIncident(input: IncidentInput): Promise<number> {
       ...(parent === undefined ? {} : { parent }),
       journal: readJournal(invocation.ledgerRoot),
       invocation,
+      system: systemOf({
+        invocation,
+        ...configPathOf(input.cwd, flags.rest),
+        hostVersion: hostVersion(),
+        withConfig: flags.withConfig,
+      }),
       streamsDir: invocation.observability?.streams?.dir ?? join(invocation.home, "streams"),
       ...transcriptsOf(invocation),
       now: (input.now ?? (() => new Date()))(),
@@ -223,9 +233,18 @@ function transcriptsOf(invocation: HostInvocation): { transcriptsDir?: string } 
   return dir === undefined ? {} : { transcriptsDir: dir };
 }
 
+/** The config file the invocation was read from: `--config`, else the nearest. */
+function configPathOf(cwd: string, rest: string[]): { configPath?: string } {
+  const at = rest.indexOf("--config");
+  const given = at >= 0 ? rest[at + 1] : undefined;
+  const path = given === undefined ? findConfig(cwd) : resolve(cwd, given);
+  return path === undefined ? {} : { configPath: path };
+}
+
 function peelFlags(argv: string[]): Flags {
   const rest: string[] = [];
   let json = false;
+  let withConfig = false;
   let out: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -233,10 +252,14 @@ function peelFlags(argv: string[]): Flags {
       json = true;
       continue;
     }
+    if (token === "--with-config") {
+      withConfig = true;
+      continue;
+    }
     if (token === "--out") {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith("-")) {
-        return { json, rest, error: "--out needs a directory." };
+        return { json, withConfig, rest, error: "--out needs a directory." };
       }
       out = value;
       i += 1;
@@ -244,5 +267,5 @@ function peelFlags(argv: string[]): Flags {
     }
     rest.push(token ?? "");
   }
-  return { json, rest, ...(out === undefined ? {} : { out }) };
+  return { json, withConfig, rest, ...(out === undefined ? {} : { out }) };
 }

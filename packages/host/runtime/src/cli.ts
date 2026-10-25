@@ -48,7 +48,8 @@ A gate's --*-gate-timeout-ms comes before the --*-gate it bounds.
 watch / status also take --json (snapshot as JSON). explain takes an optional role
 (builder.producer, builder.repair, ticket.fix, ticket.validate, authority.describe) and --json.
 
-incident takes a key (or its tracker number), --json, and --out DIR (writes incident.md and incident.json).
+incident takes a key (or its tracker number), --json, --out DIR (writes incident.md and incident.json),
+and --with-config (adds the config file, values of secret-looking keys blanked).
 Without a key it lists what is waiting for a person.
 
 log also takes --problems, --all, and --json (every kept line).

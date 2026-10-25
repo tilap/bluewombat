@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { FeatureAggregate, TicketAggregate } from "@bluewombat/work-ledger";
 import type { HostInvocation } from "../config/types.js";
 import { slug } from "../loop/streams.js";
+import type { SystemFacts } from "./incident-system.js";
 
 /**
  * What `mason incident` hands to whoever has to understand a stop.
@@ -121,6 +122,8 @@ export type Dossier = {
   parent?: { key: string; kind: "feature"; state: string; title?: string; tickets: TicketRow[] };
   tickets?: TicketRow[];
   gate_config?: GateConfigRow[];
+  /** Versions, and what the configuration switched on. */
+  system?: SystemFacts;
   timeline: TimelineRow[];
   artifacts: { streams: StreamRow[]; transcripts: TranscriptRow[] };
   /** What could not be found. A reader must not read an absence as a "no". */
@@ -138,6 +141,7 @@ export type DossierInput = {
   invocation?: HostInvocation;
   streamsDir?: string;
   transcriptsDir?: string;
+  system?: SystemFacts;
   now: Date;
 };
 
@@ -276,6 +280,9 @@ export function buildDossier(input: DossierInput): Dossier {
     } else {
       gaps.push(`Gate ${gate.gate_id} is not in the current configuration.`);
     }
+  }
+  if (input.system !== undefined) {
+    dossier.system = input.system;
   }
   collectStreams(dossier, round, input.streamsDir, gate, gaps);
   collectTranscripts(dossier, key, input.transcriptsDir, gaps);
@@ -817,6 +824,9 @@ export function renderDossier(dossier: Dossier): string {
       );
     }
   }
+  if (dossier.system !== undefined) {
+    out.push(...renderSystem(dossier.system));
+  }
   if (dossier.timeline.length > 0) {
     out.push("");
     out.push("## Timeline of the last round");
@@ -865,6 +875,51 @@ export function renderDossier(dossier: Dossier): string {
   }
   out.push("");
   return out.join("\n");
+}
+
+function renderSystem(system: SystemFacts): string[] {
+  const { bluewombat, config } = system;
+  const out = ["", "## The system", ""];
+  out.push(`- bluewombat ${bluewombat.host}, node ${bluewombat.node}, ${bluewombat.platform}`);
+  if (system.packages.length > 0) {
+    out.push(
+      `- installed: ${system.packages.map((pkg) => `${pkg.name.replace("@bluewombat/", "")} ${pkg.version}`).join(", ")}`,
+    );
+  }
+  out.push(`- trackers: features ${config.featureTracker}, tickets ${config.ticketTracker}`);
+  out.push(`- ledger: ${config.persist}; work line isolation: ${config.isolation}`);
+  out.push(
+    `- authority: ${config.authority}; tickets in parallel: ${config.maxParallel}; streams: ${config.streams}`,
+  );
+  const limits = Object.entries(config.limits).map(([name, value]) => `${name} ${value}`);
+  if (limits.length > 0) {
+    out.push(`- limits: ${limits.join(", ")}`);
+  }
+  out.push(
+    `- passes: ${Object.entries(config.reviews)
+      .map(([name, value]) => `${name} ${value}`)
+      .join("; ")}`,
+  );
+  if (Object.keys(config.agents).length > 0) {
+    out.push(
+      `- agents: ${Object.entries(config.agents)
+        .map(([role, program]) => `${role} ${program}`)
+        .join("; ")}`,
+    );
+  }
+  for (const [name, ids] of Object.entries(config.gates)) {
+    out.push(`- ${name}: ${ids.join(", ")}`);
+  }
+  out.push(`- config: ${config.path ?? config.dir}`);
+  if (config.raw !== undefined) {
+    out.push(
+      "",
+      "The configuration file, values of secret-looking keys blanked:",
+      "",
+      fence(config.raw),
+    );
+  }
+  return out;
 }
 
 function fence(text: string): string {

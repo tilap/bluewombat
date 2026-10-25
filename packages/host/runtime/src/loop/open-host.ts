@@ -43,7 +43,7 @@ export type { Host, HostTickResult } from "./tick.js";
  * thing in the journal that tells them apart afterwards. Unknown rather than
  * fatal: a film is not worth failing a run over.
  */
-function hostVersion(): string {
+export function hostVersion(): string {
   try {
     const manifest = fileURLToPath(new URL("../../package.json", import.meta.url));
     const parsed: unknown = JSON.parse(readFileSync(manifest, "utf8"));

@@ -58,7 +58,7 @@ package's README — Host does not grow a `--repo` flag for it.
 | `mason init`    | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
 | `mason setup`   | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
 | `mason doctor`  | Check the config, the slots, and the manager. Exit 1 on any failure                    |
-| `mason incident` | Gather what is known about one stop (ledger, journal, streams, transcripts) into one page, for a person to read or hand on. Without a key, list what waits. `--json`, `--out DIR`. Read-only |
+| `mason incident` | Gather what is known about one stop (ledger, journal, streams, transcripts) into one page, for a person to read or hand on. Without a key, list what waits. `--json`, `--out DIR`, `--with-config`. Read-only |
 | `mason explain` | Say what an agent role starts with: prompt, plugins, skills, the project's profile. Read-only, offline. Exit 1 on a setup every attempt would fail on |
 | `mason cancel`  | Abandon a Ticket by key, when the tracker cannot say it is gone                       |
 | `mason release` | Drop a held unit without waiting for the bail clock                                    |
@@ -152,9 +152,11 @@ run knows of it:
 mason incident                  # what waits for a person
 mason incident 106              # one stop: the key, or the tracker's number
 mason incident 106 --out ./inc  # incident.md and incident.json, to hand on
+mason incident 106 --with-config  # also the config file, secret-looking values blanked
 ```
 
-The page says who refused the work and what they said, the Tickets of the
+The page says what the run was made of (versions, what the configuration switched
+on), who refused the work and what they said, the Tickets of the
 Feature with their pull requests, the Gate's configuration, the journal's events
 of the last round and where the streams and transcripts are. What it could not
 find is listed under "Not found". Streams exist only if the Project turned them

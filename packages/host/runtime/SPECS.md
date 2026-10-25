@@ -388,7 +388,11 @@ stop (layer, what the ledger says verbatim, who refused it, the Gate or agent
 that ended the last round with its verdict, the Task and Attempt, the moment);
 the stops of this subject in the journal and its resumes; the budgets spent;
 the Tickets of the Feature, each with state, Attempts, pull request and the
-moment it landed; the configuration of the refusing Gate; the journal's events
+moment it landed; the configuration of the refusing Gate; the system (bluewombat,
+Node, the `@bluewombat/*` packages the Project installed, and what the
+configuration switched on: trackers, ledger, Authority, tickets in parallel,
+limits, which passes run an agent or only Gates, each Gate sequence, streams;
+a command shows its program only, never its arguments, which may hold a key); the journal's events
 of the last round; the stream files and the transcripts under the subject, with
 the end of the refusing Gate's stream, each agent's exit, duration, closing
 words and `MASON_VERDICT` / `MASON_BLOCKED` line; and `gaps`, what could not be
@@ -397,7 +401,10 @@ stream that was never filmed or is gone, a Gate no longer in the configuration
 and a subject that is not stopped are each said in `gaps`. The last round is
 what the journal holds between the previous stop of the subject (or its
 beginning) and the last `status` of phase `escalated`; without that line the
-page says so and takes the moment from the ledger. The page quotes the ledger's
+page says so and takes the moment from the ledger. `--with-config` adds the
+configuration file itself, with the value of any `key: value` line whose key
+looks like a secret (token, secret, password, api key, credential) blanked. The
+page quotes the ledger's
 words with a fence longer than any backtick run in them.
 
 An escalation records, beside its words, who refused it (`refused_by`: a Gate's

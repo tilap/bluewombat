@@ -707,6 +707,17 @@ comment says "while submitting the work" for each, and the ledger records no `ki
 fixed: the right stage of each is a product wording to agree on, and the manager's rendering of it
 is tested in two packages.
 
+### F37 · `mason incident --with-config` blanks secrets by the name of the key, line by line
+
+`packages/host/runtime/src/operator/incident-system.ts` (`redact`)
+
+A line `key: value` whose key contains token, secret, password, api key, credential or private key
+loses its value. A secret under a key with another name, in a list (`- sk-…`), in an argument of a
+command, on a line of its own or inside a multi-line scalar is not found. The page is meant to be
+handed to someone else, so the flag is off unless asked, and the commands' arguments are never
+copied outside it. Names of environment variables (`tokenEnv: GITHUB_TOKEN`) are blanked too: safe,
+and less useful. **Instead**: parsing the YAML and blanking by path; an allow-list of keys.
+
 ## U — Never run against the real thing
 
 Everything here is covered by tests. None of it has been seen working outside
