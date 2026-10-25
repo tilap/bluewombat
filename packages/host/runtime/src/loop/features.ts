@@ -695,8 +695,17 @@ async function escalateFeature(
   input: HostDeliveryInput,
   feature: FeatureAggregate,
   report: string,
+  /** Where the line stopped and who refused it, when the caller knows. */
+  origin:
+    | { kind: "assembly" | "submitted"; refusedBy?: string | undefined }
+    | undefined = undefined,
 ): Promise<void> {
-  const escalated = await input.ledger.escalateFeature({ key: feature.intention.key, report });
+  const escalated = await input.ledger.escalateFeature({
+    key: feature.intention.key,
+    report,
+    ...(origin === undefined ? {} : { kind: origin.kind }),
+    ...(origin?.refusedBy === undefined ? {} : { refusedBy: origin.refusedBy }),
+  });
   if (!escalated.ok) {
     return;
   }
@@ -710,7 +719,8 @@ async function escalateFeature(
       key: feature.intention.key,
       project: feature.intention.project,
       eventId: `${feature.intention.key}:escalated:${round}`,
-      fields: { reason: report, stage: "submitting" },
+      // The assembled line refused by a check is not a Submission refused: say which it was.
+      fields: { reason: report, stage: origin?.kind === "assembly" ? "integrating" : "submitting" },
     },
     TO,
   );
@@ -775,6 +785,7 @@ function featureStore(input: HostDeliveryInput, feature: FeatureAggregate): Deli
         input,
         feature,
         frozen.report ?? "The line was stopped, with no reason given.",
+        { kind: frozen.kind, refusedBy: frozen.refusedBy },
       );
       return { outcome: "escalated", key };
     },

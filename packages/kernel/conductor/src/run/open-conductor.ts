@@ -288,7 +288,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
    */
   async function freeze(
     key: string,
-    input: { kind: EscalationKind; report?: string },
+    input: { kind: EscalationKind; report?: string; refusedBy?: string | undefined },
   ): Promise<ProjectRunResult> {
     const got = await ledger.get(key);
     const pending =
@@ -302,6 +302,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       key,
       kind: input.kind,
       ...(report.length === 0 ? {} : { report }),
+      ...(input.refusedBy === undefined ? {} : { refusedBy: input.refusedBy }),
     });
     const failure = fromLedger(escalated);
     if (failure !== undefined) {

@@ -58,6 +58,7 @@ package's README — Host does not grow a `--repo` flag for it.
 | `mason init`    | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
 | `mason setup`   | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
 | `mason doctor`  | Check the config, the slots, and the manager. Exit 1 on any failure                    |
+| `mason incident` | Gather what is known about one stop (ledger, journal, streams, transcripts) into one page, for a person to read or hand on. Without a key, list what waits. `--json`, `--out DIR`. Read-only |
 | `mason explain` | Say what an agent role starts with: prompt, plugins, skills, the project's profile. Read-only, offline. Exit 1 on a setup every attempt would fail on |
 | `mason cancel`  | Abandon a Ticket by key, when the tracker cannot say it is gone                       |
 | `mason release` | Drop a held unit without waiting for the bail clock                                    |
@@ -143,6 +144,22 @@ names how many were kept and how many are shown. The closing tally counts each
 distinct failure. If a slot was started with `--transcript-dir`, the newest
 transcript files are named underneath, with the agent exit and duration read
 from the start of each file.
+
+When a Ticket or a Feature is waiting for a person, `incident` gathers what the
+run knows of it:
+
+```bash
+mason incident                  # what waits for a person
+mason incident 106              # one stop: the key, or the tracker's number
+mason incident 106 --out ./inc  # incident.md and incident.json, to hand on
+```
+
+The page says who refused the work and what they said, the Tickets of the
+Feature with their pull requests, the Gate's configuration, the journal's events
+of the last round and where the streams and transcripts are. What it could not
+find is listed under "Not found". Streams exist only if the Project turned them
+on (`--streams-dir`); without them the page has the Gate's report but not what
+the Gate printed.
 
 To abandon a Ticket the tracker can no longer mention (a deleted issue, a
 manager with no `probe`), stop `run` if it holds the ledger lock, then:
@@ -706,7 +723,7 @@ change that breaks it does not merge.
 | `config/`            | What a Project wrote: argv, `mason.config.yaml`, discovery, `HostOptions`. Pure: YAML in, options out                                                     | A runtime value (a Journal, a Port, a process handle)            | Node, `manager-kit` types                     |
 | `plugins/`           | Load a package by name and check its shape: a manager, an isolation strategy                                                                              | What to do with the loaded thing                                 | `config`                                      |
 | `loop/`              | The process: listen → probe → adapt → admit → run → report; composition (`open-host`, `transformers`, Authority, work line, lock, Cursor, journal, trace) | A command a human types; a string a human reads about the config | `plugins`, `config`, the kernel, Transformers |
-| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `cancel`, `release`, `board`, the terminal prompt                                | Anything the loop needs — the loop cannot see this layer         | everything below                              |
+| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `incident`, `cancel`, `release`, `board`, the terminal prompt                                | Anything the loop needs — the loop cannot see this layer         | everything below                              |
 | `index.ts`, `cli.ts` | The package surface and the dispatch. Nothing else sits at the top of `src/`                                                                              | Logic                                                            | everything                                    |
 
 Host's code names no plugin. A manager, an isolation strategy, a persistence
@@ -761,6 +778,6 @@ src/
   config/                argv, JSON config, config discovery → HostOptions; defaults: the plugin names Host ships with
   plugins/               load: the one loader; manager, isolation, persist: one shape each; discover
   loop/                  open-host (composition), tick (the loop), deliveries, drive, probe, report, authority, work-line, cursor, lock, journal (the film), streams (what a child said), trace, transformers
-  operator/              run, init, setup, doctor, explain, live (watch / status), log, film, cancel, release, board, prompt, git-remote
+  operator/              run, init, setup, doctor, explain, live (watch / status), log, incident, film, cancel, release, board, prompt, git-remote
 fixtures/                stand-in slots for the loop's tests
 ```

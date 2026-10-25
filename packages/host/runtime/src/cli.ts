@@ -5,6 +5,7 @@ import { DEFAULT_HOME } from "./config/home.js";
 import { runCancel } from "./operator/cancel.js";
 import { runDoctor } from "./operator/doctor.js";
 import { runExplain } from "./operator/explain.js";
+import { runIncident } from "./operator/incident.js";
 import { runInit } from "./operator/init.js";
 import { runLive } from "./operator/live.js";
 import { runLog } from "./operator/log.js";
@@ -19,6 +20,7 @@ const USAGE = `Usage: ${CLI_NAME} <command>
   watch    snapshot the ledger and follow the journal
   status   snapshot the ledger, then exit
   log      replay the journal, including why a phase stopped
+  incident gather what is known about one stop, for whoever has to understand it (read-only)
   cancel   abandon a Ticket by key (when the tracker cannot say it is gone)
   release  drop a held unit without waiting for the bail clock
   init     set this directory up — asks, writes, then runs setup
@@ -45,6 +47,9 @@ A gate's --*-gate-timeout-ms comes before the --*-gate it bounds.
 
 watch / status also take --json (snapshot as JSON). explain takes an optional role
 (builder.producer, builder.repair, ticket.fix, ticket.validate, authority.describe) and --json.
+
+incident takes a key (or its tracker number), --json, and --out DIR (writes incident.md and incident.json).
+Without a key it lists what is waiting for a person.
 
 log also takes --problems, --all, and --json (every kept line).
 --tail N limits the text film (0 = no limit). With --json it names kept and shown when it drops lines.
@@ -98,6 +103,13 @@ async function main(argv: string[]): Promise<number> {
       cwd: process.cwd(),
       argv: rest,
       write: (line) => process.stdout.write(line),
+    });
+  }
+  if (command === "incident") {
+    return await runIncident({
+      cwd: process.cwd(),
+      argv: rest,
+      write: (text) => process.stdout.write(text),
     });
   }
   if (command === "watch" || command === "status") {

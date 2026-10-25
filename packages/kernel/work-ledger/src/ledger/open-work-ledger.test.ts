@@ -281,6 +281,16 @@ describe("openWorkLedger (test-double Port)", () => {
     assert.equal((await requireAggregate(ledger, "fake:42")).resumes, 2);
   });
 
+  it("10d. an escalation keeps who refused it and when, when it is told", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admit(ticket());
+    await claimKey(ledger, "proj");
+    await ledger.escalate({ key: "fake:42", kind: "assembly", report: "red", refusedBy: "e2e" });
+    const aggregate = await requireAggregate(ledger, "fake:42");
+    assert.equal(aggregate.escalation?.refused_by, "e2e");
+    assert.equal(aggregate.escalation?.at, 1_000);
+  });
+
   it("10c. an Attempt is stamped with the round it belongs to", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await ledger.admit(ticket());
@@ -911,6 +921,26 @@ describe("Features", () => {
     assert.equal(got.aggregate.resumes, 1);
     assert.equal(got.aggregate.escalation, undefined);
     assert.equal(got.aggregate.submission?.reference, "pr-1");
+  });
+
+  it("keeps where a Feature stopped and who refused it, when it is told", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admitFeature(intentionOf());
+    await ledger.openFeature({ key: "fake:F1", line: "feature/1", tickets: [] });
+    await ledger.escalateFeature({
+      key: "fake:F1",
+      report: "e2e: too many",
+      kind: "assembly",
+      refusedBy: "e2e",
+    });
+    const got = await ledger.getFeature("fake:F1");
+    assert.ok(got.ok);
+    assert.deepEqual(got.aggregate.escalation, {
+      report: "e2e: too many",
+      kind: "assembly",
+      refused_by: "e2e",
+      at: 1_000,
+    });
   });
 
   it("cancels a Feature that is not done, and refuses one that is", async () => {

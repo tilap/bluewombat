@@ -221,7 +221,7 @@ the Ticket that was driven. The work line copy is refreshed onto the Feature's
 line before a Ticket starts: starting on a copy that was not fast-forwarded
 would build on a version that no longer exists.
 
-## 8. init, setup, doctor, watch, status, log, cancel and release
+## 8. init, setup, doctor, watch, status, log, incident, cancel and release
 
 `init` writes a config that already runs: the Builder is a stub that says what to replace
 (example Cursor CLI and Claude Code Builders live in `@bluewombat/slots/builders/`),
@@ -372,6 +372,43 @@ slot was given `--transcript-dir` it names the newest transcript files with
 the agent exit and duration read from the start of each file. A missing
 journal is not an error. Exit 2 when the config or `--tail` cannot be read.
 
+`incident [<key>]` gathers what is known about one stop into a single page, for a
+person (or anything else) who has to understand it. Read-only: it opens the
+ledger, the journal, the streams and the transcripts, and writes only where
+`--out DIR` says (`incident.md` and `incident.json`). It does not open Host, a
+manager or Conductor, so it works on a stopped run and on one still going. The
+key is a full key or the tracker's number (`106`, `#106`) when one key ends so;
+two matches name both and exit 2, no match exits 2. With no key it lists what
+waits for a person: every escalated Feature and Ticket, one line each. `--json`
+prints the page as JSON.
+
+The page is the schema `bluewombat.incident/1`. It states, without judging:
+the subject (kind, state, the first lines of what was asked, `blocked_by`); the
+stop (layer, what the ledger says verbatim, who refused it, the Gate or agent
+that ended the last round with its verdict, the Task and Attempt, the moment);
+the stops of this subject in the journal and its resumes; the budgets spent;
+the Tickets of the Feature, each with state, Attempts, pull request and the
+moment it landed; the configuration of the refusing Gate; the journal's events
+of the last round; the stream files and the transcripts under the subject, with
+the end of the refusing Gate's stream, each agent's exit, duration, closing
+words and `MASON_VERDICT` / `MASON_BLOCKED` line; and `gaps`, what could not be
+found. A reader must never read an absence as a "no": a missing journal, a
+stream that was never filmed or is gone, a Gate no longer in the configuration
+and a subject that is not stopped are each said in `gaps`. The last round is
+what the journal holds between the previous stop of the subject (or its
+beginning) and the last `status` of phase `escalated`; without that line the
+page says so and takes the moment from the ledger. The page quotes the ledger's
+words with a fence longer than any backtick run in them.
+
+An escalation records, beside its words, who refused it (`refused_by`: a Gate's
+id or a role, when the refusal came with a name) and when (`at`, the ledger's
+clock); a Feature's also records where its line stopped (`kind`: `assembly` for
+the assembled line refused by a check, `submitted` for its offer). All are
+optional: a record written before them stays readable, and the page then takes
+the refuser from the last non-passing Gate whose words the ledger repeats. The
+tracker is told the stage of a Feature's stop from that `kind` (`integrating`
+for an assembled line, `submitting` otherwise).
+
 `cancel <key>` abandons one Ticket the same way a `cancel` delivery does. The
 team still abandons in the TicketTracker; this is the hatch when the tracker
 cannot say the intention is gone (a manager with no `probe`, or an operator
@@ -440,5 +477,14 @@ positional: `release github:owner/name#19`.
     detail, hides `idle`, and `--problems` drops the phase labels that are not
     themselves the failure. `--json` returns every kept line. It does
     not import `openHost`.
+
+20. `incident` on a Feature escalated by a Gate names that Gate, quotes the ledger
+    verbatim, lists the Feature's Tickets with their pull requests and says in
+    `gaps` what it could not read. On a Ticket that stopped on a Gate it names
+    the Gate and the Feature above it. With no key it lists what waits. It
+    opens no Host and writes nothing but `--out`.
+21. A Feature's line refused by a check that cannot be repaired escalates with
+    `refused_by` set to that check and `kind` `assembly`, and the tracker is told
+    `integrating`.
 
 How to install, configure and run: [README.md](./README.md).

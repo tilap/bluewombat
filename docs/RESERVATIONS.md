@@ -385,6 +385,21 @@ filters them. The report keeps 40 lines of the server's log and 8000 characters.
 margin before its ceiling is 25 s, 20 of them for `--down`. **Instead**: a runner-specific
 parser; an allow-list of environment variables; a fixed set of test names.
 
+### C38 · `mason incident`: what the page holds, and how a round is cut
+
+`packages/host/runtime/src/operator/incident-dossier.ts`
+
+Chosen while writing it. The schema `bluewombat.incident/1` has no consumer yet: its fields were
+picked from one stopped Feature and one Ticket, not from a reader who had to act on them. "The
+last round" is the journal between the subject's previous `status` of phase `escalated` and the
+last one; a subject whose journal lacks that line gets the whole of it and a gap saying so. A
+key is found by its tracker number when exactly one key ends `#<n>`. The refuser of an older
+escalation is inferred from the last non-passing Gate whose first 80 characters the ledger
+repeats. Transcripts are listed under the subject's own key only, so the agents of a Feature's
+Tickets are reached through each Ticket's page, not the Feature's. **Instead**: a fixed list of
+fields agreed with a reader first; a round marked by a counter in the journal; the refuser read
+from the `Prefix:` of the ledger's sentence.
+
 ## F — Faults found and left
 
 ### F6 · RUNBOOKS.md says there are no secrets
@@ -681,6 +696,17 @@ That Gate also sees the suite's own results: the Project's `.gitignore` must exc
 `e2e/results/`, or the run's JUnit file is read as a change to the suite. Not found by a test
 of the whole path (the fixture in `open-host-authority.test.ts` has a fix with no Gate).
 
+### F36 · Most Feature escalations still tell the tracker they happened "while submitting"
+
+`packages/host/runtime/src/loop/features.ts` (`escalateFeature`)
+
+Only a stop the Conductor freezes (`assembly`, `submitted`) now carries where it happened. The
+other callers of `escalateFeature` (no Ticket can start, every Ticket abandoned, the work could not
+be folded, the publish or the offer refused, the Submission closed) pass no origin, so the tracker's
+comment says "while submitting the work" for each, and the ledger records no `kind` for them. Not
+fixed: the right stage of each is a product wording to agree on, and the manager's rendering of it
+is tested in two packages.
+
 ## U — Never run against the real thing
 
 Everything here is covered by tests. None of it has been seen working outside
@@ -881,6 +907,17 @@ the process group kill on a real dev server tree, a browser started inside the G
 shape (scenario, step, message, log tail, trace path) was written from a fixture, not read by an
 agent that had to repair from it.
 
+### U23 · `mason incident` has been run on one real ledger, never on a failing agent
+
+`packages/host/runtime/src/operator/incident.ts`; `incident-dossier.ts`
+
+Seen on a ledger where a Feature stopped on the e2e Gate (and on its done Tickets). Tested with a
+seeded Ticket that stopped on a Gate. Never seen on: a Ticket whose agent timed out, was killed or
+said `MASON_BLOCKED:`; a stop by an Authority's refusal after a Submission; a Ticket escalated
+twice; a journal rotated or truncated; a Project with `observability.streams` off, where the page
+has the Gate's report but nothing of what it printed; a transcript from a slot that is not the
+Cursor CLI (the closing words are read from its `result` line only).
+
 ## I — Working, and worse than it could be
 
 ### I4 · `ci-green` polling has no backoff
@@ -1048,3 +1085,16 @@ is the refusal's reason). Showing the pass means carrying a Gate's pass text out
 Implementer and into the Submission's description or a `progress` event, which touches the kernel,
 so it was not done. **Instead**: the Describer slot reading the journal; the Gate writing the
 list into the line itself (a file in the pull request).
+
+### I18 · The facts of a stop are gathered when asked, not when it happens
+
+`packages/host/runtime/src/operator/incident.ts`
+
+The page is rebuilt from the ledger, the journal and the files each time, so it can only show what
+survived: a workspace cleared, a stream discarded when its Ticket reached `done`, a transcript
+directory moved. The small artifacts a Gate looked at (the e2e manifest of a line, say) are not
+copied at the stop, and a Gate cannot name files that explain its verdict: the verdict is
+`{ verdict, report }` and no more. The journal also repeats a Ticket's whole intention in its
+`attempt-finished` and `run-finished` lines, which makes it heavy to read for this alone.
+**Instead**: a snapshot written at the escalation; an `evidence` field on a Gate's verdict.
+

@@ -144,7 +144,7 @@ function writeTranscripts(write: (line: string) => void, invocation: HostInvocat
   }
 }
 
-function transcriptDir(invocation: HostInvocation): string | undefined {
+export function transcriptDir(invocation: HostInvocation): string | undefined {
   const commands = [
     ...(invocation.builder.tests === undefined || !hasAgent(invocation.builder.tests)
       ? []

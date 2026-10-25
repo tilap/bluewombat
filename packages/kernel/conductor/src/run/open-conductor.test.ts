@@ -1160,6 +1160,51 @@ describe("openConductor", () => {
       assert.deepEqual(acted, ["submit fake:42"]);
     });
 
+    it("a refusal that nothing can repair stops the work and keeps who refused it", async () => {
+      const { stable, root } = tempPair();
+      const ledger = openWorkLedger({ persist: openMemoryPersist() });
+      await ledger.admit(ticket());
+      const { transformers } = recordingTransformers({
+        async implement(input) {
+          if (input.validate === true) {
+            return {
+              outcome: "escalated",
+              traces: [
+                { ended: "fail-blocking", report: "no test account", refusedBy: "reviewer" },
+              ],
+            };
+          }
+          return { outcome: "validated", traces: [{ ended: "validated" }] };
+        },
+      });
+      const authority: AuthorityPort = {
+        async submit() {
+          return { outcome: "submitted", reference: "ref-1" };
+        },
+        async fold() {
+          return { outcome: "folded" };
+        },
+      };
+      const conductor = openConductor({
+        ledger,
+        transformers,
+        workLineStable: stable,
+        workspaceRoot: root,
+        authority,
+        workLineTarget: "dev",
+        validate: true,
+        fixDeclared: true,
+      });
+
+      const result = await conductor.runProject("proj");
+      assert.equal(result.outcome, "escalated");
+      const got = await ledger.get("fake:42");
+      assert.ok(got.ok);
+      assert.equal(got.aggregate.escalation?.kind, "assembly");
+      assert.equal(got.aggregate.escalation?.refused_by, "reviewer");
+      assert.match(got.aggregate.escalation?.report ?? "", /reviewer: no test account/);
+    });
+
     it("a refusal parks the report and repairs on the next pass, without offering", async () => {
       const { stable, root } = tempPair();
       const ledger = openWorkLedger({ persist: openMemoryPersist() });

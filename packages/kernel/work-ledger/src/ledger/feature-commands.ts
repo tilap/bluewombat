@@ -48,7 +48,14 @@ export type FeatureCommands = {
   /** The tracker's e2e skip label moved: honoured while the Feature waits, is open or is escalated. */
   setFeatureSkipE2e(input: { key: string; skip: boolean }): Promise<CommandResult>;
   /** `open` or `submitted` → `escalated`, for a human. Consumes a pending edit. */
-  escalateFeature(input: { key: string; report?: string }): Promise<CommandResult>;
+  escalateFeature(input: {
+    key: string;
+    report?: string;
+    /** Where the line stopped, when the caller knows. */
+    kind?: "assembly" | "submitted";
+    /** What refused it, when the refusal came with a name. */
+    refusedBy?: string;
+  }): Promise<CommandResult>;
   /** `escalated` → `open`, a round later. */
   resumeFeature(key: string): Promise<CommandResult>;
   /** Anything but `done` → `cancelled`. */
@@ -296,11 +303,17 @@ export function openFeatureCommands(options: {
     async escalateFeature(input) {
       return await transition(input.key, ["open", "submitted"], (aggregate) => {
         aggregate.state = "escalated";
+        const escalation: NonNullable<FeatureAggregate["escalation"]> = { at: now() };
         if (input.report !== undefined && input.report.trim().length > 0) {
-          aggregate.escalation = { report: input.report };
-        } else {
-          aggregate.escalation = {};
+          escalation.report = input.report;
         }
+        if (input.kind !== undefined) {
+          escalation.kind = input.kind;
+        }
+        if (input.refusedBy !== undefined && input.refusedBy.length > 0) {
+          escalation.refused_by = input.refusedBy;
+        }
+        aggregate.escalation = escalation;
         delete aggregate.pending_fingerprint;
       });
     },

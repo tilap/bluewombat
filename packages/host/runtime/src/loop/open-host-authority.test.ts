@@ -810,6 +810,14 @@ describe("host with an Authority", () => {
     const feature = await stateOf(host);
     assert.equal(feature.state, "escalated");
     assert.match(feature.escalation?.report ?? "", /align: .*conflicts/);
+    // Who refused, and where it stopped, are kept apart from the sentence.
+    assert.equal(feature.escalation?.refused_by, "align");
+    assert.equal(feature.escalation?.kind, "assembly");
+    // The assembled line was refused: the tracker is not told it was a Submission.
+    assert.equal(
+      stub.reports.find((r) => r.event === "escalated" && r.key === FEATURE)?.fields.stage,
+      "integrating",
+    );
   });
 
   it("escalates the Feature when the line is closed without being folded, and resumes it on ready", async () => {

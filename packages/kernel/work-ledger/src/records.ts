@@ -87,6 +87,10 @@ export type EscalationRecord = {
    * again from the outside.
    */
   report?: string;
+  /** What refused it, when the refusal came with a name: a Gate's id, a role. Opaque, like `TraceRecord.refusedBy`. */
+  refused_by?: string;
+  /** When it stopped, in the ledger's clock. */
+  at?: number;
 };
 
 /**
@@ -230,7 +234,15 @@ export type FeatureAggregate = {
   /** Corrective rounds the parked refusals used. Kept when one is cleared: it is budget spent. */
   parked_refusals?: number;
   /** Why it stopped, in the words of whatever refused it. */
-  escalation?: { report?: string };
+  escalation?: {
+    report?: string;
+    /** Where the line stopped: the assembled work, or its offer to the Authority. */
+    kind?: "assembly" | "submitted";
+    /** What refused it, when the refusal came with a name. Opaque. */
+    refused_by?: string;
+    /** When it stopped, in the ledger's clock. */
+    at?: number;
+  };
   /** How many times a human's resume was taken. */
   resumes: number;
   pending_fingerprint?: string;

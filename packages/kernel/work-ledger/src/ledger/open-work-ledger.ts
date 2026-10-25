@@ -46,6 +46,8 @@ export type EscalateInput = {
   kind: EscalationKind;
   /** Why it stopped. Kept so the person who reads the escalation is told. */
   report?: string;
+  /** What refused it, when the refusal came with a name. */
+  refusedBy?: string;
 };
 
 export type RecordAttemptInput = {
@@ -617,6 +619,10 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       if (input.report !== undefined && input.report.trim().length > 0) {
         escalation.report = input.report;
       }
+      if (input.refusedBy !== undefined && input.refusedBy.length > 0) {
+        escalation.refused_by = input.refusedBy;
+      }
+      escalation.at = now();
       aggregate.escalation = escalation;
       // Freezing for a human consumes the in-flight update signal. Resume
       // continues the stored intention; a newer TicketStandard lands by admit.
