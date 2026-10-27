@@ -100,7 +100,6 @@ function labelsOf(over: Record<string, string> = {}) {
 const MASON = labelsOf();
 
 const LABELS = {
-  noTestsLabel: "no-tests",
   featureTestLabel: "feature-test",
   skipFeatureTestLabel: "skip-feature-test",
   resumeLabel: "to-resume",
@@ -116,10 +115,9 @@ describe("wantedLabels", () => {
       defaultProject: "app",
       stateLabels: MASON,
     }).map((label) => label.name);
-    assert.deepEqual(names.slice(0, 8), [
+    assert.deepEqual(names.slice(0, 7), [
       "feature-ready",
       "task-ready",
-      "no-tests",
       "feature-test",
       "merge-when-ready",
       "skip-feature-test",
@@ -127,7 +125,7 @@ describe("wantedLabels", () => {
       "project:app",
     ]);
     assert.ok(names.includes("mason:done"));
-    assert.equal(names.length, 8 + EVENT_NAMES.length);
+    assert.equal(names.length, 7 + EVENT_NAMES.length);
   });
 
   it("names a label once even when two settings ask for it", () => {
@@ -140,7 +138,6 @@ describe("wantedLabels", () => {
     assert.deepEqual(names, [
       "feature-ready",
       "to-resume",
-      "no-tests",
       "feature-test",
       "merge-when-ready",
       "skip-feature-test",
@@ -159,14 +156,7 @@ describe("wantedLabels with one name for both roles", () => {
     });
     assert.deepEqual(
       labels.map((label) => label.name),
-      [
-        "ready-for-agent",
-        "no-tests",
-        "feature-test",
-        "merge-when-ready",
-        "skip-feature-test",
-        "to-resume",
-      ],
+      ["ready-for-agent", "feature-test", "merge-when-ready", "skip-feature-test", "to-resume"],
     );
     assert.match(labels[0]?.description ?? "", /Feature.*Ticket/);
   });
@@ -181,7 +171,6 @@ describe("wantedLabels with one name for both roles", () => {
     }).map((label) => label.name);
     assert.deepEqual(names, [
       "Ready-For-Agent",
-      "no-tests",
       "feature-test",
       "merge-when-ready",
       "skip-feature-test",
@@ -195,7 +184,7 @@ describe("wantedLabels for one side", () => {
 
   it("wants only the Ticket label and the resume label for the ticket tracker", () => {
     const names = wantedLabels({ ...rest, sides: ["ticketTracker"] }).map((label) => label.name);
-    assert.deepEqual(names, ["task-ready", "no-tests", "feature-test", "to-resume"]);
+    assert.deepEqual(names, ["task-ready", "feature-test", "to-resume"]);
   });
 
   it("wants only the Feature labels and the resume label for the feature tracker", () => {
@@ -248,7 +237,6 @@ describe("setupManager", () => {
     assert.equal(stateOf(result, "label:to-resume"), "applied");
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
     assert.deepEqual(created, [
-      "no-tests",
       "feature-test",
       "merge-when-ready",
       "skip-feature-test",
@@ -272,7 +260,6 @@ describe("setupManager", () => {
     assert.deepEqual(created, [
       "spec-done",
       "ticket-done",
-      "no-tests",
       "feature-test",
       "auto-merge",
       "skip-feature-test",
@@ -294,7 +281,6 @@ describe("setupManager", () => {
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
     assert.deepEqual(created, [
       "ready-for-agent",
-      "no-tests",
       "feature-test",
       "merge-when-ready",
       "skip-feature-test",
@@ -309,7 +295,6 @@ describe("setupManager", () => {
     assert.deepEqual(created, [
       "feature-ready",
       "task-ready",
-      "no-tests",
       "feature-test",
       "merge-when-ready",
       "skip-feature-test",
@@ -325,7 +310,7 @@ describe("setupManager", () => {
     );
     assert.equal(result.ok, true);
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
-    assert.deepEqual(created, ["ticket-done", "no-tests", "feature-test", "to-resume"]);
+    assert.deepEqual(created, ["ticket-done", "feature-test", "to-resume"]);
   });
 
   it("blocks when an option sits under the wrong side", async () => {
@@ -571,40 +556,6 @@ describe("label colours", () => {
     const github = githubOf(repositoryOf(), []);
     const result = await setupManager(
       contextOf({ ...LABELS, fetch: github.fetch, labelColors: { resume: "red" } }),
-      { apply: false },
-    );
-    assert.equal(result.ok, false);
-  });
-});
-
-describe("the no-tests label", () => {
-  it("is created for the Ticket side, under the name the config chose, with its own colour", async () => {
-    const github = githubOf(repositoryOf(), []);
-    await setupManager(
-      contextOf(
-        { noTestsLabel: "sans-tests", labelColors: { "no-tests": "#FFAA00" }, fetch: github.fetch },
-        ["ticketTracker"],
-      ),
-      { apply: true },
-    );
-    const created = github.calls.find((c) => c.method === "POST" && c.body.name === "sans-tests");
-    assert.equal(created?.body.color, "ffaa00");
-  });
-
-  it("is not wanted by the Feature side", () => {
-    const names = wantedLabels({
-      ...LABELS,
-      defaultProject: undefined,
-      stateLabels: undefined,
-      sides: ["featureTracker"],
-    }).map((label) => label.name);
-    assert.equal(names.includes("no-tests"), false);
-  });
-
-  it("is refused under the Feature side, where it means nothing", async () => {
-    const github = githubOf(repositoryOf(), []);
-    const result = await setupManager(
-      contextOf({ noTestsLabel: "sans-tests", fetch: github.fetch }, ["featureTracker"]),
       { apply: false },
     );
     assert.equal(result.ok, false);

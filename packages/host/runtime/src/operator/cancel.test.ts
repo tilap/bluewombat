@@ -35,7 +35,6 @@ function sandbox(): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
-        tests: { agent: false, gates: [] },
         producer: {
           cmd: [node, builder],
           timeoutMs: 30_000,
@@ -103,7 +102,6 @@ describe("runCancel", () => {
       workspaceRoot: join(cwd, ".mason/workspaces"),
       ledgerRoot: join(cwd, ".mason/ledger"),
       builder: {
-        tests: { agent: false, gates: [] },
         producer: {
           cmd: [node, builder],
           timeoutMs: 30_000,

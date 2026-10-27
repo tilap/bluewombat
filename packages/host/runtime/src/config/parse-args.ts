@@ -566,7 +566,6 @@ function overlayBuilder(
     return base;
   }
   return {
-    ...(base?.tests === undefined ? {} : { tests: base.tests }),
     ...(base?.featureTest === undefined ? {} : { featureTest: base.featureTest }),
     producer,
     repair,

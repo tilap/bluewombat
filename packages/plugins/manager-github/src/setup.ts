@@ -17,7 +17,6 @@ const RESUME_COLOUR = "0e8a16";
 const ADMISSION_COLOUR = "1d76db";
 const STATE_COLOUR = "5319e7";
 const PROJECT_COLOUR = "c5def5";
-const NO_TESTS_COLOUR = "fbca04";
 const FEATURE_TEST_COLOUR = "0e8a16";
 const SKIP_FEATURE_TEST_COLOUR = "fbca04";
 
@@ -28,7 +27,6 @@ export type SetupSettings = {
   resumeLabel: string;
   featureReadyLabel: string;
   ticketReadyLabel: string;
-  noTestsLabel: string;
   featureTestLabel: string;
   skipFeatureTestLabel: string;
   mergeWhenReadyLabel: string;
@@ -147,7 +145,6 @@ export function wantedLabels(settings: {
   resumeLabel: string;
   featureReadyLabel: string;
   ticketReadyLabel: string;
-  noTestsLabel: string;
   featureTestLabel: string;
   skipFeatureTestLabel: string;
   mergeWhenReadyLabel: string;
@@ -192,11 +189,6 @@ export function wantedLabels(settings: {
       name: settings.ticketReadyLabel,
       ...colourOf("ticket-ready", ADMISSION_COLOUR),
       description: "on a Ticket: its specification is final",
-    });
-    wanted.push({
-      name: settings.noTestsLabel,
-      ...colourOf("no-tests", NO_TESTS_COLOUR),
-      description: `on a Ticket: ${PRODUCT} writes no tests before its code`,
     });
     wanted.push({
       name: settings.featureTestLabel,

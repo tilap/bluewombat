@@ -258,8 +258,8 @@ export async function advanceProject(
 }
 
 /** What the tracker says of a Ticket beside its words. */
-function marksOf(entry: TicketEntry): { noTests: boolean; featureTest: boolean } {
-  return { noTests: entry.no_tests, featureTest: entry.featureTest === true };
+function marksOf(entry: TicketEntry): { featureTest: boolean } {
+  return { featureTest: entry.featureTest === true };
 }
 
 function refOf(feature: FeatureAggregate): FeatureRef {
@@ -282,7 +282,7 @@ function admissionOf(
   ticket: TicketStandard,
   feature: FeatureAggregate,
   among: ReadonlySet<string>,
-  marks: { noTests: boolean; featureTest: boolean },
+  marks: { featureTest: boolean },
 ): TicketAdmission {
   return {
     key: ticket.key,
@@ -297,8 +297,6 @@ function admissionOf(
     ...(feature.line === undefined ? {} : { line: feature.line }),
     ...(ticket.title === undefined ? {} : { title: ticket.title }),
     ...(ticket.source === undefined ? {} : { source: ticket.source }),
-    // The Ticket that holds the acceptance suite writes the tests itself: none are written first.
-    ...(marks.noTests || marks.featureTest ? { no_tests: true } : {}),
     ...(marks.featureTest ? { featureTest: true } : {}),
   };
 }
@@ -549,15 +547,13 @@ async function syncTicket(
   }
   // Only a Ticket that has not started takes the new words: the tracker's
   // fingerprint moves with every comment, and a unit in flight is not rewritten.
-  // The label that says no tests are written first is not in the words, so it moves no
+  // The label that marks the feature-test Ticket is not in the words, so it moves no
   // fingerprint: it is compared on its own.
   const marks = marksOf(entry);
-  const flagged = current.aggregate.intention.no_tests === true;
   const holdsFeatureTest = current.aggregate.intention.featureTest === true;
   if (
     state === "received" &&
     (current.aggregate.intention.fingerprint !== ticket.fingerprint ||
-      flagged !== (marks.noTests || marks.featureTest) ||
       holdsFeatureTest !== marks.featureTest)
   ) {
     await input.ledger.admit(admissionOf(ticket, feature, known, marks));

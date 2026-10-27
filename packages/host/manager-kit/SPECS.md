@@ -48,7 +48,7 @@ first) `merge_when_ready` (its line may be folded without a human) and `skip_fea
 
 | Member      | Required | Job                                                                                                           |
 | ----------- | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `tickets`   | yes      | Every Ticket of a Feature, each a `TicketEntry`: the TicketStandard (`intention`, `blocked_by`, `priority`) and `task_ready`, `resume`, `no_tests`, `feature-test` (it holds the Feature's feature tests), `open` |
+| `tickets`   | yes      | Every Ticket of a Feature, each a `TicketEntry`: the TicketStandard (`intention`, `blocked_by`, `priority`) and `task_ready`, `resume`, `feature-test` (it holds the Feature's feature tests), `open` |
 | `report`    | yes      | One semantic Event onto a Ticket                                                                              |
 | `clearResume`| no       | Take a Ticket's resume signal back once acted on                                                              |
 | `probe`     | no       | Whether the Ticket this key named is still on the tracker                                                     |

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -18,8 +18,6 @@ const ciGreen = join(gates, "ci-green.mjs");
 const gitignoreLeak = join(gates, "gitignore-leak.mjs");
 const projectChecks = join(gates, "project-checks.mjs");
 const workspaceUnchanged = join(gates, "workspace-unchanged.mjs");
-const testsRed = join(gates, "tests-red.mjs");
-const testsFrozen = join(gates, "tests-frozen.mjs");
 
 function sandbox(): string {
   return mkdtempSync(join(tmpdir(), "host-gate-"));
@@ -860,147 +858,6 @@ describe("workspace-unchanged", () => {
     );
     const plain = sandbox();
     assert.match(verdictOf(run(workspaceUnchanged, plain)).report, /git workspace/);
-  });
-});
-
-describe("tests-red", () => {
-  function repoWithTest(): string {
-    const dir = sandbox();
-    gitInit(dir);
-    writeFileSync(join(dir, "code.txt"), "base\n");
-    gitCommit(dir, "init");
-    writeFileSync(join(dir, "a.test.ts"), "test\n");
-    return dir;
-  }
-
-  it("passes when the new tests fail on what they check", () => {
-    const dir = repoWithTest();
-    const result = verdictOf(
-      run(testsRed, dir, ["--cmd", "echo 'AssertionError: expected 1 to be 2'; exit 1"]),
-    );
-    assert.equal(result.verdict, "pass");
-  });
-
-  it("refuses tests that pass before the behaviour exists", () => {
-    const dir = repoWithTest();
-    const result = verdictOf(run(testsRed, dir, ["--cmd", "exit 0"]));
-    assert.equal(result.verdict, "fail-retryable");
-    assert.match(result.report ?? "", /test nothing that is missing/);
-  });
-
-  it("refuses tests that fail for a wrong reason, and says which", () => {
-    const dir = repoWithTest();
-    const result = verdictOf(
-      run(testsRed, dir, ["--cmd", "echo \"Error: Cannot find module './slugify'\"; exit 1"]),
-    );
-    assert.equal(result.verdict, "fail-retryable");
-    assert.match(result.report ?? "", /not on the missing behaviour: .*Cannot find module/);
-  });
-
-  it("takes the wrong reasons the Project names, in place of the defaults", () => {
-    const dir = repoWithTest();
-    const named = run(testsRed, dir, [
-      "--cmd",
-      "echo 'boom: setup failed'; exit 1",
-      "--not-red-when",
-      "setup failed",
-    ]);
-    assert.equal(verdictOf(named).verdict, "fail-retryable");
-    const defaults = run(testsRed, dir, [
-      "--cmd",
-      "echo \"Cannot find module 'x'\"; exit 1",
-      "--not-red-when",
-      "setup failed",
-    ]);
-    assert.equal(verdictOf(defaults).verdict, "pass");
-  });
-
-  it("asks for a test file when the pass wrote none", () => {
-    const dir = sandbox();
-    gitInit(dir);
-    writeFileSync(join(dir, "code.txt"), "base\n");
-    gitCommit(dir, "init");
-    writeFileSync(join(dir, "code.txt"), "changed\n");
-    const result = verdictOf(run(testsRed, dir, ["--cmd", "exit 1"]));
-    assert.equal(result.verdict, "fail-retryable");
-    assert.match(result.report ?? "", /No test file was added or changed/);
-  });
-
-  it("runs the command on the test files of the pass only, where {files} says", () => {
-    const dir = repoWithTest();
-    writeFileSync(join(dir, "other.test.ts"), "more\n");
-    const seen = join(dir, "seen.txt");
-    const result = verdictOf(
-      run(testsRed, dir, ["--cmd", `echo {files} > '${seen}'; echo 'AssertionError'; exit 1`]),
-    );
-    assert.equal(result.verdict, "pass");
-    const said = readFileSync(seen, "utf8");
-    assert.match(said, /a\.test\.ts/);
-    assert.match(said, /other\.test\.ts/);
-    assert.doesNotMatch(said, /code\.txt/);
-  });
-
-  it("is blocking when the command cannot run", () => {
-    const dir = repoWithTest();
-    const result = verdictOf(run(testsRed, dir, ["--cmd", "no-such-command-anywhere"]));
-    assert.equal(result.verdict, "fail-blocking");
-  });
-});
-
-describe("tests-frozen", () => {
-  function checkpoint(subject = "Tests: add slugify"): string {
-    const dir = sandbox();
-    gitInit(dir);
-    writeFileSync(join(dir, "code.txt"), "base\n");
-    gitCommit(dir, "init");
-    writeFileSync(join(dir, "a.test.ts"), "test\n");
-    gitCommit(dir, subject);
-    return dir;
-  }
-
-  it("passes when the tests of the checkpoint are as they were left", () => {
-    const dir = checkpoint();
-    writeFileSync(join(dir, "code.txt"), "the producer's work\n");
-    assert.equal(verdictOf(run(testsFrozen, dir)).verdict, "pass");
-  });
-
-  it("refuses a test file that was modified, deleted, or both", () => {
-    const edited = checkpoint();
-    writeFileSync(join(edited, "a.test.ts"), "edited until it passes\n");
-    const editedVerdict = verdictOf(run(testsFrozen, edited));
-    assert.equal(editedVerdict.verdict, "fail-retryable");
-    assert.match(editedVerdict.report ?? "", /a\.test\.ts/);
-    assert.match(editedVerdict.report ?? "", /not yours to change/);
-
-    const removed = checkpoint();
-    unlinkSync(join(removed, "a.test.ts"));
-    assert.equal(verdictOf(run(testsFrozen, removed)).verdict, "fail-retryable");
-  });
-
-  it("allows a new test file beside the frozen ones", () => {
-    const dir = checkpoint();
-    writeFileSync(join(dir, "b.test.ts"), "the producer adds a test\n");
-    assert.equal(verdictOf(run(testsFrozen, dir)).verdict, "pass");
-  });
-
-  it("freezes nothing when HEAD is not a checkpoint of the tests pass", () => {
-    const dir = checkpoint("Add slugify");
-    writeFileSync(join(dir, "a.test.ts"), "edited\n");
-    assert.equal(verdictOf(run(testsFrozen, dir)).verdict, "pass");
-  });
-
-  it("takes the test globs and the subject prefix the Project names", () => {
-    const dir = checkpoint("Specs: add slugify");
-    writeFileSync(join(dir, "a.test.ts"), "edited\n");
-    const unknown = run(testsFrozen, dir, [
-      "--subject-prefix",
-      "Specs: ",
-      "--test-glob",
-      "**/*.nope",
-    ]);
-    assert.equal(verdictOf(unknown).verdict, "pass");
-    const named = run(testsFrozen, dir, ["--subject-prefix", "Specs: "]);
-    assert.equal(verdictOf(named).verdict, "fail-retryable");
   });
 });
 

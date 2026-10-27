@@ -18,7 +18,7 @@ How bluewombat proves that a Feature does what was asked. The rules are in
 
 | Level | What | Where it is configured |
 | --- | --- | --- |
-| A Ticket | The Builder's Gates: `typecheck`, `tests`, `lint`, and the tests written first when `builder.tests` is on | `builder.gates`, `builder.tests` |
+| A Ticket | The Builder's Gates: `typecheck`, `tests`, `lint`. The producer writes the tests of its task with its code | `builder.gates` |
 | A Feature, its own tests | A last Ticket, made by another agent than the one that built the Feature, writes one test per scenario of the PRD and a manifest, may change only tests (`tests-only` Gate), and runs them against the built Feature through the `feature-tests` Gate after each attempt; the same Gate runs **only those** once more on the assembled line | `builder.featureTest` and its `tests-only` Gate, the `feature-tests` Gate in `feature.validate.gates` |
 | A Feature, after a red run | The fix repairs the application; the tests are frozen | `feature.fix.gates` |
 | The whole suite | The Project's CI, when the Feature is merged. Not run by mason during a Feature | the Project |
@@ -34,8 +34,9 @@ showed more than the bug:
   cap on its size has no right value.
 - No Project of this kind has browser e2e tests yet, and driving a real application from a Gate
   (start, wait, stop) is heavy. The scenarios of #106 were service and route behaviour for the most part.
-- Tests written first, per Ticket, had been tried and looped and cost too much on each Ticket. The
-  tests of a Feature, written once at its end, are the compromise.
+- Tests written first, per Ticket (`builder.tests`), had been tried and looped and cost too much on
+  each Ticket; it was removed (2026-10-27) with its Gates and its label. The tests of a Feature,
+  written once at its end, are the compromise.
 
 So the check is now the Feature's own tests, at the level its scenarios name, run alone. The
 `--max-scenarios` option, the application's `--up`/`--ready`/`--down`, the retry and the
@@ -72,5 +73,4 @@ this is enough.
   now; `feature.gates: ci-green` waits for it but does not require that it runs the whole suite.
 - Whether the tests of a Feature are kept or removed once it is merged is not decided: they stay, as
   ordinary tests of the Project, and may become obsolete.
-- `builder.tests` is off in the Project of the incident, and why is not recorded here.
 - Where the PRD and its scenarios are written is outside this repository.

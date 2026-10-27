@@ -8,7 +8,7 @@ import { openWorkLedger } from "@bluewombat/work-ledger";
 import { DEFAULT_PERSIST } from "../config/defaults.js";
 import { homeOf, inHome } from "../config/home.js";
 import type { HostOptions } from "../config/types.js";
-import { hasAgent, isOn } from "../config/types.js";
+import { isOn } from "../config/types.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
 import {
   contextOf,
@@ -358,7 +358,6 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
       ? {}
       : { maxRefusals: options.ticket.maxRefusals }),
     validate: isOn(options.ticket.validate),
-    tests: options.builder.tests !== undefined && hasAgent(options.builder.tests),
     fixDeclared: options.ticket.fix !== undefined,
     ...(warm === undefined ? {} : { warm }),
   });

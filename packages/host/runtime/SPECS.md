@@ -157,7 +157,7 @@ The feature-test acceptance check, when the Project declares it (`builder.featur
 
 - A Feature does not open (and is reported `invalid`, once per reason) unless it holds exactly
   one feature-test Ticket (`TicketEntry.featureTest`), blocked by every other live Ticket, or carries `skip_feature_test`.
-- A Ticket with `feature-test` is admitted with `feature-test` and `no_tests`: no tests are written first, and
+- A Ticket with `feature-test` is admitted with `feature-test`, and
   Transformers makes it with `builder.featureTest` (its command, its Gates, for the first pass, a refused
   pass and the recheck) instead of the producer and the repair.
 - A Feature with `skip_feature_test` has its feature-test Ticket cancelled by the sweep (journal

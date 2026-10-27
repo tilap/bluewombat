@@ -199,14 +199,6 @@ export type StageSpec = {
   /** Attempts one Task may start. Default 3. */
   maxAttempts?: number;
   /**
-   * The tests of the Task, written before its code by an agent that is not the
-   * producer, and committed as a checkpoint the producer's work builds on. Its
-   * `gates` are what makes them worth having (they must fail, for the right
-   * reason) and what the producer's own Gates then keep intact. With
-   * `agent: false` no tests are written first.
-   */
-  tests?: ReviewSpec;
-  /**
    * The Ticket that holds a Feature's feature tests (the tracker's feature-test label) is made by
    * this pass instead of the producer and the repair: its own command, its own Gates, nothing
    * borrowed from them. Declaring it declares the feature-test check: a Feature needs a feature-test Ticket or the

@@ -105,7 +105,6 @@ function reviewsOf(invocation: HostInvocation): Record<string, string> {
     return review.gates.length > 0 ? "gates only" : "off";
   };
   const found: Record<string, string> = {
-    "builder.tests": word(invocation.builder.tests),
     "builder.featureTest": invocation.builder.featureTest === undefined ? "off" : "agent + gates",
     "ticket.fix": invocation.ticket.fix === undefined ? "off" : "agent + gates",
     "ticket.validate": word(invocation.ticket.validate),
@@ -142,7 +141,6 @@ function agentsOf(invocation: HostInvocation): Record<string, string> {
   const found: Record<string, string[] | undefined> = {
     "builder.producer": invocation.builder.producer.cmd,
     "builder.repair": invocation.builder.repair.cmd,
-    "builder.tests": agentOf(invocation.builder.tests),
     "builder.featureTest": invocation.builder.featureTest?.cmd,
     "ticket.fix": invocation.ticket.fix?.cmd,
     "ticket.validate": agentOf(invocation.ticket.validate),

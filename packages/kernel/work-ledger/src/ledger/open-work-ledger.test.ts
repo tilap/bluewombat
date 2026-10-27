@@ -389,46 +389,16 @@ describe("openWorkLedger (test-double Port)", () => {
     assert.equal(after.workspace, "/tmp/ws");
   });
 
-  it("10i. markFirstStageDone is remembered with the workspace and forgotten with it", async () => {
-    const ledger = ledgerAt({ value: 1_000 });
-    await ledger.admit(ticket());
-    await claimKey(ledger, "proj");
-    assert.deepEqual(await ledger.markFirstStageDone("fake:42"), {
-      ok: false,
-      code: "illegal-transition",
-    });
-    await ledger.declareWorkspace({ key: "fake:42", path: "/tmp/ws" });
-    assert.deepEqual(await ledger.markFirstStageDone("fake:42"), { ok: true });
-    assert.equal((await requireAggregate(ledger, "fake:42")).first_stage_done, true);
-    await ledger.startUnit("fake:42");
-    await ledger.releaseBail("fake:42");
-    assert.equal((await requireAggregate(ledger, "fake:42")).first_stage_done, true);
-    await ledger.clearWorkspace("fake:42");
-    assert.equal((await requireAggregate(ledger, "fake:42")).first_stage_done, undefined);
-  });
-
   it("10j. a human's resume of a unit forgets the workspace: the unit starts from zero", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await ledger.admit(ticket());
     await claimKey(ledger, "proj");
     await ledger.declareWorkspace({ key: "fake:42", path: "/tmp/ws" });
-    await ledger.markFirstStageDone("fake:42");
     await ledger.escalate({ key: "fake:42", kind: "unit", report: "red" });
     await ledger.resumeTicket("fake:42");
     const after = await requireAggregate(ledger, "fake:42");
     assert.equal(after.state, "running");
     assert.equal(after.workspace, undefined);
-    assert.equal(after.first_stage_done, undefined);
-  });
-
-  it("keeps the tracker's no_tests flag on the Ticket, and nothing when it is not set", async () => {
-    const ledger = ledgerAt({ value: 1_000 });
-    await ledger.admit(ticket({ key: "fake:1", no_tests: true }));
-    await ledger.admit(ticket({ key: "fake:2" }));
-    await ledger.admit(ticket({ key: "fake:3", no_tests: false }));
-    assert.equal((await requireAggregate(ledger, "fake:1")).intention.no_tests, true);
-    assert.equal((await requireAggregate(ledger, "fake:2")).intention.no_tests, undefined);
-    assert.equal((await requireAggregate(ledger, "fake:3")).intention.no_tests, undefined);
   });
 
   it("11. declareWorkspace then listDeclaredWorkspaces includes the path; clearWorkspace removes it", async () => {

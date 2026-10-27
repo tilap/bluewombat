@@ -24,7 +24,6 @@ function sandbox(config: Record<string, unknown>): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
-        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,

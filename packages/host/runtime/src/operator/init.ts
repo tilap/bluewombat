@@ -179,7 +179,6 @@ async function init(input: InitInput): Promise<InitResult> {
     // judged the producer.
     builder: {
       // The tests written before the code: off until a Project gives them an agent.
-      tests: { agent: false },
       producer: {
         cmd: ["node", `./${BUILDER_FILENAME}`],
         timeoutMs: BUILDER_TIMEOUT_MS,

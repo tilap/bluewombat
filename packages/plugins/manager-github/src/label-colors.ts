@@ -5,7 +5,7 @@ import { EVENT_NAMES } from "@bluewombat/manager-kit";
  * renaming a label (`stateLabels`, `resumeLabel`, ...) does not lose its colour.
  *
  * One key per label, none for a group: `feature-ready`, `ticket-ready` and `merge-when-ready`
- * for the three ready labels, `no-tests` for the label that skips the tests written first,
+ * for the three ready labels,
  * `feature-test` for the Ticket that holds the acceptance suite, `skip-feature-test` for the Feature that
  * is not put through it,
  * `resume` for the resume label, `project` for the
@@ -16,7 +16,6 @@ export const LABEL_COLOR_KEYS = [
   "feature-ready",
   "ticket-ready",
   "merge-when-ready",
-  "no-tests",
   "feature-test",
   "skip-feature-test",
   "resume",

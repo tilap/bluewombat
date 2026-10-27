@@ -302,16 +302,14 @@ in this implementation. Glue renews with `startUnit` / `markIntegrating` /
 long Attempt.
 
 Expired bail: `expireBail`. A `running` Ticket's unit stops and consumes an
-Attempt. The declared workspace stays declared, with `first_stage_done` if the
-stage before the producer was complete in it: the next pass picks it up, or
+Attempt. The declared workspace stays declared: the next pass picks it up, or
 starts over if the directory is gone (`clearWorkspace`, `releaseBail` + glue).
-A human's `resumeTicket` of a unit forgets both: that unit starts from zero.
+A human's `resumeTicket` of a unit forgets the workspace: that unit starts from zero.
 The ledger decides; glue acts.
 
 A clean stop (or an operator) that knows the holder is gone calls
 `releaseBail`: the same `running` outcome, without the clock and without
-consuming an Attempt (`markFirstStageDone` records that the stage before the
-producer is complete in the declared workspace; `declareWorkspace` resets it). It refuses
+consuming an Attempt. It refuses
 `integrating`, `submitted`, `merging`, and every terminal state — those do not
 hold a unit. A `running` Ticket that holds no bail is success with no rewrite.
 

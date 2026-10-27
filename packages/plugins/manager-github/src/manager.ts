@@ -52,7 +52,6 @@ export const DEFAULT_TOKEN_ENV = "GITHUB_TOKEN";
 export const DEFAULT_RESUME_LABEL = "to-resume";
 export const DEFAULT_FEATURE_READY_LABEL = "feature-ready";
 export const DEFAULT_TICKET_READY_LABEL = "task-ready";
-export const DEFAULT_NO_TESTS_LABEL = "no-tests";
 export const DEFAULT_FEATURE_TEST_LABEL = "feature-test";
 export const DEFAULT_SKIP_FEATURE_TEST_LABEL = "skip-feature-test";
 export const DEFAULT_MERGE_WHEN_READY_LABEL = "merge-when-ready";
@@ -70,8 +69,6 @@ export type GithubManagerOptions = {
   featureReadyLabel?: string;
   /** On a Ticket: its specification is final. */
   ticketReadyLabel?: string;
-  /** On a Ticket: no tests are written before its code. */
-  noTestsLabel?: string;
   /** On a Ticket: it holds the feature tests of its Feature. */
   featureTestLabel?: string;
   /** On a Feature: it is not put through the feature-test acceptance check. */
@@ -96,7 +93,6 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
   const resumeLabel = options.resumeLabel ?? DEFAULT_RESUME_LABEL;
   const featureReadyLabel = options.featureReadyLabel ?? DEFAULT_FEATURE_READY_LABEL;
   const ticketReadyLabel = options.ticketReadyLabel ?? DEFAULT_TICKET_READY_LABEL;
-  const noTestsLabel = options.noTestsLabel ?? DEFAULT_NO_TESTS_LABEL;
   const featureTestLabel = options.featureTestLabel ?? DEFAULT_FEATURE_TEST_LABEL;
   const skipFeatureTestLabel = options.skipFeatureTestLabel ?? DEFAULT_SKIP_FEATURE_TEST_LABEL;
   const mergeWhenReadyLabel = options.mergeWhenReadyLabel ?? DEFAULT_MERGE_WHEN_READY_LABEL;
@@ -320,7 +316,6 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
         priorityLabelPrefix: DEFAULT_PRIORITY_LABEL_PREFIX,
         resumeLabel,
         ticketReadyLabel,
-        noTestsLabel,
         featureTestLabel,
         deadlineMs: now() + options.durationMs,
         now,

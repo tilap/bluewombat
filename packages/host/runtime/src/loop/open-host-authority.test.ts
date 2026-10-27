@@ -221,7 +221,6 @@ function stubManager(over: Partial<Stub> = {}): Stub {
               },
               task_ready: t.task_ready ?? true,
               resume: t.resume ?? false,
-              no_tests: false,
               featureTest: t.featureTest ?? false,
               open: t.open ?? true,
             }));
@@ -1620,7 +1619,6 @@ describe("the feature-test acceptance check", () => {
     await host.runOnce();
     const featureTestTicket = await host.ledger.get("stub:43");
     assert.equal(featureTestTicket.ok && featureTestTicket.aggregate.intention.featureTest, true);
-    assert.equal(featureTestTicket.ok && featureTestTicket.aggregate.intention.no_tests, true);
 
     // Both Tickets land, the line is checked: E2 is red, the Feature goes to its fix, which
     // repairs the application, and the second run of the suite is green.

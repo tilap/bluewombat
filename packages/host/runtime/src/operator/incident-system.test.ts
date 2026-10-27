@@ -23,7 +23,6 @@ function invocation(dir: string): HostInvocation {
         gates: [{ id: "lint", argv: ["x"], timeoutMs: 1 }],
       },
       repair: { cmd: ["agent"], timeoutMs: 1, gates: [] },
-      tests: { agent: false, gates: [] },
       maxAttempts: 3,
     },
     ticket: { maxParallel: 2, gates: [] },
@@ -53,7 +52,6 @@ describe("systemOf", () => {
     assert.deepEqual(facts.packages, [{ name: "@bluewombat/slots", version: "1.2.3" }]);
     assert.equal(facts.config.authority, "none");
     assert.equal(facts.config.maxParallel, 2);
-    assert.equal(facts.config.reviews["builder.tests"], "off");
     assert.equal(facts.config.reviews["feature.validate"], "gates only");
     assert.deepEqual(facts.config.gates["feature.validate.gates"], [
       "feature-test (skipWhen skip-feature-test)",

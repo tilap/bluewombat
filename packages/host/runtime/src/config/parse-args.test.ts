@@ -84,7 +84,6 @@ function configOf(dir: ReturnType<typeof dirs>, over: Record<string, unknown> = 
     workspaceRoot: dir.workspaceRoot,
     ledger: dir.ledgerRoot,
     builder: {
-      tests: { agent: false },
       producer: {
         cmd: [node, builder],
         timeoutMs: 600_000,
@@ -357,7 +356,6 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: {
               cmd: [node, builder],
               timeoutMs: 600_000,
@@ -410,7 +408,6 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: {
               cmd: [node, builder, "--transcript-dir", "./.mason/transcripts"],
               timeoutMs: 600_000,
@@ -439,7 +436,6 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: {
               cmd: [node, builder, "--agent-home", "./.mason/agent-home"],
               timeoutMs: 600_000,
@@ -608,7 +604,6 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir),
         builder: {
-          tests: { agent: false },
           producer: { cmd: [node, builder], timeoutMs: 60_000 },
           repair: { cmd: [node, builder], timeoutMs: 60_000 },
           maxAttempts: 5,
@@ -635,7 +630,6 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir),
         builder: {
-          tests: { agent: false },
           producer: {
             cmd: [node, builder],
             timeoutMs: 600_000,
@@ -943,7 +937,6 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: { cmd: [node, builder], timeoutMs: 600_000 },
             repair: { cmd: [node, builder], timeoutMs: 600_000 },
             gates: {
@@ -975,7 +968,6 @@ describe("parseArgs", () => {
     for (const pass of ["producer", "repair"]) {
       const dir = dirs();
       const passes: Record<string, unknown> = {
-        tests: { agent: false },
         producer: { cmd: [node, builder], timeoutMs: 600_000 },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
       };
@@ -1109,7 +1101,6 @@ describe("parseArgs", () => {
         `  stable: ${dir.workLineStable}`,
         '  isolation: "@bluewombat/isolation-copy"',
         `builder:`,
-        `  tests: { agent: false }`,
         `  producer: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         `  repair: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         "timeoutMs: 1000",

@@ -104,8 +104,6 @@ export type WorkLedger = FeatureCommands & {
   cancel(key: string): Promise<CommandResult>;
   declareWorkspace(input: DeclareWorkspaceInput): Promise<CommandResult>;
   clearWorkspace(key: string): Promise<CommandResult>;
-  /** The stage made before the producer is complete in the declared workspace. */
-  markFirstStageDone(key: string): Promise<CommandResult>;
   expireBail(key: string): Promise<CommandResult>;
   /**
    * Drop a held unit without waiting for the bail clock. Unlike an expired bail it spends no
@@ -153,9 +151,6 @@ function cloneIntention(ticket: TicketAdmission): TicketIntention {
   }
   if (ticket.line !== undefined) {
     intention.line = ticket.line;
-  }
-  if (ticket.no_tests === true) {
-    intention.no_tests = true;
   }
   if (ticket.featureTest === true) {
     intention.featureTest = true;
@@ -651,7 +646,6 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       } else {
         // A human's resume of a unit starts it from zero: what it left is not picked up.
         delete aggregate.workspace;
-        delete aggregate.first_stage_done;
       }
       return await write(aggregate);
     },
@@ -686,8 +680,6 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return refused("illegal-transition");
       }
       aggregate.workspace = input.path;
-      // Declared anew: nothing is done in it yet.
-      delete aggregate.first_stage_done;
       return await write(aggregate);
     },
 
@@ -701,20 +693,6 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return { ok: true };
       }
       delete aggregate.workspace;
-      delete aggregate.first_stage_done;
-      return await write(aggregate);
-    },
-
-    async markFirstStageDone(key: string): Promise<CommandResult> {
-      const current = await loadOrRefuse(key);
-      if (!current.ok) {
-        return current;
-      }
-      const { aggregate } = current;
-      if (aggregate.state !== "running" || aggregate.workspace === undefined) {
-        return refused("illegal-transition");
-      }
-      aggregate.first_stage_done = true;
       return await write(aggregate);
     },
 

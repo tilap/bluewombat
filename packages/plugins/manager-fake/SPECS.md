@@ -40,7 +40,7 @@ Each JSON file is a Feature. It may carry `blocked_by` (ids of other Features,
 read as `fake:<id>`), `merge_when_ready` and `skip_feature_test`. Its Tickets are the `tickets`
 array of the newest file that carries its `id`: each has `id`, `intention` (or
 `title`), and optionally `blocked_by` (ticket ids), `priority`, `task_ready`
-(default `true`), `resume`, `no_tests`, `feature-test` (it holds the feature tests), `open`. A ticket with neither `intention` nor
+(default `true`), `resume`, `feature-test` (it holds the feature tests), `open`. A ticket with neither `intention` nor
 `title` is dropped. With no Authority, no line exists and a Ticket is folded
 into WorkLineStable directly.
 

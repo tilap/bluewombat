@@ -145,7 +145,7 @@ written is the tracker's own (a label, a status, a field); the meaning is fixed.
 | `task-ready`        | Ticket  | The Ticket's specification is final. Set on all of a Feature's Tickets together, once the list is validated, so a half-written Feature never opens |
 | `merge-when-ready` | Feature | The Feature's line may be folded into the final line without a human                               |
 | `skip-feature-test`    | Feature | The Feature is not put through the feature-test check: its feature-test Ticket is cancelled and the Gate that runs the feature tests is not run. It can be put on or taken off until the Feature is submitted |
-| `feature-test`              | Ticket  | The Ticket holds the feature tests of its Feature: it is made by `builder.featureTest`, with no tests written first |
+| `feature-test`              | Ticket  | The Ticket holds the feature tests of its Feature: it is made by `builder.featureTest` |
 
 ## Bounds, leases, and stopping
 
@@ -262,7 +262,7 @@ If two words mean the same thing, pick one and mark the other as an alias to ret
 | FeatureStandard | A Feature normalized: external identity, Project, intention, priority, blockers, signals, state | A raw tracker item; a TicketStandard | Adapter OUT; `manager-kit` types |
 | Ticket | The technical unit bluewombat builds: one unit of work, in one isolated workspace, validated by Gates, landed as one change on its Feature's line | A Feature; a step of a plan (there is none) | A TicketTracker; `TicketStandard` in `manager-kit` |
 | TicketStandard | A Ticket normalized: external identity, Feature, Project, intention, priority, blockers, the signal `task-ready`, state, bounds counters | A Feature; a raw tracker item | Adapter OUT; `manager-kit` types |
-| feature-test Ticket | The last Ticket of a Feature, labelled `feature-test` on the tracker: its body is the Feature's scenarios (`S1`, `S2`…), copied verbatim; it writes the Feature's tests and the manifest `feature-tests/scenarios.json`, updates the existing tests a scenario changes, and nothing else | A Ticket that runs the tests (a Gate does, once, on the whole Feature); a test written first for another Ticket | A TicketTracker (`TicketEntry.featureTest`); `builder.featureTest` |
+| feature-test Ticket | The last Ticket of a Feature, labelled `feature-test` on the tracker: its body is the Feature's scenarios (`S1`, `S2`…), copied verbatim; it writes the Feature's tests and the manifest `feature-tests/scenarios.json`, updates the existing tests a scenario changes, and nothing else | A Ticket that runs the tests (a Gate does, once, on the whole Feature) | A TicketTracker (`TicketEntry.featureTest`); `builder.featureTest` |
 | Feature tests | The tests of one Feature, one per scenario id of its manifest, run once on the assembled Feature line by the `feature-tests` Gate against the Project's own command, filtered on those ids | The Project's whole suite; a test per Ticket | `feature-tests/` of the Project; `gates/feature-tests.mjs` |
 | Line | A Feature's branch, cut from the Project's final line when the Feature opens. Tickets land on it; it is submitted whole when they are all `done` | The final line; a Ticket's own branch | Named by the Authority (`openLine`) |
 | Stage | Where an escalation stopped, as an Event field: `unit` (the Ticket's Attempts), `integrating` (the assembled Ticket), `submitting` (the Submission: the offer refused before one existed, or one under review in state `submitted`), `merging` (the fold) | A state; a Transformer | `manager-kit` (`EventFields`) |

@@ -107,7 +107,6 @@ function sandbox(options: Options = {}): string {
         },
       },
       builder: {
-        tests: { agent: false },
         producer: {
           agent: "cursor",
           args: ["--model", "composer-2.5"],

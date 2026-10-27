@@ -11,7 +11,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const producer = join(here, "../builders/producer.mjs");
 const repair = join(here, "../builders/repair.mjs");
 const featureTestRole = join(here, "../builders/feature-test.mjs");
-const testsRole = join(here, "../builders/tests.mjs");
 const ticketFix = join(here, "../ticket/fix.mjs");
 const featureFix = join(here, "../feature/fix.mjs");
 const ticketValidate = join(here, "../ticket/validate.mjs");
@@ -348,44 +347,6 @@ describe("ticket fix", () => {
     assert.match(prompt, /Fix what the refusal names/);
     assert.match(prompt, /Refused by: ci-green/);
     assert.match(prompt, /ci red/);
-  });
-});
-
-describe("builder tests", () => {
-  it("asks for the tests of the task and nothing else, to fail now", () => {
-    const cwd = sandbox();
-    const result = runRole(testsRole, cursor, cwd, ["--bin", agentEchoArgv]);
-    assert.equal(result.status, 0, result.stderr);
-    const prompt = echoedPrompt(cwd);
-    assert.match(prompt, /WRITE THE TESTS OF THIS TASK, AND ONLY THE TESTS/);
-    assert.match(prompt, /must FAIL now/);
-    assert.match(prompt, /minimal stub/);
-    // The tests are proved passable by running them green on a throwaway implementation.
-    assert.match(prompt, /red, green, red/);
-    assert.match(prompt, /Put every stub body back to no behaviour/);
-    assert.match(prompt, /no "Tests" section/);
-    assert.match(prompt, /Write delivered\.txt/);
-  });
-
-  it("takes the refusal of an earlier attempt from the history, not from --report", () => {
-    const cwd = sandbox();
-    const result = runRole(
-      testsRole,
-      cursor,
-      cwd,
-      ["--bin", agentEchoArgv],
-      [],
-      [
-        "--report",
-        "they pass",
-        "--report-from",
-        "tests-red",
-        "--history",
-        "Attempt 1 was refused by tests-red: they pass",
-      ],
-    );
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(echoedPrompt(cwd), /Attempt 1 was refused by tests-red/);
   });
 });
 

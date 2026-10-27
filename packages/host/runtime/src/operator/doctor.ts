@@ -103,9 +103,6 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
         }
       : { level: "ok", label: "streams", detail: "off — the journal alone" },
   );
-  if (invocation.builder.tests !== undefined) {
-    findings.push(...reviewFindings("Builder tests", invocation.builder.tests, input.env, stable));
-  }
   if (invocation.builder.featureTest !== undefined) {
     findings.push(
       ...gatedPassFindings(

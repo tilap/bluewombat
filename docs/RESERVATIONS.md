@@ -686,18 +686,17 @@ process started between the `ps` read and the kill, and one that daemonised —
 re-parented to init — before it. **Instead**: a per-run cgroup (Linux) or a
 job object (Windows) would hold every descendant; neither is portable.
 
-### F35 · `tests-frozen` does not freeze the feature tests
+### F35 · The feature tests are frozen by `sensitive-path`, which also sees the run's results
 
-`packages/plugins/slots/gates/tests-frozen.mjs`; `feature.fix.gates` of a Project with the feature-test check
+`packages/plugins/slots/gates/sensitive-path.mjs`; `feature.fix.gates` of a Project with the feature-test check
 
-`tests-frozen` holds the files of a checkpoint whose subject starts with "Tests: ", and passes when
-`HEAD` is not one. The feature-test Ticket is made by `builder.featureTest` and folded under the Message slot's
-subject, and the Feature's workspace ends on a merge: nothing there is a "Tests: " checkpoint, so
-pointing `tests-frozen` at the tests passes without checking. What freezes them is
-`sensitive-path` on the tests and `feature-tests/**` in `feature.fix.gates`, which compares what the fix left with `HEAD`.
-That Gate also sees the run's results: the Project's `.gitignore` must exclude
-`feature-tests/results/`, or the run's JUnit file is read as a change to the tests. Not found by a test
-of the whole path (the fixture in `open-host-authority.test.ts` has a fix with no Gate).
+What freezes the feature tests during the Feature's fix is `sensitive-path` on the tests and `feature-tests/**`
+in `feature.fix.gates`, which compares what the fix left with `HEAD`. (`tests-frozen`, which held the files
+of a "Tests: " checkpoint, went with `builder.tests` and would not have worked here: the feature-test Ticket is
+folded under the Message slot's subject, and the Feature's workspace ends on a merge.) That Gate also sees the
+run's results: the Project's `.gitignore` must exclude `feature-tests/results/`, or the run's JUnit file is read
+as a change to the tests. Not found by a test of the whole path (the fixture in `open-host-authority.test.ts`
+has a fix with no Gate).
 
 ### F36 · Most Feature escalations still tell the tracker they happened "while submitting"
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { stringify as stringifyYaml } from "yaml";
 import { loadConfig } from "./load-config.js";
-import { hasAgent, isOn } from "./types.js";
+import { isOn } from "./types.js";
 
 function load(config: Record<string, unknown>) {
   const dir = mkdtempSync(join(tmpdir(), "host-load-"));
@@ -170,61 +170,6 @@ describe("a review without its agent", () => {
   });
 });
 
-describe("builder.tests", () => {
-  const gate = { id: "red", argv: ["node", "tests-red.mjs"], timeoutMs: 1000 };
-  const producer = { cmd: ["node", "p.mjs"], timeoutMs: 1000 };
-  const builder = (tests: unknown) => ({ tests, producer, repair: producer });
-
-  it("reads an agent with its gates, written like any pass", () => {
-    const loaded = load({
-      featureTracker: side,
-      ticketTracker: side,
-      builder: builder({ cmd: ["node", "tests.mjs"], timeoutMs: 1000, gates: { gates: [gate] } }),
-    });
-    assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
-    if (loaded.ok) {
-      const tests = loaded.invocation.builder?.tests;
-      assert.equal(tests !== undefined && hasAgent(tests) ? tests.gates[0]?.id : undefined, "red");
-    }
-  });
-
-  it("is required, and says how to write none", () => {
-    const loaded = load({
-      featureTracker: side,
-      ticketTracker: side,
-      builder: { producer, repair: producer },
-    });
-    assert.equal(loaded.ok, false);
-    assert.match(loaded.ok ? "" : loaded.reason, /needs "tests".*agent: false/);
-  });
-
-  it("writes none with agent: false, however the empty gates are written", () => {
-    for (const tests of [
-      { agent: false },
-      { agent: false, gates: null },
-      { agent: false, gates: [] },
-      { agent: false, gates: { gates: [] } },
-    ]) {
-      const loaded = load({ featureTracker: side, ticketTracker: side, builder: builder(tests) });
-      assert.equal(loaded.ok, true, `${JSON.stringify(tests)}: ${loaded.ok ? "" : loaded.reason}`);
-      if (loaded.ok) {
-        assert.equal(isOn(loaded.invocation.builder?.tests), false);
-      }
-    }
-  });
-
-  it("refuses gates, or anything else, beside agent: false", () => {
-    for (const tests of [
-      { agent: false, gates: { gates: [gate] } },
-      { agent: false, timeoutMs: 1000 },
-      { agent: false, prompt: "./p.md" },
-    ]) {
-      const loaded = load({ featureTracker: side, ticketTracker: side, builder: builder(tests) });
-      assert.equal(loaded.ok, false, JSON.stringify(tests));
-    }
-  });
-});
-
 describe("the feature-test check", () => {
   const gate = { id: "check", argv: ["node", "check.mjs"], timeoutMs: 1000 };
   const featureTestsGate = {
@@ -235,7 +180,6 @@ describe("the feature-test check", () => {
   };
   const pass = { cmd: ["node", "build.mjs"], timeoutMs: 1000 };
   const builder = {
-    tests: { agent: false },
     producer: pass,
     repair: pass,
     gates: { gates: [gate] },

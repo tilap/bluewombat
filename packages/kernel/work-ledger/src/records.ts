@@ -45,8 +45,6 @@ export type TicketIntention = {
   feature?: string;
   /** Tickets that must be `done` before this one may start. */
   blocked_by?: string[];
-  /** The tracker says no tests are written before its code. */
-  no_tests?: boolean;
   /** The tracker says it holds the feature tests of its Feature. */
   featureTest?: boolean;
   /** The line this Ticket lands on, when it is not the Project's final one. */
@@ -148,12 +146,6 @@ export type TicketAggregate = {
   bail?: BailRecord;
   /** The isolated directory the work is made in, once Isolation made one. */
   workspace?: string;
-  /**
-   * The stage made before the unit's producer ran (the tests, when they are written first)
-   * is complete in `workspace`, so a unit picked up again there does not make it again.
-   * Gone with the workspace.
-   */
-  first_stage_done?: boolean;
   escalation?: EscalationRecord;
   submission?: SubmissionRecord;
   /** The work line's own name for the fold that made it `done`, when the Authority gave one. Opaque. */

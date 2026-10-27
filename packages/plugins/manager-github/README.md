@@ -45,7 +45,7 @@ ticketTracker:
 
 Each label option is written under the side that uses it:
 `featureReadyLabel` and `mergeWhenReadyLabel` under `featureTracker`,
-`ticketReadyLabel`, `noTestsLabel` and `featureTestLabel` under `ticketTracker`; `skipFeatureTestLabel` under `featureTracker`. The package is told which side it
+`ticketReadyLabel` and `featureTestLabel` under `ticketTracker`; `skipFeatureTestLabel` under `featureTracker`. The package is told which side it
 serves, so `mason setup` creates only that side's labels and `mason doctor`
 names only those; an option under the wrong side is refused by name. The
 options both sides read (`repo`, `tokenEnv`, `resumeLabel`, `defaultProject`,
@@ -107,7 +107,6 @@ you mean it.
 | `apiBase`          | no       | `https://api.github.com`        | REST base, for GitHub Enterprise                                                                                                                                                                                                                                                                                  |
 | `featureReadyLabel` (featureTracker) | no       | `feature-ready`                   | The label that makes an issue a Feature the system may take                                                                                                                                                                                                                                                       |
 | `ticketReadyLabel` (ticketTracker) | no       | `task-ready`                     | The label a sub-issue carries once its specification is final                                                                                                                                                                                                                                                     |
-| `noTestsLabel` (ticketTracker) | no       | `no-tests`                       | The label that says no tests are written before this Ticket's code. It is read on the sub-issue, beside its text: the Ticket is made without the agent that writes tests first (see No tests first)                                                                                                         |
 | `featureTestLabel` (ticketTracker) | no       | `feature-test`                            | The label that says this sub-issue holds the Feature's feature tests (see The feature-test labels) |
 | `skipFeatureTestLabel` (featureTracker) | no | `skip-feature-test`                  | On a Feature: it is not put through the feature-test acceptance check |
 | `mergeWhenReadyLabel` (featureTracker) | no    | `merge-when-ready`              | On a Feature: its line is folded without a human                                                                                                                                                                                                                                                                  |
@@ -224,16 +223,6 @@ options:
 Absent, nothing is labelled and the guard on `done` and `cancelled` is off. Naming
 an Event outside the list, leaving one out, or giving a label twice is refused.
 
-## No tests first
-
-When the host writes a Ticket's tests before its code, a sub-issue carrying the `no-tests`
-label (the `noTestsLabel` option renames it) is made without that step: no agent writes
-tests for it, and its producer writes its own with its code. The decision is the label,
-never a line of the issue's text, so it can be set or taken off without editing the
-specification. Put it on a Ticket before it starts: a Ticket already under way keeps what
-it began with. `mason setup` creates the label, and `labelColors` colours it with the
-`no-tests` key.
-
 ## The feature-test labels
 
 A Project may prove each Feature by an acceptance suite run once on the whole Feature (see the
@@ -259,7 +248,6 @@ options:
     feature-ready: "1d76db"
     ticket-ready: "1d76db"
     merge-when-ready: "1d76db"
-    no-tests: "fbca04"
     featureTest: "0e8a16"
     skip-feature-test: "fbca04"
     resume: "0e8a16"
@@ -299,7 +287,7 @@ mason setup --apply
 | Issues are enabled          | `has_issues` on that same response                                                                                                                                                         |
 | The token can write         | `permissions.push` on that same response, rather than guessing at scopes                                                                                                                   |
 | The branch exists           | `GET /repos/{owner}/{repo}/branches/{branch}` for `branch` (default `main`); when it is missing and the config named none, the step says the repository's default branch and what to write |
-| Labels                      | `featureReadyLabel`, `ticketReadyLabel`, `noTestsLabel`, `featureTestLabel`, `mergeWhenReadyLabel`, `skipFeatureTestLabel`, `resumeLabel`, `project:<defaultProject>`, and one per Event when `stateLabels` is set                                                                                       |
+| Labels                      | `featureReadyLabel`, `ticketReadyLabel`, `featureTestLabel`, `mergeWhenReadyLabel`, `skipFeatureTestLabel`, `resumeLabel`, `project:<defaultProject>`, and one per Event when `stateLabels` is set                                                                                       |
 
 Creating a label, and recolouring one the config chose a colour for (see Label
 colours), are the only writes; nothing existing is renamed or deleted.

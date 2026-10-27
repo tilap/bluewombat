@@ -20,7 +20,6 @@ import {
   DEFAULT_FEATURE_READY_LABEL,
   DEFAULT_FEATURE_TEST_LABEL,
   DEFAULT_MERGE_WHEN_READY_LABEL,
-  DEFAULT_NO_TESTS_LABEL,
   DEFAULT_RESUME_LABEL,
   DEFAULT_SKIP_FEATURE_TEST_LABEL,
   DEFAULT_TICKET_READY_LABEL,
@@ -113,7 +112,6 @@ export async function setupManager(
       resumeLabel: settings.resumeLabel,
       featureReadyLabel: settings.featureReadyLabel,
       ticketReadyLabel: settings.ticketReadyLabel,
-      noTestsLabel: settings.noTestsLabel,
       featureTestLabel: settings.featureTestLabel,
       skipFeatureTestLabel: settings.skipFeatureTestLabel,
       mergeWhenReadyLabel: settings.mergeWhenReadyLabel,
@@ -140,7 +138,6 @@ const KNOWN_OPTIONS = [
   "resumeLabel",
   "featureReadyLabel",
   "ticketReadyLabel",
-  "noTestsLabel",
   "featureTestLabel",
   "skipFeatureTestLabel",
   "mergeWhenReadyLabel",
@@ -162,7 +159,7 @@ const KNOWN_OPTIONS = [
  */
 const SIDE_OPTIONS: Record<ManagerSide, readonly string[]> = {
   featureTracker: ["featureReadyLabel", "mergeWhenReadyLabel", "skipFeatureTestLabel"],
-  ticketTracker: ["ticketReadyLabel", "noTestsLabel", "featureTestLabel"],
+  ticketTracker: ["ticketReadyLabel", "featureTestLabel"],
 };
 
 const BOTH_SIDES: readonly ManagerSide[] = ["featureTracker", "ticketTracker"];
@@ -196,7 +193,6 @@ type Settings = {
   resumeLabel: string;
   featureReadyLabel: string;
   ticketReadyLabel: string;
-  noTestsLabel: string;
   featureTestLabel: string;
   skipFeatureTestLabel: string;
   mergeWhenReadyLabel: string;
@@ -246,7 +242,6 @@ export function createManager(context: ManagerContext): CreateManagerResult {
     resumeLabel: settings.resumeLabel,
     featureReadyLabel: settings.featureReadyLabel,
     ticketReadyLabel: settings.ticketReadyLabel,
-    noTestsLabel: settings.noTestsLabel,
     featureTestLabel: settings.featureTestLabel,
     skipFeatureTestLabel: settings.skipFeatureTestLabel,
     mergeWhenReadyLabel: settings.mergeWhenReadyLabel,
@@ -327,11 +322,7 @@ export function checkManager(context: ManagerContext): Finding[] {
         ]
       : []),
     ...(settings.sides.includes("ticketTracker")
-      ? [
-          `${settings.ticketReadyLabel} (Ticket)`,
-          `${settings.noTestsLabel} (no tests)`,
-          `${settings.featureTestLabel} (feature-test)`,
-        ]
+      ? [`${settings.ticketReadyLabel} (Ticket)`, `${settings.featureTestLabel} (feature-test)`]
       : []),
     `${settings.resumeLabel} (resume)`,
   ];
@@ -429,10 +420,6 @@ function readOptions(context: ManagerContext): Read {
   if (!ticketReadyLabel.ok) {
     return ticketReadyLabel;
   }
-  const noTestsLabel = stringOption(context.options, "noTestsLabel");
-  if (!noTestsLabel.ok) {
-    return noTestsLabel;
-  }
   const featureTestLabel = stringOption(context.options, "featureTestLabel");
   if (!featureTestLabel.ok) {
     return featureTestLabel;
@@ -499,7 +486,6 @@ function readOptions(context: ManagerContext): Read {
       resumeLabel: resumeLabel.value ?? DEFAULT_RESUME_LABEL,
       featureReadyLabel: featureReadyLabel.value ?? DEFAULT_FEATURE_READY_LABEL,
       ticketReadyLabel: ticketReadyLabel.value ?? DEFAULT_TICKET_READY_LABEL,
-      noTestsLabel: noTestsLabel.value ?? DEFAULT_NO_TESTS_LABEL,
       featureTestLabel: featureTestLabel.value ?? DEFAULT_FEATURE_TEST_LABEL,
       skipFeatureTestLabel: skipFeatureTestLabel.value ?? DEFAULT_SKIP_FEATURE_TEST_LABEL,
       mergeWhenReadyLabel: mergeWhenReadyLabel.value ?? DEFAULT_MERGE_WHEN_READY_LABEL,

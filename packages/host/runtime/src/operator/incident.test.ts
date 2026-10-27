@@ -37,7 +37,6 @@ function sandbox(): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
-        tests: { agent: false, gates: [] },
         producer: { cmd: [node, builder], timeoutMs: 30_000 },
         repair: { cmd: [node, builder], timeoutMs: 30_000 },
         gates: { gates: [{ id: "check", argv: [node, gateFail], timeoutMs: 10_000 }] },

@@ -52,7 +52,7 @@ const WORK_LINE_KEYS = new Set([
 ]);
 const PASS_KEYS = new Set(["cmd", "timeoutMs"]);
 const GATED_PASS_KEYS = new Set(["cmd", "timeoutMs", "gates"]);
-const STAGE_KEYS = new Set(["tests", "featureTest", "producer", "repair", "gates", "maxAttempts"]);
+const STAGE_KEYS = new Set(["featureTest", "producer", "repair", "gates", "maxAttempts"]);
 const TICKET_KEYS = new Set([
   "maxParallel",
   "maxAttempts",
@@ -251,7 +251,6 @@ export function loadConfig(path: string): LoadedConfig {
 function checkFeatureTestDeclaration(invocation: HostDraft): string | undefined {
   const outside: [string, HostGateSpec[] | undefined][] = [
     ["builder.gates", invocation.builder?.producer.gates],
-    ["builder.tests.gates", invocation.builder?.tests?.gates],
     ["builder.featureTest.gates", invocation.builder?.featureTest?.gates],
     ["ticket.gates", invocation.ticket?.gates],
     ["ticket.fix.gates", invocation.ticket?.fix?.gates],
@@ -795,52 +794,6 @@ function readGatedPass(
 }
 
 /**
- * The pass that writes the tests first: an agent and the Gates that check what
- * it wrote, or `agent: false` and nothing else, which writes none. Gates with
- * no agent would have nothing to check, so they are refused rather than ignored.
- */
-function readTests(
-  value: unknown,
-  configDir: string,
-  agents: Agents,
-): { ok: true; value: ReviewSpec } | { ok: false; reason: string } {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return {
-      ok: false,
-      reason:
-        'Config "builder.tests" must be a YAML mapping with an agent (or "cmd") and "timeoutMs", or "agent: false".',
-    };
-  }
-  const object = value as Record<string, unknown>;
-  if (object.agent !== false) {
-    return readGatedPass(value, configDir, "builder.tests", agents, true);
-  }
-  for (const name of Object.keys(object)) {
-    if (name !== "agent" && name !== "gates") {
-      return {
-        ok: false,
-        reason: `Config "builder.tests" has "agent: false", so it has no "${name}": no tests are written first.`,
-      };
-    }
-  }
-  const emptyList = Array.isArray(object.gates) && object.gates.length === 0;
-  if (object.gates !== undefined && object.gates !== null && !emptyList) {
-    const gates = readGates(object.gates, configDir, "builder.tests.gates");
-    if (gates.ok === false) {
-      return gates;
-    }
-    if (gates.value.length > 0) {
-      return {
-        ok: false,
-        reason:
-          'Config "builder.tests" has "agent: false", so its gates would have no tests to check. Remove them, or give it an agent.',
-      };
-    }
-  }
-  return { ok: true, value: { agent: false, gates: [] } };
-}
-
-/**
  * A review: an agent and its Gates, or `agent: false` and the Gates alone.
  * The agent is turned off by saying so; a review with neither an agent nor a
  * Gate would judge nothing, and is refused.
@@ -897,17 +850,6 @@ function readBuilder(
       return { ok: false, reason: `Config "builder" has unknown key "${name}".` };
     }
   }
-  if (object.tests === undefined) {
-    return {
-      ok: false,
-      reason:
-        'Config "builder" needs "tests": the agent that writes the tests before the code. To write none first, say "tests: { agent: false }".',
-    };
-  }
-  const readTestsPass = readTests(object.tests, configDir, agents);
-  if (readTestsPass.ok === false) {
-    return readTestsPass;
-  }
   let featureTest: GatedPassSpec | undefined;
   if (object.featureTest !== undefined) {
     const read = readGatedPass(object.featureTest, configDir, "builder.featureTest", agents);
@@ -941,7 +883,6 @@ function readBuilder(
   // One list, two passes: a repair is judged by exactly what judged the producer,
   // so it cannot undo what a Gate refused. Implementer still takes two sequences.
   const spec: StageSpec = {
-    tests: readTestsPass.value,
     producer: { ...readProducer.value, gates },
     repair: { ...readRepair.value, gates: [...gates] },
     ...(featureTest === undefined ? {} : { featureTest }),

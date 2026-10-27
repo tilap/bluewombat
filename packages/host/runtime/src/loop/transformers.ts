@@ -157,10 +157,6 @@ function commandTimeoutMs(
     }
     return feature.fix.timeoutMs;
   }
-  if (input.stage === "tests") {
-    const tests = slots.builder.tests;
-    return tests !== undefined && hasAgent(tests) ? tests.timeoutMs : slots.timeoutMs;
-  }
   if (input.validate === true) {
     const validate = slots.ticket.validate;
     return validate !== undefined && hasAgent(validate) ? validate.timeoutMs : slots.timeoutMs;
@@ -240,13 +236,6 @@ function roleWiring(
   slots: TransformerSlots,
   marked: Marked,
 ): RoleWiring {
-  if (input.stage === "tests") {
-    // The tests are written by their own agent, judged by their own Gates.
-    const tests = slots.builder.tests;
-    return tests === undefined || !hasAgent(tests)
-      ? { gates: [], repairGates: [] }
-      : { builderArgv: tests.cmd, gates: tests.gates, repairGates: [] };
-  }
   if (input.stage === "feature") {
     // The Feature's own sequences and its own fix, and nothing of a Ticket's.
     const feature = featureOf(slots);

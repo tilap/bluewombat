@@ -56,8 +56,8 @@ export type ImplementInput = {
    */
   context?: string;
   /**
-   * What is being judged: the unit of work, the tests written for it before
-   * the code, a Ticket once its work is assembled, or a Feature once its
+   * What is being judged: the unit of work, a Ticket once its work is
+   * assembled, or a Feature once its
    * Tickets have landed.
    *
    * They are not the same situation, and a check written for one can be wrong
@@ -65,7 +65,7 @@ export type ImplementInput = {
    * the correct outcome for a Ticket or a Feature that needed nothing. Each of
    * the last two has its own checks, its own fix and its own judgement.
    */
-  stage?: "unit" | "tests" | "ticket" | "feature";
+  stage?: "unit" | "ticket" | "feature";
   /**
    * Whether this Task may produce, or only be judged.
    *

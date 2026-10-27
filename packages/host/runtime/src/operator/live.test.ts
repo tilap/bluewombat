@@ -37,7 +37,6 @@ function sandbox(): { cwd: string; ledgerRoot: string } {
       workspaceRoot: "./workspaces",
       ledger: "./ledger",
       builder: {
-        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,
