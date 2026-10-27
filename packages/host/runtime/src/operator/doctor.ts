@@ -119,7 +119,7 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
   findings.push(
     ...gatedPassFindings("Builder repair", invocation.builder.repair, input.env, stable, false),
   );
-  // One list judges both passes (builder.gates): checked once, not twice.
+  // One list judges both passes (ticket.build.gates): checked once, not twice.
   for (const gate of invocation.builder.producer.gates) {
     findings.push(commandFinding(`Builder gate ${gate.id}`, gate.argv, input.env));
   }
@@ -420,14 +420,14 @@ function ticketFinding(invocation: HostInvocation): Finding | undefined {
       level: "ok",
       label: "ticket gates",
       detail:
-        'none — no CI is read. builder.gates run again after the align; add "ticket.gates" (ci-green) when a CI runs on the pull requests',
+        'none — no CI is read. ticket.build.gates run again after the align; add "ticket.gates" (ci-green) when a CI runs on the pull requests',
     };
   }
   return {
     level: "warn",
     label: "ticket gates",
     detail:
-      'none — the assembled ticket is published and merged with nothing judging it. Add "builder.gates", which run again after the align, or "ticket.gates" (ci-green reads the work line\'s own checks)',
+      'none — the assembled ticket is published and merged with nothing judging it. Add "ticket.build.gates", which run again after the align, or "ticket.gates" (ci-green reads the work line\'s own checks)',
   };
 }
 

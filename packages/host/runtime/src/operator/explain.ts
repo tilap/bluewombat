@@ -84,15 +84,15 @@ export const PROMPT_PLACEHOLDERS: Record<
   string,
   { known: readonly string[]; required: readonly string[] }
 > = {
-  "builder.producer": {
+  "ticket.build.producer": {
     known: ["task", "history", "rules", "id", "attempt"],
     required: ["task", "rules"],
   },
-  "builder.featureTest": {
+  "feature.test": {
     known: ["task", "history", "refusal", "report", "refused_by", "rules", "id", "attempt"],
     required: ["task", "rules"],
   },
-  "builder.repair": {
+  "ticket.build.repair": {
     known: ["task", "history", "report", "refused_by", "rules", "id", "attempt"],
     required: ["task", "report", "rules"],
   },
@@ -154,9 +154,9 @@ function rolesOf(invocation: HostInvocation): RoleDef[] {
   };
   const withAgent = (review: ReviewSpec | undefined): GatedPassSpec | undefined =>
     review !== undefined && hasAgent(review) ? review : undefined;
-  add("builder.featureTest", invocation.builder.featureTest, invocation.builder.maxAttempts);
-  add("builder.producer", invocation.builder.producer, invocation.builder.maxAttempts);
-  add("builder.repair", invocation.builder.repair, invocation.builder.maxAttempts);
+  add("feature.test", invocation.builder.featureTest, invocation.builder.maxAttempts);
+  add("ticket.build.producer", invocation.builder.producer, invocation.builder.maxAttempts);
+  add("ticket.build.repair", invocation.builder.repair, invocation.builder.maxAttempts);
   add("ticket.fix", invocation.ticket.fix, invocation.ticket.maxAttempts);
   add("ticket.validate", withAgent(invocation.ticket.validate), invocation.ticket.maxAttempts);
   add("feature.fix", invocation.feature?.fix, invocation.feature?.maxAttempts);

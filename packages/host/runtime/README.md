@@ -67,7 +67,7 @@ package's README — Host does not grow a `--repo` flag for it.
 ### What an agent role starts with
 
 ```bash
-mason explain builder.producer      # one role; no role names all of them
+mason explain ticket.build.producer      # one role; no role names all of them
 mason explain --json                # the same facts for a script
 ```
 
@@ -212,43 +212,48 @@ value that starts with `@`, like every `@bluewombat/...` package name, needs
 quotes: `@` is a reserved YAML indicator at the start of a plain scalar.
 
 ```yaml
-featureTracker:
-  package: "@bluewombat/manager-fake"
-  options:
-    source: ./.mason/source
-    target: ./.mason/threads
-ticketTracker:
-  package: "@bluewombat/manager-fake"
-  options:
-    source: ./.mason/source
-    target: ./.mason/threads
 workLine:
   stable: ./work-line-stable
   isolation: "@bluewombat/isolation-copy"
   warm:
     cmd: [pnpm, install, --frozen-lockfile]
     timeoutMs: 600000
-builder:
-  producer:
-    cmd: [node, ./mason-builder.mjs]
-    timeoutMs: 600000
-  repair:
-    cmd: [node, ./mason-repair.mjs]
-    timeoutMs: 600000
-  gates: { defaultTimeoutMs: 120000, gates: [] }
-  maxAttempts: 3
 ticket:
+  tracker:
+    package: "@bluewombat/manager-fake"
+    options:
+      source: ./.mason/source
+      target: ./.mason/threads
+  build:
+    producer:
+      cmd: [node, ./mason-builder.mjs]
+      timeoutMs: 600000
+    repair:
+      cmd: [node, ./mason-repair.mjs]
+      timeoutMs: 600000
+    gates: { defaultTimeoutMs: 120000, gates: [] }
+    maxAttempts: 3
+  validate: { agent: false }
   gates: { defaultTimeoutMs: 900000, gates: [] }
+feature:
+  tracker:
+    package: "@bluewombat/manager-fake"
+    options:
+      source: ./.mason/source
+      target: ./.mason/threads
 authority:
   enabled: false
 timeoutMs: 600000
 pollIntervalMs: 10000
 ```
 
+The file reads by level, and each level in the order it is used: `ticket` and `feature` both hold
+`tracker`, then what makes the work (`build` for a Ticket, `test` for a Feature), `validate`, `gates`, `fix`.
+
 | Field                       | Meaning                                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `featureTracker`            | `package` (a name or path that exports `createManager`) and `options`: where Features are written and signalled                                                                                                                                                                                                                                                                                                                            |
-| `ticketTracker`             | Same shape: where the Tickets of a Feature are, and the Authority that holds the lines. May name the same package as `featureTracker`, or another                                                                                                                                                                                                                                                                                                             |
+| `feature.tracker`          | `package` (a name or path that exports `createManager`) and `options`: where Features are written and signalled                                                                                                                                                                                                                                                                                                                            |
+| `ticket.tracker`           | Same shape: where the Tickets of a Feature are, and the Authority that holds the lines. May name the same package as `feature.tracker`, or another                                                                                                                                                                                                                                                                                                             |
 | `workLine.stable`           | Existing directory the work folds into. Optional when the manager names a reference work line: Host then keeps its own copy at `<home>/work-line`                                                                                                                                                                                                                            |
 | `workLine.targetStable`     | A second copy of the work line, on the branch a Feature is folded into: what is merged into the Feature when it is brought up to date. Host keeps its own at `<home>/target-line` when the manager names a reference; required with an Authority otherwise |
 | `workLine.isolation`        | Package name or path exporting `strategy` — required. Host loads it like a manager; Isolator/Integrator do not sniff                                                                                                                                                                                                                                                         |
@@ -261,13 +266,13 @@ pollIntervalMs: 10000
 | `ledger`                    | WorkLedger root (created). The Cursor is a file inside it. Default `<home>/ledger`                                                                                                                                                                                                                                                                                           |
 | `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
 | `agents`                    | Agents a pass names instead of writing `cmd` (§ Agent passes written short)                                                                                                                                                                                                                                                                                                 |
-| `builder.featureTest`               | Optional. Declares the feature-test acceptance check (see § The feature-test acceptance check): the pass that makes the Ticket holding the suite, `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }` or `{ cmd, timeoutMs, gates }`. One command for the first pass and for a pass a Gate refused; its own `gates` (they check the form: compiles, one test per manifest id, no application file touched). Nothing is borrowed from `builder.producer`, `builder.repair` or `builder.gates`. Needs a Feature Gate with `skipWhen: skip-feature-test`, and the other way round |
-| `builder.producer`          | `cmd` / `timeoutMs`. Spawned in the workspace. Exit 0 runs `builder.gates`                                                                                                                                                                                                                                                                                 |
-| `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited: it names its own command. It is judged by the same `builder.gates` as the producer                                                                                                                                                                               |
-| `builder.gates`             | `defaultTimeoutMs` and `gates`: the one Gate list for `builder.producer` and `builder.repair`. `gates` written on either pass is refused, naming this key. Empty: the unit runs ungated |
-| `builder.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                                                                                                                                                                       |
+| `feature.test`               | Optional. Declares the feature-test acceptance check (see § The feature-test acceptance check): the pass that makes the Ticket holding the suite, `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }` or `{ cmd, timeoutMs, gates }`. One command for the first pass and for a pass a Gate refused; its own `gates` (they check the form: compiles, one test per manifest id, no application file touched). Nothing is borrowed from `ticket.build.producer`, `ticket.build.repair` or `ticket.build.gates`. Needs a Feature Gate with `skipWhen: skip-feature-test`, and the other way round |
+| `ticket.build.producer`          | `cmd` / `timeoutMs`. Spawned in the workspace. Exit 0 runs `ticket.build.gates`                                                                                                                                                                                                                                                                                 |
+| `ticket.build.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited: it names its own command. It is judged by the same `ticket.build.gates` as the producer                                                                                                                                                                               |
+| `ticket.build.gates`             | `defaultTimeoutMs` and `gates`: the one Gate list for `ticket.build.producer` and `ticket.build.repair`. `gates` written on either pass is refused, naming this key. Empty: the unit runs ungated |
+| `ticket.build.maxAttempts`       | Attempts one Task may start. Default 3                                                                                                                                                                                                                                                                                                                                       |
 | `ticket.fix`              | `cmd` / `timeoutMs` / `gates`. Spawned when a judgement of the whole refused it — by an Authority, by `ticket.validate`, or by both. Judged by its own `gates`                                                                                                                                                                                                            |
-| `ticket.validate`         | `cmd` / `timeoutMs` / `gates`. A local, read-only judge of the assembled ticket, run after align, with or without an Authority. A refusal is repaired by `ticket.fix` the same as an Authority's. Judged by its own `gates`, never `builder`'s or `ticket.fix`'s. `validate` is required when a `ticket` block is written, and so is `feature.validate`: `{ agent: false, gates }` turns the agent off and keeps the gates, and `{ agent: false }` with no gates turns the review off — a bare `gates:` counts as none. |
+| `ticket.validate`         | `cmd` / `timeoutMs` / `gates`. A local, read-only judge of the assembled ticket, run after align, with or without an Authority. A refusal is repaired by `ticket.fix` the same as an Authority's. Judged by its own `gates`, never `ticket.build`'s or `ticket.fix`'s. `validate` is required when a `ticket` block is written, and so is `feature.validate`: `{ agent: false, gates }` turns the agent off and keeps the gates, and `{ agent: false }` with no gates turns the review off — a bare `gates:` counts as none. |
 | `ticket.maxAttempts`      | Attempts that one fix may start. Default 3                                                                                                                                                                                                                                                                                                                                   |
 | `ticket.gates`            | `defaultTimeoutMs` and `gates`: the produce:false judgement-only pass — no producer of its own, re-checking the assembled ticket. Empty: the Authority judges alone. Independent of `ticket.fix.gates` / `ticket.validate.gates` — never shared with either                                                                                                          |
 | `timeoutMs`                 | How long a child **outside** a Task may run: manager, isolations                                                                                                                                                                                                                                                                                                             |
@@ -279,7 +284,7 @@ pollIntervalMs: 10000
 
 Every `cmd` is named where it is used, and nothing falls back to a neighbour: a
 `repair` with no command of its own is refused rather than quietly running the
-first-pass agent again. `builder` makes the unit of work. `ticket` judges the whole
+first-pass agent again. `ticket.build` makes the unit of work. `ticket` judges the whole
 and, when that judgement refuses it, runs `ticket.fix` — not a second first-pass.
 `ticket.validate`, when declared, is a second, local judge of the whole: it
 runs after align, before the Authority sees the work (or before the final
@@ -308,23 +313,23 @@ agents:
     denyShell: []                   # commands refused to the agent, e.g. [gh, vercel]; ssh and scp always are
     transcripts: ./.mason/transcripts
     pluginsOut: ./.mason/plugins    # where deck profiles are built
-builder:
-  producer:
-    agent: cursor
-    prompt: ./prompts/builder.md
-    homePlugins: [./ai-plugins/core/builder]
-    appDeckProfile: .ai/profiles/builder
-    args: [--mode, agent]           # the vendor CLI's own flags
-    timeoutMs: 1200000
-    gates: { defaultTimeoutMs: 120000, gates: [] }
+ticket:
+  build:
+    producer:
+      agent: cursor
+      prompt: ./prompts/builder.md
+      homePlugins: [./ai-plugins/core/builder]
+      appDeckProfile: .ai/profiles/builder
+      args: [--mode, agent]         # the vendor CLI's own flags
+      timeoutMs: 1200000
 ```
 
 Host writes the `cmd` it stands for — `node <slots>/<role>.mjs --prompt-file …
 -- node <slots>/agents/cursor.mjs --transcript-dir … --plugin-dir … --app-deck-profile
 … --plugins-out … --agent-arg …` — with `<slots>` the
 `node_modules/@bluewombat/slots` next to the config. Nothing past the config
-knows a pass was written short. The roles: `builder.producer`,
-`builder.repair`, `ticket.fix`, `ticket.validate`, and `authority.describe`
+knows a pass was written short. The roles: `ticket.build.producer`,
+`ticket.build.repair`, `ticket.fix`, `ticket.validate`, and `authority.describe`
 (an argv, or `{ agent, prompt?, homePlugins?, appDeckProfile?, args? }`).
 
 | Key       | Meaning                                                                                                   |
@@ -420,20 +425,20 @@ Examples ship in [`@bluewombat/slots`](../../plugins/slots/README.md), installed
 the shipped roles and agents (Cursor CLI, Claude Code), the shipped Gates, and
 their options. What follows is what Host guarantees them.
 
-```json
-"builder": {
-  "producer": {
-    "cmd": [
-      "node", "./node_modules/@bluewombat/slots/builders/producer.mjs",
-      "--",
-      "node", "./node_modules/@bluewombat/slots/agents/claude.mjs"
-    ],
-    "timeoutMs": 600000
-  }
-}
+```yaml
+ticket:
+  build:
+    producer:
+      cmd:
+        - node
+        - ./node_modules/@bluewombat/slots/builders/producer.mjs
+        - --
+        - node
+        - ./node_modules/@bluewombat/slots/agents/claude.mjs
+      timeoutMs: 600000
 ```
 
-`builder.repair` is required too, with its own `cmd` and `timeoutMs`. The
+`ticket.build.repair` is required too, with its own `cmd` and `timeoutMs`. The
 composition with `--` is the same.
 
 ### Builder
@@ -470,16 +475,16 @@ that completes cleanly but finds a problem is still a refusal.
 
 ### Gates
 
-Four sequences: `builder.gates`, shared by `builder.producer` and
-`builder.repair` (a repair is judged by exactly what judged the first try),
+Four sequences: `ticket.build.gates`, shared by `ticket.build.producer` and
+`ticket.build.repair` (a repair is judged by exactly what judged the first try),
 then one per assembly role — `ticket.fix`, `ticket.validate` — plus
 `ticket.gates` for the one judgement-only pass with no producer of its own
 (re-checking the assembled ticket; `ci-green` reads the checks the work line
 ran on what the Publisher placed, so it belongs there). The assembly lists are
 not shared with each other or with the builder, and no dispatch chooses between
 two buckets: a check right for one pass is not necessarily right for another,
-even within the same stage. `gates` written on `builder.producer` or
-`builder.repair` is refused, and the message names `builder.gates`.
+even within the same stage. `gates` written on `ticket.build.producer` or
+`ticket.build.repair` is refused, and the message names `ticket.build.gates`.
 
 Implementer's Gates are told `--stage unit` or `--stage ticket` alongside
 `--id`, `--attempt`, `--gate-id` and `--intention`.
@@ -487,7 +492,7 @@ Most have no use for it. `workspace-changed` does: "nothing changed" means
 nothing was done in a unit, and is the correct outcome for an assembly that
 needed nothing.
 
-`init` writes an empty list on `builder.producer` and `builder.repair`; add a
+`init` writes an empty list on `ticket.build.producer` and `ticket.build.repair`; add a
 Gate when the Project has a check.
 
 Every child carries its own ceiling and no other. A Gate entry may name a
@@ -497,7 +502,7 @@ from what another child left behind, so a slow producer cannot leave its
 Gates a millisecond to answer in.
 
 What bounds the unit is therefore what you wrote:
-`builder.maxAttempts × (builder.producer.timeoutMs + Σ builder.gates timeouts)`
+`ticket.build.maxAttempts × (ticket.build.producer.timeoutMs + Σ ticket.build.gates timeouts)`
 for a first pass, and the same shape with `repair` in place of `producer` once
 a Gate has refused one.
 A repair and an assembly fix each carry their own `timeoutMs`. An assembly fix
@@ -523,15 +528,14 @@ A Project proves each Feature by its own tests, run once on the assembled Featur
 line, when its config says so, by a pair:
 
 ```yaml
-builder:
-  featureTest:                       # makes the Ticket that holds the suite (label `feature-test` on the tracker)
+feature:
+  test:                              # makes the Ticket that holds the suite (label `feature-test` on the tracker)
     agent: claude
     prompt: ./prompts/feature-test.md # {{task}} is the scenarios; {{report}}, {{refused_by}}, {{refusal}} on a refused pass
     timeoutMs: 1800000
     gates:                   # form only: it compiles, one test per manifest id, no application file touched
       gates:
         - { id: feature-tests-form, argv: [...], timeoutMs: 120000 }
-feature:
   validate:
     agent: false
     gates:
@@ -554,7 +558,7 @@ passed: the journal gets `gate-skipped` and the trace says "`feature-test` not r
 skip-feature-test". The Gate knows nothing of the skip and no environment variable carries it.
 
 The tracker side: a Ticket carrying the feature-test label (`featureTestLabel` of the TicketTracker manager) is
-made by `builder.featureTest`; a Feature carrying the skip label
+made by `feature.test`; a Feature carrying the skip label
 (`skipFeatureTestLabel` of the FeatureTracker manager) has that Ticket cancelled, with a line in
 the trace. The label is read again until the Feature is submitted. A Project that declares the
 check refuses a Feature that holds neither a feature-test Ticket nor the skip label, or whose feature-test
@@ -637,7 +641,7 @@ it each stop `mason run` at boot, and `mason doctor` reports the same offline
 and is the operator's directory.
 
 ```
-assembled → align → recheck (builder.gates again, on the aligned work)
+assembled → align → recheck (ticket.build.gates again, on the aligned work)
               conflict or failed → ticket.fix, then align again
           → ticket.validate (optional, local)
               refused  → ticket.fix, then align again, recheck, validate again
@@ -658,13 +662,13 @@ fast-forward — the work line moved where the Authority is, and the next
 Isolation must start from that version, not from a copy left behind.
 
 A refusal is not a second failure path: its report reaches `ticket.fix`
-exactly as a Gate's report reaches `builder.repair`. After `ticket.maxRefusals`
+exactly as a Gate's report reaches `ticket.build.repair`. After `ticket.maxRefusals`
 refusals the ticket escalates with that report as its Trace, and `done` names
 the Submission rather than a directory on the machine that ran.
 
 ## Write another manager
 
-Host loads whatever `featureTracker.package` and `ticketTracker.package` name, as long as it exports `createManager`. The
+Host loads whatever `feature.tracker.package` and `ticket.tracker.package` name, as long as it exports `createManager`. The
 contract and a worked example are in
 [`@bluewombat/manager-kit`](../manager-kit/README.md). Nothing in Host changes.
 

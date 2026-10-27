@@ -243,7 +243,7 @@ One TicketStandard, one Project. Pause flag is off.
    3b. **Recheck.** Aligning brought other tickets' code in, so the unit's own
       Gates run again: `implement` on the ticket workspace with
       `stage: "ticket"`, `produce: false`, `recheck: true` (one attempt; Host
-      judges it by `builder.gates`, no other list). `validated` →
+      judges it by `ticket.build.gates`, no other list). `validated` →
       `clearParkedRefusal`. `escalated` → sent back with the Gate's report and name.
 
    **Sent back** (align conflict, failed recheck, `ticket.validate` refusal): with

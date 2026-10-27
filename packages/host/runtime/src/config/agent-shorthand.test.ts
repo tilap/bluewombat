@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { stringify as stringifyYaml } from "yaml";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { agentPartOf } from "./agent-shorthand.js";
 import { loadConfig } from "./load-config.js";
 import { hasAgent } from "./types.js";
@@ -178,7 +178,7 @@ describe("agent passes written short", () => {
     assert.equal(read.loaded.ok, false);
     assert.match(
       read.loaded.ok ? "" : read.loaded.reason,
-      /"builder.producer" has unknown key "read"/,
+      /"ticket.build.producer" has unknown key "read"/,
     );
     const profile = load({
       builder: {

@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { parse as parseYaml, stringify as plainYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { openJournalFile } from "../loop/journal.js";
 import { runLog } from "./log.js";
 
@@ -221,10 +222,10 @@ describe("runLog", () => {
       "# builder · attempt 1\n\n- exit: 0\n- duration: 12.0s\n",
     );
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8")) as {
-      builder: { producer: { cmd: string[] } };
+      ticket: { build: { producer: { cmd: string[] } } };
     };
-    config.builder.producer.cmd.push("--transcript-dir", transcripts);
-    writeFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), stringifyYaml(config));
+    config.ticket.build.producer.cmd.push("--transcript-dir", transcripts);
+    writeFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), plainYaml(config));
     const lines: string[] = [];
     const code = await runLog({ cwd, argv: ["--problems"], write: (line) => lines.push(line) });
     assert.equal(code, 0);

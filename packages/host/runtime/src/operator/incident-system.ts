@@ -81,7 +81,7 @@ export function systemOf(input: SystemInput): SystemFacts {
 function limitsOf(invocation: HostInvocation): Record<string, number> {
   const limits: Record<string, number | undefined> = {
     timeoutMs: invocation.timeoutMs,
-    "builder.maxAttempts": invocation.builder.maxAttempts,
+    "ticket.build.maxAttempts": invocation.builder.maxAttempts,
     "ticket.maxAttempts": invocation.ticket.maxAttempts,
     "ticket.maxRefusals": invocation.ticket.maxRefusals,
     "feature.maxAttempts": invocation.feature?.maxAttempts,
@@ -105,7 +105,7 @@ function reviewsOf(invocation: HostInvocation): Record<string, string> {
     return review.gates.length > 0 ? "gates only" : "off";
   };
   const found: Record<string, string> = {
-    "builder.featureTest": invocation.builder.featureTest === undefined ? "off" : "agent + gates",
+    "feature.test": invocation.builder.featureTest === undefined ? "off" : "agent + gates",
     "ticket.fix": invocation.ticket.fix === undefined ? "off" : "agent + gates",
     "ticket.validate": word(invocation.ticket.validate),
   };
@@ -123,8 +123,8 @@ function gatesOf(invocation: HostInvocation): Record<string, string[]> {
       gate.skipWhen === undefined ? gate.id : `${gate.id} (skipWhen ${gate.skipWhen})`,
     );
   const found: Record<string, string[]> = {
-    "builder.gates": ids(invocation.builder.producer.gates),
-    "builder.featureTest.gates": ids(invocation.builder.featureTest?.gates),
+    "ticket.build.gates": ids(invocation.builder.producer.gates),
+    "feature.test.gates": ids(invocation.builder.featureTest?.gates),
     "ticket.fix.gates": ids(invocation.ticket.fix?.gates),
     "ticket.validate.gates": ids(invocation.ticket.validate?.gates),
     "feature.validate.gates": ids(invocation.feature?.validate.gates),
@@ -139,9 +139,9 @@ function agentsOf(invocation: HostInvocation): Record<string, string> {
   const agentOf = (review: ReviewSpec | undefined): string[] | undefined =>
     review !== undefined && hasAgent(review) ? review.cmd : undefined;
   const found: Record<string, string[] | undefined> = {
-    "builder.producer": invocation.builder.producer.cmd,
-    "builder.repair": invocation.builder.repair.cmd,
-    "builder.featureTest": invocation.builder.featureTest?.cmd,
+    "ticket.build.producer": invocation.builder.producer.cmd,
+    "ticket.build.repair": invocation.builder.repair.cmd,
+    "feature.test": invocation.builder.featureTest?.cmd,
     "ticket.fix": invocation.ticket.fix?.cmd,
     "ticket.validate": agentOf(invocation.ticket.validate),
     "feature.fix": invocation.feature?.fix.cmd,

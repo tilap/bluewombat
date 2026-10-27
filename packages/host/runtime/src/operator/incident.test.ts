@@ -6,8 +6,8 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { openFilesystemPersist } from "@bluewombat/persist-fs";
 import { openWorkLedger } from "@bluewombat/work-ledger";
-import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { openJournalFile } from "../loop/journal.js";
 import { runIncident } from "./incident.js";
 

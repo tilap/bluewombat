@@ -18,8 +18,8 @@ How bluewombat proves that a Feature does what was asked. The rules are in
 
 | Level | What | Where it is configured |
 | --- | --- | --- |
-| A Ticket | The Builder's Gates: `typecheck`, `tests`, `lint`. The producer writes the tests of its task with its code | `builder.gates` |
-| A Feature, its own tests | A last Ticket, made by another agent than the one that built the Feature, writes one test per scenario of the PRD and a manifest, may change only tests (`tests-only` Gate), and runs them against the built Feature through the `feature-tests` Gate after each attempt; the same Gate runs **only those** once more on the assembled line | `builder.featureTest` and its `tests-only` Gate, the `feature-tests` Gate in `feature.validate.gates` |
+| A Ticket | The Builder's Gates: `typecheck`, `tests`, `lint`. The producer writes the tests of its task with its code | `ticket.build.gates` |
+| A Feature, its own tests | A last Ticket, made by another agent than the one that built the Feature, writes one test per scenario of the PRD and a manifest, may change only tests (`tests-only` Gate), and runs them against the built Feature through the `feature-tests` Gate after each attempt; the same Gate runs **only those** once more on the assembled line | `feature.test` and its `tests-only` Gate, the `feature-tests` Gate in `feature.validate.gates` |
 | A Feature, after a red run | The fix repairs the application; the tests are frozen | `feature.fix.gates` |
 | The whole suite | The Project's CI, when the Feature is merged. Not run by mason during a Feature | the Project |
 
@@ -42,7 +42,7 @@ So the check is now the Feature's own tests, at the level its scenarios name, ru
 `--max-scenarios` option, the application's `--up`/`--ready`/`--down`, the retry and the
 `E2E_*` environment are gone, with no compatibility. The ledger's `e2e` and `skip_e2e` fields,
 the tracker labels `e2e` and `skip-test-e2e` and the config key `builder.e2e` became `featureTest`,
-`skip_feature_test`, `feature-test`, `skip-feature-test` and `builder.featureTest`: a ledger or a
+`skip_feature_test`, `feature-test`, `skip-feature-test` and `feature.test`: a ledger or a
 config written before must be changed by hand.
 
 ## What the first real run showed

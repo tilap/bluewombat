@@ -262,7 +262,7 @@ function roleWiring(
   }
   if (input.recheck === true) {
     // The unit's own checks again, once the work has been aligned with the line:
-    // `builder.gates`, the one list that says the code stands. Nothing is produced. The feature-test
+    // `ticket.build.gates`, the one list that says the code stands. Nothing is produced. The feature-test
     // Ticket's own Gates, when it is that Ticket.
     const own = marked.featureTest ? slots.builder.featureTest : undefined;
     return { gates: (own ?? slots.builder.producer).gates, repairGates: [] };

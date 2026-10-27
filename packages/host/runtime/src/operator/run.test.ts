@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import type { Host } from "../loop/tick.js";
 import { runRun } from "./run.js";
 

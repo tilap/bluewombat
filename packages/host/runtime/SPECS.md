@@ -71,7 +71,7 @@ See § 8.
 
 ## 4. Loading a manager
 
-`featureTracker.package` and `ticketTracker.package` are each a package name or a path. The two sides may name the same package or two different ones: a package asked for a side it does not answer is refused by name. One package with the same options on both sides is built once. `doctor` and `setup` run each distinct manager once; the reference work line is named by the ticket tracker, which holds the Authority. Resolution imports the bare specifier
+`feature.tracker.package` and `ticket.tracker.package` are each a package name or a path. The two sides may name the same package or two different ones: a package asked for a side it does not answer is refused by name. One package with the same options on both sides is built once. `doctor` and `setup` run each distinct manager once; the reference work line is named by the ticket tracker, which holds the Authority. Resolution imports the bare specifier
 first — mason and its managers installed side by side in one project — then
 walks up from the config file's directory, which covers a global `mason`
 driving a locally installed manager. A module without `createManager` is
@@ -153,12 +153,12 @@ Feature escalates (`assembly`) with a reason naming the conflict, the work left
 as it was, and the mark stays for the next resume. A work cut after the resume
 is current by construction.
 
-The feature-test acceptance check, when the Project declares it (`builder.featureTest`):
+The feature-test acceptance check, when the Project declares it (`feature.test`):
 
 - A Feature does not open (and is reported `invalid`, once per reason) unless it holds exactly
   one feature-test Ticket (`TicketEntry.featureTest`), blocked by every other live Ticket, or carries `skip_feature_test`.
 - A Ticket with `feature-test` is admitted with `feature-test`, and
-  Transformers makes it with `builder.featureTest` (its command, its Gates, for the first pass, a refused
+  Transformers makes it with `feature.test` (its command, its Gates, for the first pass, a refused
   pass and the recheck) instead of the producer and the repair.
 - A Feature with `skip_feature_test` has its feature-test Ticket cancelled by the sweep (journal
   `feature-test-ticket-cancelled`, a trace line), and Transformers leaves out, for that Feature, every
@@ -242,14 +242,14 @@ and the Gate sequence starts empty. Example Gates live in
 `@bluewombat/slots/gates/` (`parent-clean`, `sensitive-path`,
 `workspace-changed`, `ci-green`).
 
-Four Gate sequences: `builder.gates`, shared by `builder.producer` and
-`builder.repair`, then `ticket.fix.gates`, `ticket.validate.gates` and
+Four Gate sequences: `ticket.build.gates`, shared by `ticket.build.producer` and
+`ticket.build.repair`, then `ticket.fix.gates`, `ticket.validate.gates` and
 `ticket.gates` for the one judgement-only pass with no producer of its own.
 The assembly sequences are not shared and nothing is dispatched between buckets: a check that is right for one pass can be wrong
 for another, even within the same stage — `workspace-changed` says an Attempt
-that changed nothing did nothing, which is true of `builder.producer`/`repair`
+that changed nothing did nothing, which is true of `ticket.build.producer`/`repair`
 and false of `ticket.gates`'s pass, whose correct outcome is that nothing
-was left to do. A repair Attempt is judged by `builder.gates`, the same list as the
+was left to do. A repair Attempt is judged by `ticket.build.gates`, the same list as the
 producer's (Host hands Implementer that list as both `gates` and `repairGates`). The assembly's
 judgement-only pass produces nothing unless something refused it first: it is
 a judgement, and a refusal is `ticket.fix`, not a second first-pass. Two
@@ -497,7 +497,7 @@ positional: `release github:owner/name#19`.
 16b. With the feature-test check declared: a Feature without a feature-test Ticket nor `skip_feature_test` does not open and
     is reported `invalid`; with `skip_feature_test` its feature-test Ticket is cancelled and the feature-tests Gate is not run,
     the journal and the trace saying so; with a feature-test Ticket the line is judged once by the suite,
-    red goes to `feature.fix` and green lets the line be offered. A Project without `builder.featureTest`
+    red goes to `feature.fix` and green lets the line be offered. A Project without `feature.test`
     is unchanged.
 17. After an escalation, a `probe` of `gone` cancels that Ticket (or Feature)
     and the sweep goes on. `unavailable` leaves the

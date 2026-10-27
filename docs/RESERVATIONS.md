@@ -317,7 +317,7 @@ Authority, state `merging`) still stops: it is past the point of no return.
 
 `packages/host/runtime/src/loop/transformers.ts` — `roleWiring`, `recheck`
 
-`builder.gates` run again after align, with `--stage assembly`. The project's own
+`ticket.build.gates` run again after align, with `--stage assembly`. The project's own
 checks (typecheck, tests) mean the same thing there. The structural ones do not:
 `sensitive-path` compares the disk to the last commit, and after the commit it
 sees nothing, so it always passes; `workspace-changed` and `parent-clean` pass by
@@ -357,7 +357,7 @@ now; that needs a Port to read the line's head, which nothing has today.
 `packages/host/runtime/src/loop/features.ts` (`featureTestRefusal`, `admitFeature`, `syncTicket`, `closeFeature`)
 
 The calls made, none validated with the operator. **Declared** by a pair in the config,
-`builder.featureTest` and a Feature Gate with `skipWhen: skip-feature-test`, each refused without the other;
+`feature.test` and a Feature Gate with `skipWhen: skip-feature-test`, each refused without the other;
 a Project that has neither is untouched. `skipWhen` takes a name from a closed list in Host
 (`SKIP_WHEN`), not the tracker's own label, so renaming the label with `skipFeatureTestLabel` does
 not break the config. **When the label counts**: a Feature's skip label is read again on every
@@ -366,7 +366,7 @@ the line is submitted, not only until validation starts; a label added while the
 counts from the next run of it. **A skip is not undone**: the feature-test Ticket is cancelled when the
 Feature skips, and taking the label off afterwards does not bring it back; the Feature escalates
 when it closes, asking for the label again. A new Ticket joining an open Feature is ignored
-(C26), so there is no way to add the feature-test Ticket then. `builder.featureTest` with no `gates` is accepted:
+(C26), so there is no way to add the feature-test Ticket then. `feature.test` with no `gates` is accepted:
 the form check is the Project's to write. **Instead**: a declaration of its own (`feature.featureTest:`),
 the Gate matching the tracker's label by name, a cancelled Ticket re-admitted when the label
 goes.
@@ -722,7 +722,7 @@ and less useful. **Instead**: parsing the YAML and blanking by path; an allow-li
 
 ### F38 · A cross-cutting standard of a Project (security, accessibility, design, a global journey suite) is judged by nothing in bluewombat
 
-`feature.gates: ci-green` and `builder.gates` of a Project; the planning skills are outside this repository
+`feature.gates: ci-green` and `ticket.build.gates` of a Project; the planning skills are outside this repository
 
 Two kinds of standard have a home and one has none. What a program can check lives in the Project: its CI
 runs the whole suite, a scanner or an accessibility audit at the merge (mason waits for `ci-green` and a red

@@ -6,8 +6,8 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { openFilesystemPersist } from "@bluewombat/persist-fs";
 import { openWorkLedger } from "@bluewombat/work-ledger";
-import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { runRestart } from "./restart.js";
 
 const node = process.execPath;

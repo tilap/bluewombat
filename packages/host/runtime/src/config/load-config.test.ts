@@ -3,7 +3,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { stringify as stringifyYaml } from "yaml";
+import { stringify as plainYaml } from "yaml";
+import { fixtureYaml as stringifyYaml } from "./fixture-yaml.js";
 import { loadConfig } from "./load-config.js";
 import { isOn } from "./types.js";
 
@@ -32,6 +33,66 @@ describe("the two sides of the config", () => {
     assert.match(loaded.ok ? "" : loaded.reason, /unknown key "other"/);
   });
 });
+
+describe("the file groups the config by level", () => {
+  const cmd = { cmd: ["node", "x.mjs"], timeoutMs: 1000 };
+
+  function loadFile(config: Record<string, unknown>) {
+    const dir = mkdtempSync(join(tmpdir(), "host-load-"));
+    const file = join(dir, "mason.config.yaml");
+    writeFileSync(file, plainYaml(config));
+    return loadConfig(file);
+  }
+
+  it("reads the tracker and the build under ticket, the tracker and the test under feature", () => {
+    const loaded = loadConfig(
+      writeRaw(`
+ticket:
+  tracker: { package: "@acme/tickets" }
+  build:
+    producer: { cmd: [node, p.mjs], timeoutMs: 1000 }
+    repair: { cmd: [node, r.mjs], timeoutMs: 1000 }
+feature:
+  tracker: { package: "@acme/features" }
+`),
+    );
+    assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
+    if (loaded.ok) {
+      assert.equal(loaded.invocation.ticketTracker?.package, "@acme/tickets");
+      assert.equal(loaded.invocation.featureTracker?.package, "@acme/features");
+      assert.equal(loaded.invocation.builder?.producer.cmd?.[1] !== undefined, true);
+      assert.equal(loaded.invocation.ticket, undefined);
+      assert.equal(loaded.invocation.feature, undefined);
+    }
+  });
+
+  it("refuses the old top-level keys", () => {
+    for (const key of ["featureTracker", "ticketTracker", "builder"]) {
+      const loaded = loadFile({ [key]: side });
+      assert.equal(loaded.ok, false);
+      assert.match(loaded.ok ? "" : loaded.reason, new RegExp(`unknown key "${key}"`));
+    }
+  });
+
+  it("refuses feature.test without ticket.build", () => {
+    const loaded = loadFile({ feature: { test: cmd } });
+    assert.equal(loaded.ok, false);
+    assert.match(loaded.ok ? "" : loaded.reason, /"feature.test" needs "ticket.build"/);
+  });
+
+  it("names the nested path in an error", () => {
+    const loaded = loadFile({ ticket: { build: { producer: cmd } } });
+    assert.equal(loaded.ok, false);
+    assert.match(loaded.ok ? "" : loaded.reason, /"ticket.build" needs a "repair"/);
+  });
+});
+
+function writeRaw(text: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "host-load-"));
+  const file = join(dir, "mason.config.yaml");
+  writeFileSync(file, text);
+  return file;
+}
 
 describe("ticket.maxParallel", () => {
   it("reads a positive whole number", () => {
@@ -200,7 +261,7 @@ describe("the feature-test check", () => {
     ...over,
   });
 
-  it("is declared by builder.featureTest and a Feature gate with skipWhen, and both are read", () => {
+  it("is declared by feature.test and a Feature gate with skipWhen, and both are read", () => {
     const loaded = load(
       config({ builder: { ...builder, featureTest }, feature: feature([gate, featureTestsGate]) }),
     );
@@ -227,19 +288,19 @@ describe("the feature-test check", () => {
     }
   });
 
-  it("requires builder.featureTest as soon as a Feature gate can be skipped for the feature-test check", () => {
+  it("requires feature.test as soon as a Feature gate can be skipped for the feature-test check", () => {
     const loaded = load(config({ builder, feature: feature([featureTestsGate]) }));
     assert.equal(loaded.ok, false);
-    assert.match(loaded.ok ? "" : loaded.reason, /"builder.featureTest" is required/);
+    assert.match(loaded.ok ? "" : loaded.reason, /"feature.test" is required/);
   });
 
-  it("refuses builder.featureTest when no Feature gate runs the suite", () => {
+  it("refuses feature.test when no Feature gate runs the suite", () => {
     const loaded = load(config({ builder: { ...builder, featureTest }, feature: feature([gate]) }));
     assert.equal(loaded.ok, false);
     assert.match(loaded.ok ? "" : loaded.reason, /no Feature gate runs the suite/);
   });
 
-  it("gives builder.featureTest its own command and gates, nothing is borrowed from the shared builder", () => {
+  it("gives feature.test its own command and gates, nothing is borrowed from the shared builder", () => {
     const loaded = load(
       config({
         builder: {

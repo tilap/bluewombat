@@ -511,9 +511,9 @@ function gateConfigOf(invocation: HostInvocation, id: string): GateConfigRow[] {
     string,
     { id: string; argv: string[]; timeoutMs?: number; skipWhen?: string }[] | undefined,
   ][] = [
-    ["builder.gates", invocation.builder.producer.gates],
-    ["builder.repair.gates", invocation.builder.repair.gates],
-    ["builder.featureTest.gates", invocation.builder.featureTest?.gates],
+    ["ticket.build.gates", invocation.builder.producer.gates],
+    ["ticket.build.repair.gates", invocation.builder.repair.gates],
+    ["feature.test.gates", invocation.builder.featureTest?.gates],
     ["ticket.fix.gates", invocation.ticket.fix?.gates],
     ["ticket.validate.gates", invocation.ticket.validate?.gates],
     ["feature.fix.gates", invocation.feature?.fix.gates],

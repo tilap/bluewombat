@@ -219,7 +219,7 @@ describe("createTransformers", () => {
     assert.equal(result.traces[0]?.report, "builder could not finish");
   });
 
-  it("checks ticket.validate against its own gates, not builder.producer's", async () => {
+  it("checks ticket.validate against its own gates, not ticket.build.producer's", async () => {
     const transformers = makeTransformers({
       builderProducerGates: [
         {
@@ -237,7 +237,7 @@ describe("createTransformers", () => {
       intention: "i",
       workspace: workspace(),
     });
-    // builder.producer's always-failing Gate never runs against a validate
+    // ticket.build.producer's always-failing Gate never runs against a validate
     // Attempt — each role's Gate list is independent.
     assert.equal(result.outcome, "validated");
   });
@@ -278,7 +278,7 @@ describe("createTransformers", () => {
     assert.equal(result.outcome, "validated");
   });
 
-  it("gives builder.producer and builder.repair independent Gate sequences", async () => {
+  it("gives ticket.build.producer and ticket.build.repair independent Gate sequences", async () => {
     const producerOnly = makeTransformers({
       builderProducerGates: [
         {

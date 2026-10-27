@@ -39,18 +39,18 @@ describe("runInit", () => {
     assert.equal(result.ok, true);
 
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8"));
-    assert.equal(config.featureTracker.package, "@bluewombat/manager-github");
-    assert.equal(config.featureTracker.options.repo, "tilap/mason");
+    assert.equal(config.feature.tracker.package, "@bluewombat/manager-github");
+    assert.equal(config.feature.tracker.options.repo, "tilap/mason");
     assert.equal(existsSync(join(cwd, "mason-builder.mjs")), true);
     assert.equal(existsSync(join(cwd, "mason-gate.mjs")), false);
-    assert.deepEqual(config.builder.gates.gates, []);
-    assert.equal(config.builder.producer.gates, undefined);
-    assert.equal(config.builder.repair.gates, undefined);
+    assert.deepEqual(config.ticket.build.gates.gates, []);
+    assert.equal(config.ticket.build.producer.gates, undefined);
+    assert.equal(config.ticket.build.repair.gates, undefined);
     // A producer with no ceiling is the failure this shape exists to prevent,
     // so `init` writes one rather than leaving a required key out.
-    assert.equal(typeof config.builder.producer.timeoutMs, "number");
-    assert.equal(typeof config.builder.repair.timeoutMs, "number");
-    assert.equal(typeof config.builder.gates.defaultTimeoutMs, "number");
+    assert.equal(typeof config.ticket.build.producer.timeoutMs, "number");
+    assert.equal(typeof config.ticket.build.repair.timeoutMs, "number");
+    assert.equal(typeof config.ticket.build.gates.defaultTimeoutMs, "number");
     // Where Host keeps its own files is a default, not a line to maintain.
     assert.equal(config.home, undefined);
     assert.equal(config.workspaceRoot, undefined);
@@ -80,7 +80,7 @@ describe("runInit", () => {
     await initIn(cwd, ["--manager", "@bluewombat/manager-fake"]);
     assert.equal(existsSync(join(cwd, "mason-gate.mjs")), false);
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8"));
-    assert.deepEqual(config.builder.gates.gates, []);
+    assert.deepEqual(config.ticket.build.gates.gates, []);
   });
 
   it("lets the fake manager prepare its Source and Thread directories", async () => {
@@ -88,7 +88,7 @@ describe("runInit", () => {
     const { result } = await initIn(cwd, ["--manager", "@bluewombat/manager-fake"]);
     assert.equal(result.ok, true);
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8"));
-    assert.equal(config.featureTracker.options.source, "./.mason/source");
+    assert.equal(config.feature.tracker.options.source, "./.mason/source");
     assert.equal(existsSync(join(cwd, ".mason/source")), true);
     assert.equal(existsSync(join(cwd, ".mason/threads")), true);
   });
@@ -104,7 +104,7 @@ describe("runInit", () => {
     assert.equal(result.ok, true);
     assert.equal(existsSync(join(cwd, DEFAULT_CONFIG_FILENAME)), false);
     const config = parseYaml(readFileSync(join(cwd, "nested/conf.yml"), "utf8"));
-    assert.equal(config.featureTracker.package, "@bluewombat/manager-fake");
+    assert.equal(config.feature.tracker.package, "@bluewombat/manager-fake");
     assert.match(output, /Wrote nested\/conf.yml/);
     assert.match(output, /doctor --config nested\/conf.yml/);
     const again = await initIn(cwd, [
@@ -174,7 +174,7 @@ describe("runInit with flags only", () => {
     assert.equal(result.ok, true);
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8"));
     // The question wraps it; the flag must land in the same shape as an answer.
-    assert.deepEqual(config.featureTracker.options.board, ["app"]);
+    assert.deepEqual(config.feature.tracker.options.board, ["app"]);
   });
 
   it("refuses a malformed manager option before writing anything", async () => {
@@ -382,8 +382,8 @@ describe("runInit as a wizard", () => {
     assert.match(output, /not a board/);
 
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8"));
-    assert.equal(config.featureTracker.package, "@acme/manager-demo");
-    assert.equal(config.featureTracker.options.board, "APP");
+    assert.equal(config.feature.tracker.package, "@acme/manager-demo");
+    assert.equal(config.feature.tracker.options.board, "APP");
     assert.equal(config.workLine.stable, "./stable");
   });
 
@@ -428,7 +428,7 @@ describe("runInit as a wizard", () => {
       true,
     );
     const config = parseYaml(readFileSync(join(cwd, DEFAULT_CONFIG_FILENAME), "utf8"));
-    assert.equal(config.featureTracker.options.board, "APP");
+    assert.equal(config.feature.tracker.options.board, "APP");
     // The scaffold is asked again with the answer, so it stops demanding it.
     assert.equal(output.includes("set board"), false);
   });

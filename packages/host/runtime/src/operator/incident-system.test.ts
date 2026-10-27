@@ -56,7 +56,7 @@ describe("systemOf", () => {
     assert.deepEqual(facts.config.gates["feature.validate.gates"], [
       "feature-test (skipWhen skip-feature-test)",
     ]);
-    assert.equal(facts.config.agents["builder.producer"], "node builder.mjs");
+    assert.equal(facts.config.agents["ticket.build.producer"], "node builder.mjs");
     assert.doesNotMatch(JSON.stringify(facts), /SECRET/);
     assert.equal(facts.config.raw, undefined);
   });
