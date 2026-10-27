@@ -48,8 +48,8 @@ export type FeatureStandard = {
   blocked_by: string[];
   /** Its line may be folded without a human. */
   merge_when_ready: boolean;
-  /** It is not put through the e2e acceptance check. */
-  skip_e2e: boolean;
+  /** It is not put through the feature-test acceptance check. */
+  skip_feature_test: boolean;
   source?: { ref?: string; revision?: string };
   fingerprint: string;
   normalized_at: string;

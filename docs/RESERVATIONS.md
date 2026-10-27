@@ -349,41 +349,42 @@ which drops the workspace; it is a human's call. **Instead**: the Isolator names
 line it cut from, the ledger keeps that name, and a resume compares it with the line
 now; that needs a Port to read the line's head, which nothing has today.
 
-### C36 · The e2e check: how it is declared, and when its label counts
+### C36 · The feature-test check: how it is declared, and when its label counts
 
-`packages/host/runtime/src/config/load-config.ts` (`checkE2eDeclaration`);
-`packages/host/runtime/src/loop/features.ts` (`e2eRefusal`, `admitFeature`, `syncTicket`, `closeFeature`)
+`packages/host/runtime/src/config/load-config.ts` (`checkFeatureTestDeclaration`);
+`packages/host/runtime/src/loop/features.ts` (`featureTestRefusal`, `admitFeature`, `syncTicket`, `closeFeature`)
 
 The calls made, none validated with the operator. **Declared** by a pair in the config,
-`builder.e2e` and a Feature Gate with `skipWhen: skip-test-e2e`, each refused without the other;
+`builder.featureTest` and a Feature Gate with `skipWhen: skip-feature-test`, each refused without the other;
 a Project that has neither is untouched. `skipWhen` takes a name from a closed list in Host
-(`SKIP_WHEN`), not the tracker's own label, so renaming the label with `skipTestE2eLabel` does
+(`SKIP_WHEN`), not the tracker's own label, so renaming the label with `skipFeatureTestLabel` does
 not break the config. **When the label counts**: a Feature's skip label is read again on every
 delivery and honoured while the Feature is `waiting`, `open` or `escalated`, so up to the moment
 the line is submitted, not only until validation starts; a label added while the Gate runs
-counts from the next run of it. **A skip is not undone**: the e2e Ticket is cancelled when the
+counts from the next run of it. **A skip is not undone**: the feature-test Ticket is cancelled when the
 Feature skips, and taking the label off afterwards does not bring it back; the Feature escalates
 when it closes, asking for the label again. A new Ticket joining an open Feature is ignored
-(C26), so there is no way to add the e2e Ticket then. `builder.e2e` with no `gates` is accepted:
-the form check is the Project's to write. **Instead**: a declaration of its own (`feature.e2e:`),
+(C26), so there is no way to add the feature-test Ticket then. `builder.featureTest` with no `gates` is accepted:
+the form check is the Project's to write. **Instead**: a declaration of its own (`feature.featureTest:`),
 the Gate matching the tracker's label by name, a cancelled Ticket re-admitted when the label
 goes.
 
-### C37 · The e2e Gate: contract details nobody asked for
+### C37 · The feature-tests Gate: contract details nobody asked for
 
-`packages/plugins/slots/gates/e2e.mjs`
+`packages/plugins/slots/gates/feature-tests.mjs`
 
-Chosen while writing it. A scenario id is found in a test's name as a whole token (`E1` is not
-in `E10`); a manifest is a JSON array of ids or `{ "scenarios": [...] }`; a skipped test is a
-failure; a test with no manifest id is a failure; the retry of failing tests is `--rerun` with
-`{ids}` joined by `|` (a regular expression, as Playwright's `--grep` reads it), or `--run` again
-in full when none is given. The commands get `E2E_HOST` (loopback only: the Gate refuses any
-other address, but cannot make the application listen on it), `E2E_PORT` when asked,
-`E2E_DATA_DIR` (made for the run, removed after) and `E2E_RESULTS_DIR`. The environment of the
-operator is passed on whole: "secrets never in the repo" means they come from there, and nothing
-filters them. The report keeps 40 lines of the server's log and 8000 characters. The Gate's own
-margin before its ceiling is 25 s, 20 of them for `--down`. **Instead**: a runner-specific
-parser; an allow-list of environment variables; a fixed set of test names.
+Chosen while writing it. A scenario id is found in a test's name as a whole token (`S1` is not
+in `S10`); a manifest is a JSON array of ids or `{ "scenarios": [...] }`; a skipped test is a
+failure; a test with no manifest id is a failure (it also catches a runner that ignored `{ids}`);
+there is no retry; the manifest is one file, `feature-tests/scenarios.json`, that every Feature
+rewrites, so two Features in parallel may conflict on it. The environment of the operator is passed
+on whole. The report keeps 8000 characters. The tests are written by an agent that sees the code,
+so they can describe what the code does instead of what was asked: the independence the separate
+Ticket gives is limited, and the Builder's guards are the scenario's text, the run of its tests
+against the built Feature (a test that cannot pass for its own reasons is repaired, not left), the freeze
+at the Feature's fix and a `MASON_BLOCKED` instead of a weaker assertion. Nothing yet reads each test
+against its scenario. **Instead**: a manifest per Feature; a retry; a review pass of the tests; a
+runner-specific parser.
 
 ### C38 · `mason incident`: what the page holds, and how a round is cut
 
@@ -683,17 +684,17 @@ process started between the `ps` read and the kill, and one that daemonised —
 re-parented to init — before it. **Instead**: a per-run cgroup (Linux) or a
 job object (Windows) would hold every descendant; neither is portable.
 
-### F35 · `tests-frozen` does not freeze the e2e suite
+### F35 · `tests-frozen` does not freeze the feature tests
 
-`packages/plugins/slots/gates/tests-frozen.mjs`; `feature.fix.gates` of a Project with the e2e check
+`packages/plugins/slots/gates/tests-frozen.mjs`; `feature.fix.gates` of a Project with the feature-test check
 
 `tests-frozen` holds the files of a checkpoint whose subject starts with "Tests: ", and passes when
-`HEAD` is not one. The e2e Ticket is made by `builder.e2e` and folded under the Message slot's
+`HEAD` is not one. The feature-test Ticket is made by `builder.featureTest` and folded under the Message slot's
 subject, and the Feature's workspace ends on a merge: nothing there is a "Tests: " checkpoint, so
-pointing `tests-frozen` at the suite folder passes without checking. What freezes the suite is
-`sensitive-path e2e/**` in `feature.fix.gates`, which compares what the fix left with `HEAD`.
-That Gate also sees the suite's own results: the Project's `.gitignore` must exclude
-`e2e/results/`, or the run's JUnit file is read as a change to the suite. Not found by a test
+pointing `tests-frozen` at the tests passes without checking. What freezes them is
+`sensitive-path` on the tests and `feature-tests/**` in `feature.fix.gates`, which compares what the fix left with `HEAD`.
+That Gate also sees the run's results: the Project's `.gitignore` must exclude
+`feature-tests/results/`, or the run's JUnit file is read as a change to the tests. Not found by a test
 of the whole path (the fixture in `open-host-authority.test.ts` has a fix with no Gate).
 
 ### F36 · Most Feature escalations still tell the tracker they happened "while submitting"
@@ -717,6 +718,20 @@ command, on a line of its own or inside a multi-line scalar is not found. The pa
 handed to someone else, so the flag is off unless asked, and the commands' arguments are never
 copied outside it. Names of environment variables (`tokenEnv: GITHUB_TOKEN`) are blanked too: safe,
 and less useful. **Instead**: parsing the YAML and blanking by path; an allow-list of keys.
+
+### F38 · A cross-cutting standard of a Project (security, accessibility, design, a global journey suite) is judged by nothing in bluewombat
+
+`feature.gates: ci-green` and `builder.gates` of a Project; the planning skills are outside this repository
+
+Two kinds of standard have a home and one has none. What a program can check lives in the Project: its CI
+runs the whole suite, a scanner or an accessibility audit at the merge (mason waits for `ci-green` and a red
+CI goes to a correction; it does not require that the CI runs any of them), and the fast ones can be Gates of
+the Builder or of the Feature. What a person would judge (a security review, a design review) has no Gate:
+the standard reaches the agent only as outcomes in the spec and the Tickets, and the agent that applies it
+is the one that checks it. No Project declares a global e2e suite yet, so how one is created and kept in step
+with the Features is not tried. **Instead**: a Gate whose implementation is a reviewing agent, separate from
+the Builder and read-only on the standard; not built, and bound to the question of an agent that cannot
+rewrite what judges it.
 
 ## U — Never run against the real thing
 
@@ -779,7 +794,7 @@ The GitHub round trip — issue in, comments, labels, pull request, merge, then
 the red variant — is written down as a five-scenario checklist in the trial
 project (`ttt/test-online/E2E_TESTS.md`, outside this repository), and was run
 in full on 2026-09-14 and 2026-09-16 with the shipped Gates and GitHub as the
-Authority (`test-results/2026-09-1{4,6}-e2e-run.md` there). It is a checklist
+Authority (`test-results/2026-09-1{4,6}-feature-test-run.md` there). It is a checklist
 a person follows, not a script under version control here, and nothing gates
 a commit on it. The first run found the refusal path broken (an echo of
 `## Submitted` admitted as an edit), which is exactly what this entry says
@@ -906,23 +921,21 @@ request that is current really leaves nothing unjudged. The ceiling reuses
 requests: the pull request, the line's tip, the comparison). **Instead** of reusing
 `maxRefusals`: a ceiling of its own, once Tickets can move the line.
 
-### U22 · The e2e Gate has run against a fixture, never against a real application
+### U22 · The feature-tests Gate has run against a fixture, never against a real application
 
-`packages/plugins/slots/gates/e2e.mjs`; `lib/junit.mjs`
+`packages/plugins/slots/gates/feature-tests.mjs`; `lib/junit.mjs`
 
-Tested end to end through Host with a few-line Node server and a suite that writes a JUnit file by
-hand. Never seen: Playwright's own JUnit (its `[[ATTACHMENT|…]]` lines, one `testsuite` per
-project, a test's retries as separate cases), a `pnpm e2e:up` that daemonises or keeps running,
-the process group kill on a real dev server tree, a browser started inside the Gate's ceiling, the
-20 s given to `--down`, and Windows (the Gate spawns `sh -c` and kills a group). The report's
-shape (scenario, step, message, log tail, trace path) was written from a fixture, not read by an
+Tested through Host with a few-line Node runner that writes a JUnit file by hand. Never seen: a
+real runner's own JUnit (Vitest, Jest, `node:test`: one `testsuite` per file, a test's retries as
+separate cases, the `{ids}` filter on a name), and Windows (the Gate spawns `sh -c` and kills a
+group). The report's shape (scenario, step, message) was written from a fixture, not read by an
 agent that had to repair from it.
 
 ### U23 · `mason incident` has been run on one real ledger, never on a failing agent
 
 `packages/host/runtime/src/operator/incident.ts`; `incident-dossier.ts`
 
-Seen on a ledger where a Feature stopped on the e2e Gate (and on its done Tickets). Tested with a
+Seen on a ledger where a Feature stopped on the feature-tests Gate (and on its done Tickets). Tested with a
 seeded Ticket that stopped on a Gate. Never seen on: a Ticket whose agent timed out, was killed or
 said `MASON_BLOCKED:`; a stop by an Authority's refusal after a Submission; a Ticket escalated
 twice; a journal rotated or truncated; a Project with `observability.streams` off, where the page
@@ -983,6 +996,12 @@ is enough to prove the seam and no more. Still deferred, each for its own
 reason: pause and emergency stop as Host commands (RUNBOOKS describes them;
 they mutate the ledger from outside the worker, which nothing does yet);
 journal rotation (see I13); a full-screen TUI (taste).
+
+The `status` tree was seen only against one ledger and the unit suite. Unvalidated
+calls: titles are cut at 40 characters so the state and the link stay in line
+(the alternative was a long, ragged column); a Ticket named by a Feature but
+absent from the ledger is shown with the state `unknown` rather than hidden;
+a `waiting` Feature sorts with the ones in progress, after the `escalated` ones.
 
 A child's raw output is not lost. It is written to its own file by a sink Host
 injects, not forwarded through the `ProgressWriter`, which would put an agent's
@@ -1084,11 +1103,11 @@ words. Fixing it properly means an optional `detail` on that contract, which is
 additive but is a change to what every manager package answers, so it is not
 being slipped in here.
 
-### I17 · A passing e2e suite is shown nowhere a reader looks
+### I17 · Passing feature tests are shown nowhere a reader looks
 
 `packages/host/runtime/src/loop/transformers.ts` (`reasonOf`); `packages/kernel/implementer`
 
-The pass text of the Gate ("3 scenarios ran … passed: E1, E2, E3", the scenarios flagged unstable)
+The pass text of the Gate ("3 scenario(s) of the feature ran and passed: S1, S2, S3")
 is kept in the Attempt's Trace and in the journal's `gate-finished` line, and goes no further: the
 reason handed back from an Implementer pass is the first refusal only, so the pull request of the
 Feature and the tracker's comments do not say which scenarios ran. A red suite does reach them (it
@@ -1103,7 +1122,7 @@ list into the line itself (a file in the pull request).
 
 The page is rebuilt from the ledger, the journal and the files each time, so it can only show what
 survived: a workspace cleared, a stream discarded when its Ticket reached `done`, a transcript
-directory moved. The small artifacts a Gate looked at (the e2e manifest of a line, say) are not
+directory moved. The small artifacts a Gate looked at (the feature-test manifest of a line, say) are not
 copied at the stop, and a Gate cannot name files that explain its verdict: the verdict is
 `{ verdict, report }` and no more. The journal also repeats a Ticket's whole intention in its
 `attempt-finished` and `run-finished` lines, which makes it heavy to read for this alone.

@@ -44,7 +44,10 @@ function feature(over: Partial<FeatureAggregate> = {}): FeatureAggregate {
     received_at: 1,
     tickets: ["gh:a/b#2"],
     resumes: 0,
-    escalation: { report: "e2e: too many scenarios", at: Date.parse("2026-10-25T09:03:33.314Z") },
+    escalation: {
+      report: "featureTest: too many scenarios",
+      at: Date.parse("2026-10-25T09:03:33.314Z"),
+    },
     ...over,
   };
 }
@@ -65,8 +68,8 @@ const stop = (key: string, at: string) => [
     key,
     task_id: `${key}:validate`,
     attempt: 1,
-    gate_id: "e2e",
-    path: "s/e2e.ndjson",
+    gate_id: "feature-test",
+    path: "s/feature-test.ndjson",
     at,
   },
   {
@@ -74,7 +77,7 @@ const stop = (key: string, at: string) => [
     key,
     task_id: `${key}:validate`,
     attempt: 1,
-    gate_id: "e2e",
+    gate_id: "feature-test",
     verdict: "fail-blocking",
     report: "too many scenarios",
     at,
@@ -96,7 +99,7 @@ describe("buildDossier", () => {
     });
     assert.equal(dossier.schema, INCIDENT_SCHEMA);
     assert.equal(dossier.stop.layer, "feature");
-    assert.equal(dossier.stop.refused_by, "e2e");
+    assert.equal(dossier.stop.refused_by, "feature-test");
     assert.equal(dossier.stop.gate?.verdict, "fail-blocking");
     assert.equal(dossier.stop.task_id, "gh:a/b#1:validate");
     assert.equal(dossier.stop.at, "2026-10-25T09:03:33.314Z");
@@ -120,7 +123,7 @@ describe("buildDossier", () => {
     const key = "gh:a/b#1";
     const first = stop(key, "2026-10-24T09:00:00.000Z").map((line) => ({
       ...line,
-      gate_id: line.gate_id === "e2e" ? "old" : line.gate_id,
+      gate_id: line.gate_id === "feature-test" ? "old" : line.gate_id,
     }));
     const dossier = buildDossier({
       subject: feature({ resumes: 1 }),
@@ -129,14 +132,14 @@ describe("buildDossier", () => {
       now,
     });
     assert.equal(dossier.history.escalations, 2);
-    assert.equal(dossier.stop.gate?.id, "e2e");
+    assert.equal(dossier.stop.gate?.id, "feature-test");
     assert.ok(dossier.timeline.every((row) => row.gate_id !== "old"));
   });
 
   it("says what it could not find instead of leaving it out", () => {
     const dossier = buildDossier({ subject: feature(), tickets: [], journal: [], now });
     assert.ok(dossier.gaps.some((gap) => /No journal/.test(gap)));
-    assert.equal(dossier.stop.report, "e2e: too many scenarios");
+    assert.equal(dossier.stop.report, "featureTest: too many scenarios");
     assert.deepEqual(dossier.stop.sources, ["ledger"]);
   });
 
@@ -187,7 +190,7 @@ describe("buildDossier", () => {
     const key = "gh:a/b#1";
     mkdirSync(join(root, "streams", "s"), { recursive: true });
     writeFileSync(
-      join(root, "streams", "s", "e2e.ndjson"),
+      join(root, "streams", "s", "feature-test.ndjson"),
       `${JSON.stringify({ at: "t", stream: "stdout", text: "line one\n" })}\n${JSON.stringify({ at: "t", stream: "stdout", text: "the verdict\n" })}\n`,
     );
     mkdirSync(join(root, "transcripts", "gh-a-b-1"), { recursive: true });
@@ -204,7 +207,7 @@ describe("buildDossier", () => {
       transcriptsDir: join(root, "transcripts"),
       now,
     });
-    const refusing = dossier.artifacts.streams.find((row) => row.gate_id === "e2e");
+    const refusing = dossier.artifacts.streams.find((row) => row.gate_id === "feature-test");
     assert.equal(refusing?.exists, true);
     assert.match(refusing?.excerpt ?? "", /the verdict/);
     const transcript = dossier.artifacts.transcripts[0];

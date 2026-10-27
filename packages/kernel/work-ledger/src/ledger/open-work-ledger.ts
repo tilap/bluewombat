@@ -3,7 +3,6 @@ import type {
   Aggregate,
   AttemptRecord,
   EscalationKind,
-  RefusalCode,
   Summary,
   TicketAggregate,
   TicketIntention,
@@ -158,8 +157,8 @@ function cloneIntention(ticket: TicketAdmission): TicketIntention {
   if (ticket.no_tests === true) {
     intention.no_tests = true;
   }
-  if (ticket.e2e === true) {
-    intention.e2e = true;
+  if (ticket.featureTest === true) {
+    intention.featureTest = true;
   }
   return intention;
 }

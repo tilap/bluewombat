@@ -5,7 +5,7 @@ import type { ManagerModule } from "@bluewombat/manager-kit";
  * What a Feature can say that makes Host leave a Gate out. Names are the ones a Gate's `skipWhen`
  * is written with, whatever the tracker calls the label behind them.
  */
-export const SKIP_WHEN = ["skip-test-e2e"] as const;
+export const SKIP_WHEN = ["skip-feature-test"] as const;
 export type SkipWhen = (typeof SKIP_WHEN)[number];
 
 /**
@@ -207,12 +207,12 @@ export type StageSpec = {
    */
   tests?: ReviewSpec;
   /**
-   * The Ticket that holds a Feature's e2e acceptance suite (the tracker's e2e label) is made by
+   * The Ticket that holds a Feature's feature tests (the tracker's feature-test label) is made by
    * this pass instead of the producer and the repair: its own command, its own Gates, nothing
-   * borrowed from them. Declaring it declares the e2e check: a Feature needs an e2e Ticket or the
-   * skip label, and a Feature Gate with `skipWhen: skip-test-e2e` runs the suite.
+   * borrowed from them. Declaring it declares the feature-test check: a Feature needs a feature-test Ticket or the
+   * skip label, and a Feature Gate with `skipWhen: skip-feature-test` runs the suite.
    */
-  e2e?: GatedPassSpec;
+  featureTest?: GatedPassSpec;
 };
 
 /**

@@ -103,7 +103,7 @@ The FeatureTracker's `listen` delivers Features whose specification is final.
 | `invalid` (new, or the intention changed)   | emit `invalid` on the Feature, keyed by fingerprint                                                                                                                                                                 |
 | `invalid` (same fingerprint as recorded)    | leave it; the tracker was told, and telling it is what delivered it again                                                                                                                                           |
 | `upsert` (absent or `waiting`)              | `admitFeature`, emit `accepted`. Nothing is driven here: the sweep does it                                                                                                                                          |
-| `upsert` (`open` or `escalated`) whose `skip_e2e` differs from the ledger's | `setFeatureSkipE2e`; journal `skip-e2e`; no other change |
+| `upsert` (`open` or `escalated`) whose `skip_feature_test` differs from the ledger's | `setFeatureSkipFeatureTest`; journal `skip-feature-test`; no other change |
 | `upsert` (any other state)                  | leave it; journal `skipped`. An echo of a Host report is this row                                                                                                                                                   |
 | `upsert` + `signalsResume` while `escalated` | same as `resume` — a poll snapshot has no `labeled` edge                                                                                                                                                             |
 | `resume`                                     | resume the Feature, emit `resumed`                                                                                                                                                                                  |
@@ -140,20 +140,33 @@ advanced (`advanceProject`):
 4. A Feature whose Tickets are all blocked escalates; one that cannot be
    settled because the Authority lacks `settled` waits.
 
-The e2e acceptance check, when the Project declares it (`builder.e2e`):
+The Feature's own work (`.mason/feature-workspaces/<feature>`) is cut from its
+line once, when it is closed, and a pass that sent it to the fix finds it where
+it was left. A resume is the one time the line may have gained commits since
+(a person's): `resumeFeature` marks the work stale (`workspace_stale`), and the
+next pass, before judging, refreshes the line and runs the Integration with the
+work as Parent and the line copy as Child (`<key>:resume`), so what the work
+holds, a refused fix's commits included, stays. Once it is done the mark is
+cleared (`markFeatureWorkspaceCurrent`); a refresh that fails or an interrupt
+leaves it, and the next pass tries again. A conflict is not settled by Host: the
+Feature escalates (`assembly`) with a reason naming the conflict, the work left
+as it was, and the mark stays for the next resume. A work cut after the resume
+is current by construction.
+
+The feature-test acceptance check, when the Project declares it (`builder.featureTest`):
 
 - A Feature does not open (and is reported `invalid`, once per reason) unless it holds exactly
-  one e2e Ticket (`TicketEntry.e2e`), blocked by every other live Ticket, or carries `skip_e2e`.
-- A Ticket with `e2e` is admitted with `e2e` and `no_tests`: no tests are written first, and
-  Transformers makes it with `builder.e2e` (its command, its Gates, for the first pass, a refused
+  one feature-test Ticket (`TicketEntry.featureTest`), blocked by every other live Ticket, or carries `skip_feature_test`.
+- A Ticket with `feature-test` is admitted with `feature-test` and `no_tests`: no tests are written first, and
+  Transformers makes it with `builder.featureTest` (its command, its Gates, for the first pass, a refused
   pass and the recheck) instead of the producer and the repair.
-- A Feature with `skip_e2e` has its e2e Ticket cancelled by the sweep (journal
-  `e2e-ticket-cancelled`, a trace line), and Transformers leaves out, for that Feature, every
+- A Feature with `skip_feature_test` has its feature-test Ticket cancelled by the sweep (journal
+  `feature-test-ticket-cancelled`, a trace line), and Transformers leaves out, for that Feature, every
   Gate of `feature.validate`, `feature.gates` and `feature.fix` that has `skipWhen:
-  skip-test-e2e`: the journal gets `gate-skipped` with the Gate id and the reason, and the trace
-  says "`<id>` not run: the Feature carries skip-test-e2e". The mark is read from the ledger as
+  skip-feature-test`: the journal gets `gate-skipped` with the Gate id and the reason, and the trace
+  says "`<id>` not run: the Feature carries skip-feature-test". The mark is read from the ledger as
   each pass starts (`TransformerSlots.marks`).
-- A Feature that is not marked and no longer holds a live e2e Ticket (it was cancelled while the
+- A Feature that is not marked and no longer holds a live feature-test Ticket (it was cancelled while the
   mark was on) escalates when it closes.
 
 Host never drives an `escalated` unit: that state is frozen until a human `resume`.
@@ -353,9 +366,16 @@ poll. A `listen` that did not complete is never held and never hidden.
 `watch` and `status` are the operator live view. They open the ledger the same
 way `run` does (`openFilesystemPersist` then `openWorkLedger`) and they do not
 open a manager, Conductor, or Host. `status` prints a snapshot of every known
-Ticket and exits. `watch` prints that snapshot, then follows new journal lines
+Feature and Ticket and exits: a header with the counts, then one line per Feature
+(key, state, title, the Submission or why it stopped) with its Tickets indented
+under it, then the Tickets that belong to no Feature under `No Feature`. A Ticket
+holding the feature tests is marked `[feature-test]`. Features that need a person
+(`escalated`) come first, then those in progress, then `done` and `cancelled`.
+Keys are ordered by tracker, then by number (`#18` before `#107`), the order
+`incident` lists what waits for a person in too. Plain text, no colour. `watch` prints that snapshot, then follows new journal lines
 until SIGINT (exit 0). A missing journal is not an error: the snapshot still
-stands. `--json` prints the snapshot as JSON. Ctrl-C on watch leaves the worker
+stands. `--json` prints the same tree: `{ features: [{ …, tickets: […] }], tickets: […] }`,
+the latter holding the Tickets of no Feature. Ctrl-C on watch leaves the worker
 running. The file can grow without rotation. A followed line that records a
 stop includes the child's last words (`detail`, `reason`, a non-zero exit, a
 Gate report that did not pass). `run` prints that same note under the phase
@@ -416,6 +436,13 @@ the refuser from the last non-passing Gate whose words the ledger repeats. The
 tracker is told the stage of a Feature's stop from that `kind` (`integrating`
 for an assembled line, `submitting` otherwise).
 
+`restart <feature-key>` resumes an escalated Feature with a fresh workspace: the
+Feature's work is removed (the same `rm` as a cancel) and the ledger's `resumeFeature` is taken,
+so the next pass cuts the work again from the line and judges it. Nothing is said to the tracker and
+nothing is fetched. It takes the ledger lock — stop `run` first. The key is the full key or the
+tracker number, as `incident` takes it. Exit 0 once restarted, 1 when the Feature is not
+`escalated`, 2 for a missing, unknown or Ticket key. The journal gets `restarted`.
+
 `cancel <key>` abandons one Ticket the same way a `cancel` delivery does. The
 team still abandons in the TicketTracker; this is the hatch when the tracker
 cannot say the intention is gone (a manager with no `probe`, or an operator
@@ -467,10 +494,10 @@ positional: `release github:owner/name#19`.
     open, escalated or submitted. A Feature blocked by another does not open
     until it is `done`. A Feature whose Tickets are not all `task-ready` does
     not open.
-16b. With the e2e check declared: a Feature without an e2e Ticket nor `skip_e2e` does not open and
-    is reported `invalid`; with `skip_e2e` its e2e Ticket is cancelled and the e2e Gate is not run,
-    the journal and the trace saying so; with an e2e Ticket the line is judged once by the suite,
-    red goes to `feature.fix` and green lets the line be offered. A Project without `builder.e2e`
+16b. With the feature-test check declared: a Feature without a feature-test Ticket nor `skip_feature_test` does not open and
+    is reported `invalid`; with `skip_feature_test` its feature-test Ticket is cancelled and the feature-tests Gate is not run,
+    the journal and the trace saying so; with a feature-test Ticket the line is judged once by the suite,
+    red goes to `feature.fix` and green lets the line be offered. A Project without `builder.featureTest`
     is unchanged.
 17. After an escalation, a `probe` of `gone` cancels that Ticket (or Feature)
     and the sweep goes on. `unavailable` leaves the

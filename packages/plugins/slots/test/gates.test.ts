@@ -12,6 +12,7 @@ const node = process.execPath;
 const gates = join(dirname(fileURLToPath(import.meta.url)), "../gates");
 const parentClean = join(gates, "parent-clean.mjs");
 const sensitivePath = join(gates, "sensitive-path.mjs");
+const testsOnly = join(gates, "tests-only.mjs");
 const workspaceChanged = join(gates, "workspace-changed.mjs");
 const ciGreen = join(gates, "ci-green.mjs");
 const gitignoreLeak = join(gates, "gitignore-leak.mjs");
@@ -1000,5 +1001,65 @@ describe("tests-frozen", () => {
     assert.equal(verdictOf(unknown).verdict, "pass");
     const named = run(testsFrozen, dir, ["--subject-prefix", "Specs: "]);
     assert.equal(verdictOf(named).verdict, "fail-retryable");
+  });
+});
+
+describe("tests-only", () => {
+  function repo(): string {
+    const cwd = sandbox();
+    gitInit(cwd);
+    mkdirSync(join(cwd, "src"));
+    writeFileSync(join(cwd, "src", "app.ts"), "export const a = 1;\n");
+    writeFileSync(join(cwd, "src", "app.test.ts"), "// test\n");
+    gitCommit(cwd, "seed");
+    return cwd;
+  }
+  const globs = ["**/*.test.ts", "feature-tests/**"];
+
+  it("passes when only tests and the manifest changed, new or modified", () => {
+    const cwd = repo();
+    writeFileSync(join(cwd, "src", "app.test.ts"), "// changed\n");
+    writeFileSync(join(cwd, "src", "other.test.ts"), "// new\n");
+    mkdirSync(join(cwd, "feature-tests"));
+    writeFileSync(join(cwd, "feature-tests", "scenarios.json"), '["S1"]');
+    assert.equal(verdictOf(run(testsOnly, cwd, globs)).verdict, "pass");
+  });
+
+  it("passes when nothing changed", () => {
+    assert.equal(verdictOf(run(testsOnly, repo(), globs)).verdict, "pass");
+  });
+
+  it("refuses a modified, a new and a deleted application file, and names them", () => {
+    const cwd = repo();
+    writeFileSync(join(cwd, "src", "app.ts"), "export const a = 2;\n");
+    writeFileSync(join(cwd, "src", "new.ts"), "x\n");
+    unlinkSync(join(cwd, "src", "app.test.ts"));
+    const result = verdictOf(run(testsOnly, cwd, ["feature-tests/**"]));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /src\/app\.ts/);
+    assert.match(result.report, /src\/new\.ts/);
+    assert.match(result.report, /src\/app\.test\.ts/);
+  });
+
+  it("sees both ends of a rename", () => {
+    const cwd = repo();
+    execFileSync("git", ["-C", cwd, "mv", "src/app.ts", "src/test-looking.test.ts"]);
+    const result = verdictOf(run(testsOnly, cwd, globs));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /src\/app\.ts/);
+  });
+
+  it("ignores what .gitignore excludes", () => {
+    const cwd = repo();
+    writeFileSync(join(cwd, ".gitignore"), "dist/\n");
+    gitCommit(cwd, "ignore");
+    mkdirSync(join(cwd, "dist"));
+    writeFileSync(join(cwd, "dist", "out.js"), "x");
+    assert.equal(verdictOf(run(testsOnly, cwd, globs)).verdict, "pass");
+  });
+
+  it("is blocking without a glob or outside a git workspace", () => {
+    assert.equal(verdictOf(run(testsOnly, repo())).verdict, "fail-blocking");
+    assert.equal(verdictOf(run(testsOnly, sandbox(), globs)).verdict, "fail-blocking");
   });
 });

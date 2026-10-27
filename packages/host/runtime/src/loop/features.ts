@@ -3,11 +3,12 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { DeliveryStore, DeliveryUnit, ProjectRunResult } from "@bluewombat/conductor";
 import { pathSegment } from "@bluewombat/conductor";
-import type {
-  FeatureRef,
-  FeatureStandard,
-  TicketEntry,
-  TicketStandard,
+import {
+  CLI_NAME,
+  type FeatureRef,
+  type FeatureStandard,
+  type TicketEntry,
+  type TicketStandard,
 } from "@bluewombat/manager-kit";
 import type {
   FeatureAdmission,
@@ -105,17 +106,21 @@ async function admitFeature(input: HostDeliveryInput, feature: FeatureStandard):
   // about work already made: nothing here restarts it.
   const before = await input.ledger.getFeature(feature.key);
   if (before.ok && before.aggregate.state !== "waiting") {
-    // The label that leaves the e2e check out is the one thing a human can still change: it is
+    // The label that leaves the feature-test check out is the one thing a human can still change: it is
     // honoured until the Feature is submitted, and read again by the check each time it runs.
-    if (before.aggregate.intention.skip_e2e !== feature.skip_e2e) {
-      const moved = await input.ledger.setFeatureSkipE2e({
+    if (before.aggregate.intention.skip_feature_test !== feature.skip_feature_test) {
+      const moved = await input.ledger.setFeatureSkipFeatureTest({
         key: feature.key,
-        skip: feature.skip_e2e,
+        skip: feature.skip_feature_test,
       });
       if (moved.ok) {
-        input.journal.append({ event: "skip-e2e", key: feature.key, skip: feature.skip_e2e });
+        input.journal.append({
+          event: "skip-feature-test",
+          key: feature.key,
+          skip: feature.skip_feature_test,
+        });
         input.trace(
-          `feature    ${feature.key} ${feature.skip_e2e ? "now" : "no longer"} skips the e2e check`,
+          `feature    ${feature.key} ${feature.skip_feature_test ? "now" : "no longer"} skips the feature-test check`,
         );
         return;
       }
@@ -133,7 +138,7 @@ async function admitFeature(input: HostDeliveryInput, feature: FeatureStandard):
     external_id: feature.external_id,
     blocked_by: feature.blocked_by,
     merge_when_ready: feature.merge_when_ready,
-    ...(feature.skip_e2e ? { skip_e2e: true } : {}),
+    ...(feature.skip_feature_test ? { skip_feature_test: true } : {}),
     ...(feature.title === undefined ? {} : { title: feature.title }),
     ...(feature.source === undefined ? {} : { source: feature.source }),
   };
@@ -253,8 +258,8 @@ export async function advanceProject(
 }
 
 /** What the tracker says of a Ticket beside its words. */
-function marksOf(entry: TicketEntry): { noTests: boolean; e2e: boolean } {
-  return { noTests: entry.no_tests, e2e: entry.e2e === true };
+function marksOf(entry: TicketEntry): { noTests: boolean; featureTest: boolean } {
+  return { noTests: entry.no_tests, featureTest: entry.featureTest === true };
 }
 
 function refOf(feature: FeatureAggregate): FeatureRef {
@@ -277,7 +282,7 @@ function admissionOf(
   ticket: TicketStandard,
   feature: FeatureAggregate,
   among: ReadonlySet<string>,
-  marks: { noTests: boolean; e2e: boolean },
+  marks: { noTests: boolean; featureTest: boolean },
 ): TicketAdmission {
   return {
     key: ticket.key,
@@ -293,50 +298,57 @@ function admissionOf(
     ...(ticket.title === undefined ? {} : { title: ticket.title }),
     ...(ticket.source === undefined ? {} : { source: ticket.source }),
     // The Ticket that holds the acceptance suite writes the tests itself: none are written first.
-    ...(marks.noTests || marks.e2e ? { no_tests: true } : {}),
-    ...(marks.e2e ? { e2e: true } : {}),
+    ...(marks.noTests || marks.featureTest ? { no_tests: true } : {}),
+    ...(marks.featureTest ? { featureTest: true } : {}),
   };
 }
 
 /**
- * What is wrong with a Feature of a Project that proves its Features by an e2e suite: it holds
- * no e2e Ticket and is not marked to skip the check, holds several, or its e2e Ticket may start
+ * What is wrong with a Feature of a Project that proves its Features by a feature-test suite: it holds
+ * no feature-test Ticket and is not marked to skip the check, holds several, or its feature-test Ticket may start
  * before the others have landed. Nothing: a Project without the check, or a Feature that skips it.
  */
-function e2eRefusal(
+function featureTestRefusal(
   input: HostDeliveryInput,
   feature: FeatureAggregate,
   live: readonly TicketEntry[],
 ): string | undefined {
-  if (input.options.builder.e2e === undefined || feature.intention.skip_e2e === true) {
+  if (
+    input.options.builder.featureTest === undefined ||
+    feature.intention.skip_feature_test === true
+  ) {
     return undefined;
   }
-  const holding = live.filter((entry) => entry.e2e);
+  const holding = live.filter((entry) => entry.featureTest);
   const head =
-    "This Project proves each Feature by an e2e acceptance suite, run once on the whole Feature.";
+    "This Project proves each Feature by a feature tests, run once on the whole Feature.";
   if (holding.length === 0) {
-    return `${head} The Feature has no e2e Ticket and is not marked skip-test-e2e: add the e2e Ticket (the scenarios agreed with the operator, blocked by every other Ticket), or mark the Feature to skip the check.`;
+    return `${head} The Feature has no feature-test Ticket and is not marked skip-feature-test: add the feature-test Ticket (the scenarios agreed with the operator, blocked by every other Ticket), or mark the Feature to skip the check.`;
   }
   if (holding.length > 1) {
-    return `${head} The Feature holds ${holding.length} e2e Tickets: it holds one, with all its scenarios.`;
+    return `${head} The Feature holds ${holding.length} feature-test Tickets: it holds one, with all its scenarios.`;
   }
   const only = holding[0];
-  const others = live.filter((entry) => !entry.e2e).map((entry) => entry.ticket.key);
+  const others = live.filter((entry) => !entry.featureTest).map((entry) => entry.ticket.key);
   const missing = others.filter((key) => !only?.ticket.blocked_by.includes(key));
   if (only !== undefined && missing.length > 0) {
-    return `${head} The e2e Ticket ${only.ticket.key} must be blocked by every other Ticket of the Feature, so that it lands last. It is not blocked by: ${missing.join(", ")}.`;
+    return `${head} The feature-test Ticket ${only.ticket.key} must be blocked by every other Ticket of the Feature, so that it lands last. It is not blocked by: ${missing.join(", ")}.`;
   }
   return undefined;
 }
 
-/** Whether a Feature still holds an e2e Ticket that was not cancelled. */
-async function holdsLiveE2eTicket(
+/** Whether a Feature still holds a feature-test Ticket that was not cancelled. */
+async function holdsLiveFeatureTestTicket(
   input: HostDeliveryInput,
   feature: FeatureAggregate,
 ): Promise<boolean> {
   for (const key of feature.tickets) {
     const got = await input.ledger.get(key);
-    if (got.ok && got.aggregate.intention.e2e === true && got.aggregate.state !== "cancelled") {
+    if (
+      got.ok &&
+      got.aggregate.intention.featureTest === true &&
+      got.aggregate.state !== "cancelled"
+    ) {
       return true;
     }
   }
@@ -372,7 +384,7 @@ async function openNextFeature(input: HostDeliveryInput, project: string): Promi
     return;
   }
 
-  const refusal = e2eRefusal(input, feature, live);
+  const refusal = featureTestRefusal(input, feature, live);
   if (refusal !== undefined) {
     input.journal.append({ event: "invalid", key: feature.intention.key, reason: refusal });
     await pushReport(
@@ -381,7 +393,7 @@ async function openNextFeature(input: HostDeliveryInput, project: string): Promi
         event: "invalid",
         key: feature.intention.key,
         project,
-        eventId: `${feature.intention.key}:invalid:e2e:${refusal}`,
+        eventId: `${feature.intention.key}:invalid:feature-test:${refusal}`,
         fields: { reason: refusal },
       },
       TO,
@@ -541,24 +553,24 @@ async function syncTicket(
   // fingerprint: it is compared on its own.
   const marks = marksOf(entry);
   const flagged = current.aggregate.intention.no_tests === true;
-  const holdsE2e = current.aggregate.intention.e2e === true;
+  const holdsFeatureTest = current.aggregate.intention.featureTest === true;
   if (
     state === "received" &&
     (current.aggregate.intention.fingerprint !== ticket.fingerprint ||
-      flagged !== (marks.noTests || marks.e2e) ||
-      holdsE2e !== marks.e2e)
+      flagged !== (marks.noTests || marks.featureTest) ||
+      holdsFeatureTest !== marks.featureTest)
   ) {
     await input.ledger.admit(admissionOf(ticket, feature, known, marks));
   }
-  // A Feature that is not put through the e2e check has no use of the Ticket that holds it.
-  if (feature.intention.skip_e2e === true && marks.e2e && LIVE.has(state)) {
+  // A Feature that is not put through the feature-test check has no use of the Ticket that holds it.
+  if (feature.intention.skip_feature_test === true && marks.featureTest && LIVE.has(state)) {
     input.journal.append({
-      event: "e2e-ticket-cancelled",
+      event: "feature-test-ticket-cancelled",
       key: ticket.key,
       feature: feature.intention.key,
     });
     input.trace(
-      `feature    ${feature.intention.key} skips the e2e check: ticket ${ticket.key} is cancelled`,
+      `feature    ${feature.intention.key} skips the feature-test check: ticket ${ticket.key} is cancelled`,
     );
     await cancelTicketByKey({ key: ticket.key, project: ticket.project }, input);
     return;
@@ -838,14 +850,14 @@ async function closeFeature(
     return;
   }
   if (
-    input.options.builder.e2e !== undefined &&
-    feature.intention.skip_e2e !== true &&
-    !(await holdsLiveE2eTicket(input, feature))
+    input.options.builder.featureTest !== undefined &&
+    feature.intention.skip_feature_test !== true &&
+    !(await holdsLiveFeatureTestTicket(input, feature))
   ) {
     await escalateFeature(
       input,
       feature,
-      "This Feature is not marked skip-test-e2e and holds no e2e Ticket: it was cancelled while the Feature skipped the check, and the mark was taken off since. Mark the Feature skip-test-e2e again to leave the check out.",
+      "This Feature is not marked skip-feature-test and holds no feature-test Ticket: it was cancelled while the Feature skipped the check, and the mark was taken off since. Mark the Feature skip-feature-test again to leave the check out.",
     );
     return;
   }
@@ -867,8 +879,14 @@ async function closeFeature(
   };
 
   // The Feature's work is cut from its line the way a Ticket's is, once; a
-  // pass that sent it to the fix finds it where it was left.
-  if (!existsSync(unit.workspace)) {
+  // pass that sent it to the fix finds it where it was left. A resume is the
+  // one time the line may have moved under it, by a person: what it gained is
+  // then merged into the work, which keeps what it holds.
+  if (existsSync(unit.workspace)) {
+    if (feature.workspace_stale === true && !(await takeInLine(input, feature, unit))) {
+      return;
+    }
+  } else {
     if (!(await refreshOnto(input, feature.line))) {
       return;
     }
@@ -893,6 +911,9 @@ async function closeFeature(
       await clean();
       return;
     }
+  }
+  if (feature.workspace_stale === true) {
+    await input.ledger.markFeatureWorkspaceCurrent(key);
   }
   const prepared = await delivery.delivery.prepare(unit, featureStore(input, feature));
   if (prepared !== "ready") {
@@ -964,6 +985,55 @@ async function closeFeature(
 }
 
 /**
+ * Bring what a resumed Feature's line gained since its work was cut into that
+ * work, without discarding what the work holds (the fix's own commits, even
+ * refused ones: a person may want them). Answers whether the pass goes on:
+ * not when the line could not be reached or the merge was interrupted (the next
+ * pass tries again), nor when it conflicts — that is for a person, and the
+ * work is left as it was.
+ */
+async function takeInLine(
+  input: HostDeliveryInput,
+  feature: FeatureAggregate,
+  unit: DeliveryUnit,
+): Promise<boolean> {
+  if (!(await refreshOnto(input, feature.line))) {
+    return false;
+  }
+  const taken = await input.transformers.integrate({
+    id: `${unit.key}:resume`,
+    context: unit.key,
+    parent: unit.workspace,
+    child: input.workLine.stable,
+    durationMs: input.options.timeoutMs,
+    subject: "Work left when the Feature stopped",
+    mergeSubject: `Merge ${feature.line} into the feature`,
+  });
+  switch (taken.outcome) {
+    case "integrated":
+      return true;
+    case "interrupted":
+      return false;
+    case "conflict":
+      await escalateFeature(
+        input,
+        feature,
+        `The line ${feature.line} gained commits since the Feature's work was made, and they conflict with it: both changed the same places. The work was left as it was. Settle it on the line, or run \`${CLI_NAME} restart ${unit.key}\` to make the work again from the line, then resume.`,
+        { kind: "assembly" },
+      );
+      return false;
+    default:
+      await escalateFeature(
+        input,
+        feature,
+        `What the line ${feature.line} gained could not be merged into the Feature's work. The work was left as it was.`,
+        { kind: "assembly" },
+      );
+      return false;
+  }
+}
+
+/**
  * The line is with the Authority. If the Feature merges by itself, its gates
  * decide, and a line the target moved on from goes back to be brought up to
  * date, exactly as a Ticket does; otherwise a human folds it and the system
@@ -1029,6 +1099,35 @@ async function reportDone(
     },
     TO,
   );
+}
+
+export type RestartResult =
+  | { ok: true }
+  | { ok: false; code: "not-found" }
+  | { ok: false; code: "not-escalated"; state: string };
+
+/**
+ * Restart an escalated Feature with a fresh workspace: what it holds is removed
+ * and the Feature is resumed, so the next pass cuts its work again from the
+ * line and judges that. Nothing is said to the tracker and nothing is fetched.
+ */
+export async function restartFeature(input: HostRunInput, key: string): Promise<RestartResult> {
+  const got = await input.ledger.getFeature(key);
+  if (!got.ok) {
+    return { ok: false, code: "not-found" };
+  }
+  if (got.aggregate.state !== "escalated") {
+    return { ok: false, code: "not-escalated", state: got.aggregate.state };
+  }
+  if (input.featureDelivery !== undefined) {
+    await rm(featureWorkspace(input.featureDelivery, key), { recursive: true, force: true });
+  }
+  const resumed = await input.ledger.resumeFeature(key);
+  if (!resumed.ok) {
+    return { ok: false, code: "not-escalated", state: got.aggregate.state };
+  }
+  input.journal.append({ event: "restarted", key });
+  return { ok: true };
 }
 
 /** Abandon a Feature or a Ticket by key: whichever the ledger knows. */

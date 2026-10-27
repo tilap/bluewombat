@@ -85,17 +85,24 @@ falsifiable — if code violates it, that is a bug, not a design choice.
   the reason, and the Ticket starts again from the alignment. All of these draw on
   one budget, `maxRefusals`; when it is spent, or when nothing can fix the cause,
   the Ticket escalates.
-- A Feature may be proved by its **e2e acceptance suite**: a few scenarios (five at most,
-  ids `E1`, `E2`…) agreed with the operator before development and written, verbatim, in the
-  body of its last Ticket, the **e2e Ticket**. That Ticket is blocked by every other Ticket, is
-  made by its own pass, writes only the suite folder and a manifest of the scenario ids, and
-  never runs the suite. The suite is run **once**, on the assembled Feature line, by a Gate of
-  the Feature's checks; it never runs per Ticket. A suite that is red refuses the line and sends
-  it to the Feature's fix, which repairs the application with the e2e tests frozen. A Project
-  that declares the check refuses (`invalid`) a Feature that holds neither an e2e Ticket nor the
-  **skip-test-e2e** signal; a Feature that carries the signal has its e2e Ticket cancelled and the
-  Gate not run, and the journal and the trace say so. A Project that does not declare the check
-  is unchanged.
+- A Feature may be proved by its **feature tests**: the scenarios of what it does (ids `S1`,
+  `S2`…) agreed with the operator before development and written, verbatim, in the body of its
+  last Ticket, the **feature-test Ticket**. That Ticket is blocked by every other Ticket, is made
+  by its own pass (another agent than the one that built the Feature), writes only tests and a
+  manifest of the scenario ids, and updates the existing tests a scenario changes. The
+  Feature is built when that Ticket runs, so the Ticket's own Gates run its tests against it after
+  each attempt: a test wrong for its own reasons is fixed by its author, and a test red because
+  the Feature does not do what the scenario says ends the Ticket in a stop (`MASON_BLOCKED`) with
+  the author's diagnosis, never in a weaker test or a changed application. Only the scenarios of
+  the manifest are run, never the Project's whole suite (the Project's CI, when it merges, is where
+  that belongs), and run again **once** on the assembled Feature line by a Gate of the Feature's
+  checks. Tests that are then red refuse the line and send it to the Feature's fix, which repairs
+  the application with the tests frozen. A Project that declares the check refuses (`invalid`) a Feature that holds
+  neither a feature-test Ticket nor the **skip-feature-test** signal; a Feature that carries the
+  signal has its feature-test Ticket cancelled and the Gate not run, and the journal and the trace
+  say so. A Project that does not declare the check is unchanged. The tests are plain tests of the
+  Project, at the level the scenario names (a service, a route, a page), not a browser suite: what
+  bounds the run is its time, not a count of scenarios.
 - After a Ticket is aligned with its line, the Ticket's own checks (the Builder's
   Gates) run again on the result, before anyone reviews it.
 - Durable state is written to the WorkLedger before it is acted on. Isolated workspaces
@@ -136,8 +143,8 @@ written is the tracker's own (a label, a status, a field); the meaning is fixed.
 | `feature-ready`      | Feature | The Feature's content is final. Its Tickets may be written                                         |
 | `task-ready`        | Ticket  | The Ticket's specification is final. Set on all of a Feature's Tickets together, once the list is validated, so a half-written Feature never opens |
 | `merge-when-ready` | Feature | The Feature's line may be folded into the final line without a human                               |
-| `skip-test-e2e`    | Feature | The Feature is not put through the e2e acceptance check: its e2e Ticket is cancelled and the Gate that runs the suite is not run. It can be put on or taken off until the Feature is submitted |
-| `e2e`              | Ticket  | The Ticket holds the e2e acceptance suite of its Feature: it is made by `builder.e2e`, with no tests written first |
+| `skip-feature-test`    | Feature | The Feature is not put through the feature-test check: its feature-test Ticket is cancelled and the Gate that runs the feature tests is not run. It can be put on or taken off until the Feature is submitted |
+| `feature-test`              | Ticket  | The Ticket holds the feature tests of its Feature: it is made by `builder.featureTest`, with no tests written first |
 
 ## Bounds, leases, and stopping
 
@@ -254,8 +261,8 @@ If two words mean the same thing, pick one and mark the other as an alias to ret
 | FeatureStandard | A Feature normalized: external identity, Project, intention, priority, blockers, signals, state | A raw tracker item; a TicketStandard | Adapter OUT; `manager-kit` types |
 | Ticket | The technical unit bluewombat builds: one unit of work, in one isolated workspace, validated by Gates, landed as one change on its Feature's line | A Feature; a step of a plan (there is none) | A TicketTracker; `TicketStandard` in `manager-kit` |
 | TicketStandard | A Ticket normalized: external identity, Feature, Project, intention, priority, blockers, the signal `task-ready`, state, bounds counters | A Feature; a raw tracker item | Adapter OUT; `manager-kit` types |
-| e2e Ticket | The last Ticket of a Feature, labelled `e2e` on the tracker: its body is the Feature's scenarios (`E1`, `E2`…, five at most), copied verbatim; it writes the acceptance suite and the manifest `e2e/scenarios.json` and nothing else | A Ticket that runs the suite (a Gate does, once, on the whole Feature); a test written first for another Ticket | A TicketTracker (`TicketEntry.e2e`); `builder.e2e` |
-| Acceptance suite | The end-to-end tests of one Feature, one test per scenario id of its manifest, run once on the assembled Feature line by the `e2e` Gate against the Project's own commands (`up`, `ready`, `run`, `down`) | A unit test; a suite per Ticket; the Project's CI | `e2e/` of the Project; `gates/e2e.mjs` |
+| feature-test Ticket | The last Ticket of a Feature, labelled `feature-test` on the tracker: its body is the Feature's scenarios (`S1`, `S2`…), copied verbatim; it writes the Feature's tests and the manifest `feature-tests/scenarios.json`, updates the existing tests a scenario changes, and nothing else | A Ticket that runs the tests (a Gate does, once, on the whole Feature); a test written first for another Ticket | A TicketTracker (`TicketEntry.featureTest`); `builder.featureTest` |
+| Feature tests | The tests of one Feature, one per scenario id of its manifest, run once on the assembled Feature line by the `feature-tests` Gate against the Project's own command, filtered on those ids | The Project's whole suite; a test per Ticket | `feature-tests/` of the Project; `gates/feature-tests.mjs` |
 | Line | A Feature's branch, cut from the Project's final line when the Feature opens. Tickets land on it; it is submitted whole when they are all `done` | The final line; a Ticket's own branch | Named by the Authority (`openLine`) |
 | Stage | Where an escalation stopped, as an Event field: `unit` (the Ticket's Attempts), `integrating` (the assembled Ticket), `submitting` (the Submission: the offer refused before one existed, or one under review in state `submitted`), `merging` (the fold) | A state; a Transformer | `manager-kit` (`EventFields`) |
 | WorkLedger | Store of Features, Tickets, states, Attempts, and Traces. System source of truth | A tracker; a workspace on disk; a visual task board | `packages/kernel/work-ledger` |
@@ -281,7 +288,7 @@ If two words mean the same thing, pick one and mark the other as an alias to ret
 | Plugin | A package a config names and Host loads at run time: a manager, an isolation strategy, a persistence backend | A Slot (spawned, never imported); a Transformer | `packages/plugins/{manager,isolation,persist}-*` |
 | Slot | An opaque command a config names and the system spawns — Builder, Gate, Publisher, Refresher, Describer. One JSON line out | A Plugin; a Transformer | `packages/plugins/slots/**`, any script |
 | bluewombat | The system as a whole: the packages `@bluewombat/*`, the rules, the words in this document | A command; a package name on its own | The repository `tilap/bluewombat`; the npm scope |
-| mason | The command-line tool the operator runs — `init`, `doctor`, `setup`, `run`, `watch`, `status`, `cancel` — and the name on what it owns: `mason.config.yaml`, `.mason/`, the tracker labels | The system, a package, or a branch: a Ticket's branch is `issue/<n>` | `PRODUCT` in `packages/host/manager-kit/src/product.ts`; `bin` of `@bluewombat/runtime` |
+| mason | The command-line tool the operator runs — `init`, `doctor`, `setup`, `run`, `watch`, `status`, `cancel`, `restart` — and the name on what it owns: `mason.config.yaml`, `.mason/`, the tracker labels | The system, a package, or a branch: a Ticket's branch is `issue/<n>` | `PRODUCT` in `packages/host/manager-kit/src/product.ts`; `bin` of `@bluewombat/runtime` |
 
 Rules:
 

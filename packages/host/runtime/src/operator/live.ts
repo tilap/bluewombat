@@ -4,7 +4,7 @@ import { parseArgs } from "../config/parse-args.js";
 import { journalPath, parseJournalChunk } from "../loop/journal.js";
 import { failureNote } from "../loop/trace.js";
 import { openPersist } from "../plugins/persist.js";
-import { boardOf, jsonOf } from "./board.js";
+import { boardOf, jsonOf, textOf } from "./board.js";
 
 export type LiveInput = {
   cwd: string;
@@ -43,11 +43,11 @@ export async function runLive(input: LiveInput): Promise<number> {
     const rows = await boardOf(ledger);
     if (peeled.json) {
       input.write(`${JSON.stringify(jsonOf(rows), null, 2)}\n`);
-    } else if (rows.length === 0) {
+    } else if (rows.features.length === 0 && rows.tickets.length === 0) {
       input.write("No Tickets in the ledger.\n");
     } else {
-      for (const row of rows) {
-        input.write(`${row.line}\n`);
+      for (const line of textOf(rows)) {
+        input.write(`${line}\n`);
       }
     }
     if (!input.follow) {

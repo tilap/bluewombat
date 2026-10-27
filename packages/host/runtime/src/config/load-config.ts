@@ -52,7 +52,7 @@ const WORK_LINE_KEYS = new Set([
 ]);
 const PASS_KEYS = new Set(["cmd", "timeoutMs"]);
 const GATED_PASS_KEYS = new Set(["cmd", "timeoutMs", "gates"]);
-const STAGE_KEYS = new Set(["tests", "e2e", "producer", "repair", "gates", "maxAttempts"]);
+const STAGE_KEYS = new Set(["tests", "featureTest", "producer", "repair", "gates", "maxAttempts"]);
 const TICKET_KEYS = new Set([
   "maxParallel",
   "maxAttempts",
@@ -234,25 +234,25 @@ export function loadConfig(path: string): LoadedConfig {
     invocation.pollIntervalMs = pollIntervalMs.value;
   }
 
-  const e2eRefusal = checkE2eDeclaration(invocation);
-  if (e2eRefusal !== undefined) {
-    return { ok: false, reason: e2eRefusal };
+  const featureTestRefusal = checkFeatureTestDeclaration(invocation);
+  if (featureTestRefusal !== undefined) {
+    return { ok: false, reason: featureTestRefusal };
   }
 
   return { ok: true, invocation };
 }
 
 /**
- * The e2e check is declared by a pair: `builder.e2e`, which makes the Ticket that holds the
- * suite, and a Feature Gate with `skipWhen: skip-test-e2e`, which runs it. One without the other
+ * The feature-test check is declared by a pair: `builder.featureTest`, which makes the Ticket that holds the
+ * suite, and a Feature Gate with `skipWhen: skip-feature-test`, which runs it. One without the other
  * is a check that never runs or a Ticket nobody judges, so neither is accepted alone. A `skipWhen`
  * outside a Feature's Gates has nothing to read.
  */
-function checkE2eDeclaration(invocation: HostDraft): string | undefined {
+function checkFeatureTestDeclaration(invocation: HostDraft): string | undefined {
   const outside: [string, HostGateSpec[] | undefined][] = [
     ["builder.gates", invocation.builder?.producer.gates],
     ["builder.tests.gates", invocation.builder?.tests?.gates],
-    ["builder.e2e.gates", invocation.builder?.e2e?.gates],
+    ["builder.featureTest.gates", invocation.builder?.featureTest?.gates],
     ["ticket.gates", invocation.ticket?.gates],
     ["ticket.fix.gates", invocation.ticket?.fix?.gates],
     ["ticket.validate.gates", invocation.ticket?.validate?.gates],
@@ -268,13 +268,13 @@ function checkE2eDeclaration(invocation: HostDraft): string | undefined {
     ...(feature?.validate.gates ?? []),
     ...(feature?.gates ?? []),
     ...(feature?.fix.gates ?? []),
-  ].filter((gate) => gate.skipWhen === "skip-test-e2e");
-  const declared = invocation.builder?.e2e !== undefined;
+  ].filter((gate) => gate.skipWhen === "skip-feature-test");
+  const declared = invocation.builder?.featureTest !== undefined;
   if (skippable.length > 0 && !declared) {
-    return `Config gate "${skippable[0]?.id}" has "skipWhen: skip-test-e2e", so the e2e check is declared: "builder.e2e" is required (the pass that makes the Ticket holding the suite).`;
+    return `Config gate "${skippable[0]?.id}" has "skipWhen: skip-feature-test", so the feature-test check is declared: "builder.featureTest" is required (the pass that makes the Ticket holding the suite).`;
   }
   if (declared && feature !== undefined && skippable.length === 0) {
-    return 'Config "builder.e2e" is declared, but no Feature gate runs the suite. Add a gate to "feature.validate.gates" with "skipWhen: skip-test-e2e".';
+    return 'Config "builder.featureTest" is declared, but no Feature gate runs the suite. Add a gate to "feature.validate.gates" with "skipWhen: skip-feature-test".';
   }
   return undefined;
 }
@@ -908,13 +908,13 @@ function readBuilder(
   if (readTestsPass.ok === false) {
     return readTestsPass;
   }
-  let e2e: GatedPassSpec | undefined;
-  if (object.e2e !== undefined) {
-    const read = readGatedPass(object.e2e, configDir, "builder.e2e", agents);
+  let featureTest: GatedPassSpec | undefined;
+  if (object.featureTest !== undefined) {
+    const read = readGatedPass(object.featureTest, configDir, "builder.featureTest", agents);
     if (read.ok === false) {
       return read;
     }
-    e2e = read.value;
+    featureTest = read.value;
   }
   if (object.producer === undefined) {
     return { ok: false, reason: 'Config "builder" needs a "producer".' };
@@ -944,7 +944,7 @@ function readBuilder(
     tests: readTestsPass.value,
     producer: { ...readProducer.value, gates },
     repair: { ...readRepair.value, gates: [...gates] },
-    ...(e2e === undefined ? {} : { e2e }),
+    ...(featureTest === undefined ? {} : { featureTest }),
   };
   const maxAttempts = positiveIntField(object, "maxAttempts");
   if (maxAttempts.ok === false) {

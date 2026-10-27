@@ -17,12 +17,12 @@ import { type LabelColors, resolveLabelColors } from "./label-colors.js";
 import {
   createGithubManager,
   DEFAULT_API_BASE,
-  DEFAULT_E2E_LABEL,
   DEFAULT_FEATURE_READY_LABEL,
+  DEFAULT_FEATURE_TEST_LABEL,
   DEFAULT_MERGE_WHEN_READY_LABEL,
   DEFAULT_NO_TESTS_LABEL,
   DEFAULT_RESUME_LABEL,
-  DEFAULT_SKIP_TEST_E2E_LABEL,
+  DEFAULT_SKIP_FEATURE_TEST_LABEL,
   DEFAULT_TICKET_READY_LABEL,
   DEFAULT_TOKEN_ENV,
   type GithubManagerOptions,
@@ -114,8 +114,8 @@ export async function setupManager(
       featureReadyLabel: settings.featureReadyLabel,
       ticketReadyLabel: settings.ticketReadyLabel,
       noTestsLabel: settings.noTestsLabel,
-      e2eLabel: settings.e2eLabel,
-      skipTestE2eLabel: settings.skipTestE2eLabel,
+      featureTestLabel: settings.featureTestLabel,
+      skipFeatureTestLabel: settings.skipFeatureTestLabel,
       mergeWhenReadyLabel: settings.mergeWhenReadyLabel,
       sides: settings.sides,
       defaultProject: settings.defaultProject,
@@ -141,8 +141,8 @@ const KNOWN_OPTIONS = [
   "featureReadyLabel",
   "ticketReadyLabel",
   "noTestsLabel",
-  "e2eLabel",
-  "skipTestE2eLabel",
+  "featureTestLabel",
+  "skipFeatureTestLabel",
   "mergeWhenReadyLabel",
   "defaultPriority",
   "stateLabels",
@@ -161,8 +161,8 @@ const KNOWN_OPTIONS = [
  * (`resumeLabel`, `stateLabels`, `defaultProject`, ...) serve both.
  */
 const SIDE_OPTIONS: Record<ManagerSide, readonly string[]> = {
-  featureTracker: ["featureReadyLabel", "mergeWhenReadyLabel", "skipTestE2eLabel"],
-  ticketTracker: ["ticketReadyLabel", "noTestsLabel", "e2eLabel"],
+  featureTracker: ["featureReadyLabel", "mergeWhenReadyLabel", "skipFeatureTestLabel"],
+  ticketTracker: ["ticketReadyLabel", "noTestsLabel", "featureTestLabel"],
 };
 
 const BOTH_SIDES: readonly ManagerSide[] = ["featureTracker", "ticketTracker"];
@@ -197,8 +197,8 @@ type Settings = {
   featureReadyLabel: string;
   ticketReadyLabel: string;
   noTestsLabel: string;
-  e2eLabel: string;
-  skipTestE2eLabel: string;
+  featureTestLabel: string;
+  skipFeatureTestLabel: string;
   mergeWhenReadyLabel: string;
   /** The sides of the config this manager is built for. */
   sides: readonly ManagerSide[];
@@ -247,8 +247,8 @@ export function createManager(context: ManagerContext): CreateManagerResult {
     featureReadyLabel: settings.featureReadyLabel,
     ticketReadyLabel: settings.ticketReadyLabel,
     noTestsLabel: settings.noTestsLabel,
-    e2eLabel: settings.e2eLabel,
-    skipTestE2eLabel: settings.skipTestE2eLabel,
+    featureTestLabel: settings.featureTestLabel,
+    skipFeatureTestLabel: settings.skipFeatureTestLabel,
     mergeWhenReadyLabel: settings.mergeWhenReadyLabel,
   };
   if (settings.defaultProject !== undefined) {
@@ -323,14 +323,14 @@ export function checkManager(context: ManagerContext): Finding[] {
       ? [
           `${settings.featureReadyLabel} (Feature)`,
           `${settings.mergeWhenReadyLabel} (Feature)`,
-          `${settings.skipTestE2eLabel} (skip e2e)`,
+          `${settings.skipFeatureTestLabel} (skip feature-test)`,
         ]
       : []),
     ...(settings.sides.includes("ticketTracker")
       ? [
           `${settings.ticketReadyLabel} (Ticket)`,
           `${settings.noTestsLabel} (no tests)`,
-          `${settings.e2eLabel} (e2e)`,
+          `${settings.featureTestLabel} (feature-test)`,
         ]
       : []),
     `${settings.resumeLabel} (resume)`,
@@ -433,13 +433,13 @@ function readOptions(context: ManagerContext): Read {
   if (!noTestsLabel.ok) {
     return noTestsLabel;
   }
-  const e2eLabel = stringOption(context.options, "e2eLabel");
-  if (!e2eLabel.ok) {
-    return e2eLabel;
+  const featureTestLabel = stringOption(context.options, "featureTestLabel");
+  if (!featureTestLabel.ok) {
+    return featureTestLabel;
   }
-  const skipTestE2eLabel = stringOption(context.options, "skipTestE2eLabel");
-  if (!skipTestE2eLabel.ok) {
-    return skipTestE2eLabel;
+  const skipFeatureTestLabel = stringOption(context.options, "skipFeatureTestLabel");
+  if (!skipFeatureTestLabel.ok) {
+    return skipFeatureTestLabel;
   }
   const mergeWhenReadyLabel = stringOption(context.options, "mergeWhenReadyLabel");
   if (!mergeWhenReadyLabel.ok) {
@@ -500,8 +500,8 @@ function readOptions(context: ManagerContext): Read {
       featureReadyLabel: featureReadyLabel.value ?? DEFAULT_FEATURE_READY_LABEL,
       ticketReadyLabel: ticketReadyLabel.value ?? DEFAULT_TICKET_READY_LABEL,
       noTestsLabel: noTestsLabel.value ?? DEFAULT_NO_TESTS_LABEL,
-      e2eLabel: e2eLabel.value ?? DEFAULT_E2E_LABEL,
-      skipTestE2eLabel: skipTestE2eLabel.value ?? DEFAULT_SKIP_TEST_E2E_LABEL,
+      featureTestLabel: featureTestLabel.value ?? DEFAULT_FEATURE_TEST_LABEL,
+      skipFeatureTestLabel: skipFeatureTestLabel.value ?? DEFAULT_SKIP_FEATURE_TEST_LABEL,
       mergeWhenReadyLabel: mergeWhenReadyLabel.value ?? DEFAULT_MERGE_WHEN_READY_LABEL,
       sides,
       defaultProject: defaultProject.value,

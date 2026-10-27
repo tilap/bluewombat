@@ -225,13 +225,13 @@ describe("builder.tests", () => {
   });
 });
 
-describe("the e2e check", () => {
+describe("the feature-test check", () => {
   const gate = { id: "check", argv: ["node", "check.mjs"], timeoutMs: 1000 };
-  const e2eGate = {
-    id: "e2e",
-    argv: ["node", "e2e.mjs"],
+  const featureTestsGate = {
+    id: "feature-test",
+    argv: ["node", "feature-test.mjs"],
     timeoutMs: 1000,
-    skipWhen: "skip-test-e2e",
+    skipWhen: "skip-feature-test",
   };
   const pass = { cmd: ["node", "build.mjs"], timeoutMs: 1000 };
   const builder = {
@@ -240,7 +240,11 @@ describe("the e2e check", () => {
     repair: pass,
     gates: { gates: [gate] },
   };
-  const e2e = { cmd: ["node", "e2e-build.mjs"], timeoutMs: 1000, gates: { gates: [gate] } };
+  const featureTest = {
+    cmd: ["node", "feature-test-build.mjs"],
+    timeoutMs: 1000,
+    gates: { gates: [gate] },
+  };
   const feature = (gates: unknown[]) => ({
     fix: pass,
     gates: { gates: [gate] },
@@ -252,18 +256,21 @@ describe("the e2e check", () => {
     ...over,
   });
 
-  it("is declared by builder.e2e and a Feature gate with skipWhen, and both are read", () => {
+  it("is declared by builder.featureTest and a Feature gate with skipWhen, and both are read", () => {
     const loaded = load(
-      config({ builder: { ...builder, e2e }, feature: feature([gate, e2eGate]) }),
+      config({ builder: { ...builder, featureTest }, feature: feature([gate, featureTestsGate]) }),
     );
     assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
     if (loaded.ok) {
       assert.deepEqual(
-        loaded.invocation.builder?.e2e?.gates.map((g) => g.id),
+        loaded.invocation.builder?.featureTest?.gates.map((g) => g.id),
         ["check"],
       );
       const validate = loaded.invocation.feature?.validate;
-      assert.equal(validate?.gates.find((g) => g.id === "e2e")?.skipWhen, "skip-test-e2e");
+      assert.equal(
+        validate?.gates.find((g) => g.id === "feature-test")?.skipWhen,
+        "skip-feature-test",
+      );
       assert.equal(validate?.gates.find((g) => g.id === "check")?.skipWhen, undefined);
     }
   });
@@ -272,41 +279,47 @@ describe("the e2e check", () => {
     const loaded = load(config({ builder, feature: feature([gate]) }));
     assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
     if (loaded.ok) {
-      assert.equal(loaded.invocation.builder?.e2e, undefined);
+      assert.equal(loaded.invocation.builder?.featureTest, undefined);
     }
   });
 
-  it("requires builder.e2e as soon as a Feature gate can be skipped for the e2e check", () => {
-    const loaded = load(config({ builder, feature: feature([e2eGate]) }));
+  it("requires builder.featureTest as soon as a Feature gate can be skipped for the feature-test check", () => {
+    const loaded = load(config({ builder, feature: feature([featureTestsGate]) }));
     assert.equal(loaded.ok, false);
-    assert.match(loaded.ok ? "" : loaded.reason, /"builder.e2e" is required/);
+    assert.match(loaded.ok ? "" : loaded.reason, /"builder.featureTest" is required/);
   });
 
-  it("refuses builder.e2e when no Feature gate runs the suite", () => {
-    const loaded = load(config({ builder: { ...builder, e2e }, feature: feature([gate]) }));
+  it("refuses builder.featureTest when no Feature gate runs the suite", () => {
+    const loaded = load(config({ builder: { ...builder, featureTest }, feature: feature([gate]) }));
     assert.equal(loaded.ok, false);
     assert.match(loaded.ok ? "" : loaded.reason, /no Feature gate runs the suite/);
   });
 
-  it("gives builder.e2e its own command and gates, nothing is borrowed from the shared builder", () => {
+  it("gives builder.featureTest its own command and gates, nothing is borrowed from the shared builder", () => {
     const loaded = load(
       config({
-        builder: { ...builder, e2e: { cmd: ["node", "e2e-build.mjs"], timeoutMs: 1000 } },
-        feature: feature([e2eGate]),
+        builder: {
+          ...builder,
+          featureTest: { cmd: ["node", "feature-test-build.mjs"], timeoutMs: 1000 },
+        },
+        feature: feature([featureTestsGate]),
       }),
     );
     assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
     if (loaded.ok) {
-      assert.deepEqual(loaded.invocation.builder?.e2e?.gates, []);
+      assert.deepEqual(loaded.invocation.builder?.featureTest?.gates, []);
     }
     const noCommand = load(
-      config({ builder: { ...builder, e2e: { timeoutMs: 1000 } }, feature: feature([e2eGate]) }),
+      config({
+        builder: { ...builder, featureTest: { timeoutMs: 1000 } },
+        feature: feature([featureTestsGate]),
+      }),
     );
     assert.equal(noCommand.ok, false);
     const noCeiling = load(
       config({
-        builder: { ...builder, e2e: { cmd: ["node", "x.mjs"] } },
-        feature: feature([e2eGate]),
+        builder: { ...builder, featureTest: { cmd: ["node", "x.mjs"] } },
+        feature: feature([featureTestsGate]),
       }),
     );
     assert.equal(noCeiling.ok, false);
@@ -315,17 +328,17 @@ describe("the e2e check", () => {
   it("refuses a condition it does not know, and a skipWhen outside a Feature's gates", () => {
     const unknown = load(
       config({
-        builder: { ...builder, e2e },
-        feature: feature([{ ...e2eGate, skipWhen: "skip-everything" }]),
+        builder: { ...builder, featureTest },
+        feature: feature([{ ...featureTestsGate, skipWhen: "skip-everything" }]),
       }),
     );
     assert.equal(unknown.ok, false);
-    assert.match(unknown.ok ? "" : unknown.reason, /skip-test-e2e/);
+    assert.match(unknown.ok ? "" : unknown.reason, /skip-feature-test/);
 
     const outside = load(
       config({
-        builder: { ...builder, e2e, gates: { gates: [e2eGate] } },
-        feature: feature([e2eGate]),
+        builder: { ...builder, featureTest, gates: { gates: [featureTestsGate] } },
+        feature: feature([featureTestsGate]),
       }),
     );
     assert.equal(outside.ok, false);

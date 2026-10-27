@@ -47,8 +47,8 @@ export type TicketIntention = {
   blocked_by?: string[];
   /** The tracker says no tests are written before its code. */
   no_tests?: boolean;
-  /** The tracker says it holds the e2e acceptance suite of its Feature. */
-  e2e?: boolean;
+  /** The tracker says it holds the feature tests of its Feature. */
+  featureTest?: boolean;
   /** The line this Ticket lands on, when it is not the Project's final one. */
   line?: string;
 };
@@ -203,8 +203,8 @@ export type FeatureIntention = {
   blocked_by: string[];
   /** The line may be folded without a human. */
   merge_when_ready: boolean;
-  /** The tracker says the Feature is not put through the e2e acceptance check. */
-  skip_e2e?: boolean;
+  /** The tracker says the Feature is not put through the feature-test acceptance check. */
+  skip_feature_test?: boolean;
 };
 
 export type FeatureSubmissionRecord = {
@@ -245,6 +245,8 @@ export type FeatureAggregate = {
   };
   /** How many times a human's resume was taken. */
   resumes: number;
+  /** A resume was taken and nobody has yet brought the Feature's work up to what its line gained meanwhile. */
+  workspace_stale?: true;
   pending_fingerprint?: string;
   /** The work line's own name for the fold, when the Authority gave one. Opaque. */
   integration_reference?: string;

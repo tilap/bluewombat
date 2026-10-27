@@ -106,8 +106,15 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
   if (invocation.builder.tests !== undefined) {
     findings.push(...reviewFindings("Builder tests", invocation.builder.tests, input.env, stable));
   }
-  if (invocation.builder.e2e !== undefined) {
-    findings.push(...gatedPassFindings("Builder e2e", invocation.builder.e2e, input.env, stable));
+  if (invocation.builder.featureTest !== undefined) {
+    findings.push(
+      ...gatedPassFindings(
+        "Builder feature-test",
+        invocation.builder.featureTest,
+        input.env,
+        stable,
+      ),
+    );
   }
   findings.push(
     ...gatedPassFindings("Builder producer", invocation.builder.producer, input.env, stable, false),

@@ -567,7 +567,7 @@ function overlayBuilder(
   }
   return {
     ...(base?.tests === undefined ? {} : { tests: base.tests }),
-    ...(base?.e2e === undefined ? {} : { e2e: base.e2e }),
+    ...(base?.featureTest === undefined ? {} : { featureTest: base.featureTest }),
     producer,
     repair,
     ...(maxAttempts === undefined ? {} : { maxAttempts }),

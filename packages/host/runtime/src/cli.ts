@@ -11,6 +11,7 @@ import { runLive } from "./operator/live.js";
 import { runLog } from "./operator/log.js";
 import { isInteractive, terminalAsk } from "./operator/prompt.js";
 import { runRelease } from "./operator/release.js";
+import { runRestart } from "./operator/restart.js";
 import { runRun } from "./operator/run.js";
 import { runSetup } from "./operator/setup.js";
 
@@ -22,6 +23,7 @@ const USAGE = `Usage: ${CLI_NAME} <command>
   log      replay the journal, including why a phase stopped
   incident gather what is known about one stop, for whoever has to understand it (read-only)
   cancel   abandon a Ticket by key (when the tracker cannot say it is gone)
+  restart  resume an escalated Feature with a fresh workspace, made again from its line
   release  drop a held unit without waiting for the bail clock
   init     set this directory up — asks, writes, then runs setup
   doctor   check the config, the slots, and the manager
@@ -187,6 +189,21 @@ async function main(argv: string[]): Promise<number> {
     const detachSignals = installSignalHandlers(interruptFlag);
     try {
       return await runCancel({
+        cwd: process.cwd(),
+        argv: rest,
+        env: process.env,
+        write: (line) => process.stdout.write(line),
+        interruptFlag,
+      });
+    } finally {
+      detachSignals();
+    }
+  }
+  if (command === "restart") {
+    const interruptFlag = { interrupted: false };
+    const detachSignals = installSignalHandlers(interruptFlag);
+    try {
+      return await runRestart({
         cwd: process.cwd(),
         argv: rest,
         env: process.env,

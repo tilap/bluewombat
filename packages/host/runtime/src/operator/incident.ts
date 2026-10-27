@@ -13,6 +13,7 @@ import type { HostInvocation } from "../config/types.js";
 import { journalPath, parseJournalChunk } from "../loop/journal.js";
 import { hostVersion } from "../loop/open-host.js";
 import { openPersist } from "../plugins/persist.js";
+import { byKey } from "./board.js";
 import { buildDossier, renderDossier } from "./incident-dossier.js";
 import { systemOf } from "./incident-system.js";
 import { transcriptDir } from "./log.js";
@@ -116,7 +117,7 @@ export async function runIncident(input: IncidentInput): Promise<number> {
 
 async function listWaiting(ledger: WorkLedger, write: (text: string) => void): Promise<number> {
   const rows: string[] = [];
-  for (const summary of await ledger.listFeatures()) {
+  for (const summary of (await ledger.listFeatures()).sort(byKey)) {
     if (summary.state === "escalated") {
       const got = await ledger.getFeature(summary.key);
       rows.push(
@@ -124,7 +125,7 @@ async function listWaiting(ledger: WorkLedger, write: (text: string) => void): P
       );
     }
   }
-  for (const summary of await ledger.list()) {
+  for (const summary of (await ledger.list()).sort(byKey)) {
     if (summary.state === "escalated") {
       const got = await ledger.get(summary.key);
       rows.push(
@@ -148,12 +149,12 @@ function firstLine(text: string | undefined): string {
   return line.length > 100 ? `${line.slice(0, 100)}…` : line;
 }
 
-type Found =
+export type Found =
   | { ok: true; subject: TicketAggregate | FeatureAggregate }
   | { ok: false; reason: string };
 
 /** A full key, or the tracker's number: `106` and `#106` both find `github:acme/app#106`. */
-async function resolveKey(ledger: WorkLedger, wanted: string): Promise<Found> {
+export async function resolveKey(ledger: WorkLedger, wanted: string): Promise<Found> {
   const keys = [
     ...(await ledger.listFeatures()).map((summary) => summary.key),
     ...(await ledger.list()).map((summary) => summary.key),

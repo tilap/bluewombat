@@ -4,6 +4,7 @@ import type { FeatureState, WorkLedger } from "@bluewombat/work-ledger";
 import type { HostRunInput } from "./context.js";
 import { loadCursor, saveCursor } from "./cursor.js";
 import type { CancelResult, ReleaseResult } from "./deliveries.js";
+import type { RestartResult } from "./features.js";
 import { advanceProject, handleFeatureDelivery } from "./features.js";
 import { abandonGone } from "./probe.js";
 import { reportMoment } from "./report.js";
@@ -25,6 +26,8 @@ export type Host = {
   run(): Promise<HostTickResult>;
   /** Abandon one Feature or Ticket by key. Takes the same path as a `cancel` delivery. */
   cancel(key: string): Promise<CancelResult>;
+  /** Resume an escalated Feature with a fresh workspace, made again from its line. */
+  restart(key: string): Promise<RestartResult>;
   /** Drop a held unit without waiting for the bail clock. */
   release(key: string): Promise<ReleaseResult>;
   /** Give the ledger back: the lock `openHost` took. */

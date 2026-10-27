@@ -31,7 +31,7 @@ function invocation(dir: string): HostInvocation {
       fix: { cmd: ["agent"], timeoutMs: 1, gates: [] },
       validate: {
         agent: false,
-        gates: [{ id: "e2e", argv: ["x"], timeoutMs: 1, skipWhen: "skip-test-e2e" }],
+        gates: [{ id: "feature-test", argv: ["x"], timeoutMs: 1, skipWhen: "skip-feature-test" }],
       },
       gates: [],
     },
@@ -56,7 +56,7 @@ describe("systemOf", () => {
     assert.equal(facts.config.reviews["builder.tests"], "off");
     assert.equal(facts.config.reviews["feature.validate"], "gates only");
     assert.deepEqual(facts.config.gates["feature.validate.gates"], [
-      "e2e (skipWhen skip-test-e2e)",
+      "feature-test (skipWhen skip-feature-test)",
     ]);
     assert.equal(facts.config.agents["builder.producer"], "node builder.mjs");
     assert.doesNotMatch(JSON.stringify(facts), /SECRET/);

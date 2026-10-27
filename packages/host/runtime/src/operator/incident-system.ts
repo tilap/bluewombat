@@ -106,7 +106,7 @@ function reviewsOf(invocation: HostInvocation): Record<string, string> {
   };
   const found: Record<string, string> = {
     "builder.tests": word(invocation.builder.tests),
-    "builder.e2e": invocation.builder.e2e === undefined ? "off" : "agent + gates",
+    "builder.featureTest": invocation.builder.featureTest === undefined ? "off" : "agent + gates",
     "ticket.fix": invocation.ticket.fix === undefined ? "off" : "agent + gates",
     "ticket.validate": word(invocation.ticket.validate),
   };
@@ -125,7 +125,7 @@ function gatesOf(invocation: HostInvocation): Record<string, string[]> {
     );
   const found: Record<string, string[]> = {
     "builder.gates": ids(invocation.builder.producer.gates),
-    "builder.e2e.gates": ids(invocation.builder.e2e?.gates),
+    "builder.featureTest.gates": ids(invocation.builder.featureTest?.gates),
     "ticket.fix.gates": ids(invocation.ticket.fix?.gates),
     "ticket.validate.gates": ids(invocation.ticket.validate?.gates),
     "feature.validate.gates": ids(invocation.feature?.validate.gates),
@@ -143,7 +143,7 @@ function agentsOf(invocation: HostInvocation): Record<string, string> {
     "builder.producer": invocation.builder.producer.cmd,
     "builder.repair": invocation.builder.repair.cmd,
     "builder.tests": agentOf(invocation.builder.tests),
-    "builder.e2e": invocation.builder.e2e?.cmd,
+    "builder.featureTest": invocation.builder.featureTest?.cmd,
     "ticket.fix": invocation.ticket.fix?.cmd,
     "ticket.validate": agentOf(invocation.ticket.validate),
     "feature.fix": invocation.feature?.fix.cmd,

@@ -285,9 +285,14 @@ describe("openWorkLedger (test-double Port)", () => {
     const ledger = ledgerAt({ value: 1_000 });
     await ledger.admit(ticket());
     await claimKey(ledger, "proj");
-    await ledger.escalate({ key: "fake:42", kind: "assembly", report: "red", refusedBy: "e2e" });
+    await ledger.escalate({
+      key: "fake:42",
+      kind: "assembly",
+      report: "red",
+      refusedBy: "feature-test",
+    });
     const aggregate = await requireAggregate(ledger, "fake:42");
-    assert.equal(aggregate.escalation?.refused_by, "e2e");
+    assert.equal(aggregate.escalation?.refused_by, "feature-test");
     assert.equal(aggregate.escalation?.at, 1_000);
   });
 
@@ -794,37 +799,41 @@ describe("Features", () => {
     assert.equal(got.aggregate.intention.fingerprint, "ffp-1");
   });
 
-  it("keeps the e2e skip mark of a Feature, and moves it while the Feature is not submitted", async () => {
+  it("keeps the feature-test skip mark of a Feature, and moves it while the Feature is not submitted", async () => {
     const ledger = ledgerAt({ value: 1_000 });
-    await ledger.admitFeature(intentionOf({ skip_e2e: true }));
+    await ledger.admitFeature(intentionOf({ skip_feature_test: true }));
     const waiting = await ledger.getFeature("fake:F1");
     assert.ok(waiting.ok);
-    assert.equal(waiting.aggregate.intention.skip_e2e, true);
+    assert.equal(waiting.aggregate.intention.skip_feature_test, true);
 
-    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:F1", skip: false }), { ok: true });
+    assert.deepEqual(await ledger.setFeatureSkipFeatureTest({ key: "fake:F1", skip: false }), {
+      ok: true,
+    });
     const cleared = await ledger.getFeature("fake:F1");
     assert.ok(cleared.ok);
-    assert.equal(cleared.aggregate.intention.skip_e2e, undefined);
+    assert.equal(cleared.aggregate.intention.skip_feature_test, undefined);
 
     await ledger.openFeature({ key: "fake:F1", line: "feature/1", tickets: ["fake:1"] });
-    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:F1", skip: true }), { ok: true });
+    assert.deepEqual(await ledger.setFeatureSkipFeatureTest({ key: "fake:F1", skip: true }), {
+      ok: true,
+    });
     await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "pr-1" });
-    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:F1", skip: false }), {
+    assert.deepEqual(await ledger.setFeatureSkipFeatureTest({ key: "fake:F1", skip: false }), {
       ok: false,
       code: "illegal-transition",
     });
-    assert.deepEqual(await ledger.setFeatureSkipE2e({ key: "fake:nope", skip: true }), {
+    assert.deepEqual(await ledger.setFeatureSkipFeatureTest({ key: "fake:nope", skip: true }), {
       ok: false,
       code: "not-found",
     });
   });
 
-  it("keeps the e2e mark of a Ticket on its admission", async () => {
+  it("keeps the feature-test mark of a Ticket on its admission", async () => {
     const ledger = ledgerAt({ value: 1_000 });
-    await ledger.admit(ticket({ e2e: true }));
+    await ledger.admit(ticket({ featureTest: true }));
     const got = await ledger.get("fake:42");
     assert.ok(got.ok);
-    assert.equal(got.aggregate.intention.e2e, true);
+    assert.equal(got.aggregate.intention.featureTest, true);
   });
 
   it("opens the highest priority, then the oldest, that no Feature blocks", async () => {
@@ -923,22 +932,45 @@ describe("Features", () => {
     assert.equal(got.aggregate.submission?.reference, "pr-1");
   });
 
+  it("marks a resumed Feature's work stale until it is said to be current", async () => {
+    const ledger = ledgerAt({ value: 1_000 });
+    await ledger.admitFeature(intentionOf());
+    await ledger.openFeature({ key: "fake:F1", line: "feature/1", tickets: [] });
+    assert.deepEqual(await ledger.markFeatureWorkspaceCurrent("fake:none"), {
+      ok: false,
+      code: "not-found",
+    });
+    await ledger.escalateFeature({ key: "fake:F1", report: "checks red" });
+    assert.deepEqual(await ledger.markFeatureWorkspaceCurrent("fake:F1"), {
+      ok: false,
+      code: "illegal-transition",
+    });
+    await ledger.resumeFeature("fake:F1");
+    let got = await ledger.getFeature("fake:F1");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.workspace_stale, true);
+    assert.deepEqual(await ledger.markFeatureWorkspaceCurrent("fake:F1"), { ok: true });
+    got = await ledger.getFeature("fake:F1");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.workspace_stale, undefined);
+  });
+
   it("keeps where a Feature stopped and who refused it, when it is told", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await ledger.admitFeature(intentionOf());
     await ledger.openFeature({ key: "fake:F1", line: "feature/1", tickets: [] });
     await ledger.escalateFeature({
       key: "fake:F1",
-      report: "e2e: too many",
+      report: "featureTest: too many",
       kind: "assembly",
-      refusedBy: "e2e",
+      refusedBy: "feature-test",
     });
     const got = await ledger.getFeature("fake:F1");
     assert.ok(got.ok);
     assert.deepEqual(got.aggregate.escalation, {
-      report: "e2e: too many",
+      report: "featureTest: too many",
       kind: "assembly",
-      refused_by: "e2e",
+      refused_by: "feature-test",
       at: 1_000,
     });
   });

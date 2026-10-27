@@ -31,7 +31,7 @@ export type TicketRow = {
   state: string;
   attempts_used: number;
   reference?: string;
-  e2e?: boolean;
+  featureTest?: boolean;
   blocked_by?: string[];
   done_at?: string;
   escalation?: { kind: string; report?: string };
@@ -438,8 +438,8 @@ function rowsOf(tickets: TicketAggregate[], journal: JournalLine[]): TicketRow[]
     if (reference !== undefined) {
       row.reference = reference;
     }
-    if (intention.e2e === true) {
-      row.e2e = true;
+    if (intention.featureTest === true) {
+      row.featureTest = true;
     }
     if (intention.blocked_by !== undefined && intention.blocked_by.length > 0) {
       row.blocked_by = intention.blocked_by;
@@ -513,7 +513,7 @@ function gateConfigOf(invocation: HostInvocation, id: string): GateConfigRow[] {
   ][] = [
     ["builder.gates", invocation.builder.producer.gates],
     ["builder.repair.gates", invocation.builder.repair.gates],
-    ["builder.e2e.gates", invocation.builder.e2e?.gates],
+    ["builder.featureTest.gates", invocation.builder.featureTest?.gates],
     ["ticket.fix.gates", invocation.ticket.fix?.gates],
     ["ticket.validate.gates", invocation.ticket.validate?.gates],
     ["feature.fix.gates", invocation.feature?.fix.gates],
@@ -806,8 +806,8 @@ export function renderDossier(dossier: Dossier): string {
       if (row.done_at !== undefined) {
         bits.push(`done ${row.done_at}`);
       }
-      if (row.e2e === true) {
-        bits.push("e2e");
+      if (row.featureTest === true) {
+        bits.push("feature-test");
       }
       out.push(
         `- ${row.key}${row.title === undefined ? "" : ` ${row.title}`} — ${bits.join(", ")}`,

@@ -53,7 +53,7 @@ package's README — Host does not grow a `--repo` flag for it.
 | --------------- | -------------------------------------------------------------------------------------- |
 | `mason run`     | Drain the TicketTracker, run Conductor, report                                        |
 | `mason watch`   | Snapshot the ledger and follow the journal. Ctrl-C leaves the worker running           |
-| `mason status`  | Snapshot the ledger, then exit. `--json` for scripts                                   |
+| `mason status`  | Snapshot the ledger as a Feature / Ticket tree, then exit. `--json` for scripts        |
 | `mason log`     | Replay the journal, with the reason a phase stopped. `--problems` for just those       |
 | `mason init`    | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
 | `mason setup`   | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
@@ -61,6 +61,7 @@ package's README — Host does not grow a `--repo` flag for it.
 | `mason incident` | Gather what is known about one stop (ledger, journal, streams, transcripts) into one page, for a person to read or hand on. Without a key, list what waits. `--json`, `--out DIR`, `--with-config`. Read-only |
 | `mason explain` | Say what an agent role starts with: prompt, plugins, skills, the project's profile. Read-only, offline. Exit 1 on a setup every attempt would fail on |
 | `mason cancel`  | Abandon a Ticket by key, when the tracker cannot say it is gone                       |
+| `mason restart` | Resume an escalated Feature with a fresh workspace, made again from its line. Offline: the tracker is not told |
 | `mason release` | Drop a held unit without waiting for the bail clock                                    |
 
 ### What an agent role starts with
@@ -129,7 +130,9 @@ mason watch
 That is the operator surface: the durable state of every Ticket, then the film
 of the current step (`submitted` included). It does not talk to the tracker, and
 it cannot `resume` or claim. `status` is the same snapshot without the
-follow. `--json` prints that snapshot as JSON.
+follow: a header with the counts, each Feature with its Tickets under it
+(escalated Features first, finished ones last, keys in numeric order), then the
+Tickets of no Feature. `--json` prints that tree as JSON.
 
 When a run only printed `unavailable:<key>`, the reason is already in the
 journal and `log` is how you read it:
@@ -180,6 +183,18 @@ mason release github:owner/name#19
 ```
 
 `release` destroys the workspace and forgets it; the next `run` isolates a fresh one.
+
+A Feature that escalated keeps its work. When a person then changes its line and resumes it,
+the work takes in what the line gained, merged into it, before it is judged again; a conflict
+escalates the Feature again, naming it. To throw the work away instead, stop `run` if it holds
+the lock, then:
+
+```bash
+mason restart github:owner/name#106    # or just 106
+```
+
+The Feature must be escalated. Its workspace is removed and it is resumed; the next `run`
+cuts the work again from the line. The tracker is not told.
 
 The film is `<ledger>/events.jsonl`, next to `cursor`. It is not truth after a
 crash — the ledger is. The file can grow; there is no rotation yet.
@@ -247,7 +262,7 @@ pollIntervalMs: 10000
 | `persist`                   | Package name or path exporting `openPersist({ ledgerRoot })`: how the ledger is stored under that root. Default `@bluewombat/persist-fs`; `@bluewombat/persist-sqlite` ships too. `watch` reads through the same backend                                                                                                                                                     |
 | `agents`                    | Agents a pass names instead of writing `cmd` (§ Agent passes written short)                                                                                                                                                                                                                                                                                                 |
 | `builder.tests`             | Required. The tests of the task, written before its code by an agent that is not the producer: `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }`, or `{ agent: false }` for none. Its `gates` check them (`tests-red`: they must fail, for the right reason). What it wrote is committed as a checkpoint titled `Tests: …`, which `builder.gates` can keep intact (`tests-frozen`). A ticket the tracker labels as having no tests first (`no-tests` with the GitHub manager) runs no agent and no `tests-red` |
-| `builder.e2e`               | Optional. Declares the e2e acceptance check (see § The e2e acceptance check): the pass that makes the Ticket holding the suite, `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }` or `{ cmd, timeoutMs, gates }`. One command for the first pass and for a pass a Gate refused; its own `gates` (they check the form: compiles, one test per manifest id, no application file touched). Nothing is borrowed from `builder.producer`, `builder.repair` or `builder.gates`. No tests are written first for that Ticket. Needs a Feature Gate with `skipWhen: skip-test-e2e`, and the other way round |
+| `builder.featureTest`               | Optional. Declares the feature-test acceptance check (see § The feature-test acceptance check): the pass that makes the Ticket holding the suite, `{ agent, prompt, homePlugins, appDeckProfile, timeoutMs, gates }` or `{ cmd, timeoutMs, gates }`. One command for the first pass and for a pass a Gate refused; its own `gates` (they check the form: compiles, one test per manifest id, no application file touched). Nothing is borrowed from `builder.producer`, `builder.repair` or `builder.gates`. No tests are written first for that Ticket. Needs a Feature Gate with `skipWhen: skip-feature-test`, and the other way round |
 | `builder.producer`          | `cmd` / `timeoutMs`. Spawned in the workspace. Exit 0 runs `builder.gates`                                                                                                                                                                                                                                                                                 |
 | `builder.repair`            | The same, for a pass a Gate refused. **Required**, and never inherited: it names its own command. It is judged by the same `builder.gates` as the producer                                                                                                                                                                               |
 | `builder.gates`             | `defaultTimeoutMs` and `gates`: the one Gate list for `builder.producer` and `builder.repair`. `gates` written on either pass is refused, naming this key. Empty: the unit runs ungated |
@@ -503,53 +518,47 @@ is bounded the same way from `ticket.maxAttempts` and `ticket.fix`.
 }
 ```
 
-### The e2e acceptance check
+### The feature-test acceptance check
 
-A Project proves each Feature by an acceptance suite, run once on the assembled Feature
+A Project proves each Feature by its own tests, run once on the assembled Feature
 line, when its config says so, by a pair:
 
 ```yaml
 builder:
-  e2e:                       # makes the Ticket that holds the suite (label `e2e` on the tracker)
+  featureTest:                       # makes the Ticket that holds the suite (label `feature-test` on the tracker)
     agent: claude
-    prompt: ./prompts/e2e.md # {{task}} is the scenarios; {{report}}, {{refused_by}}, {{refusal}} on a refused pass
+    prompt: ./prompts/feature-test.md # {{task}} is the scenarios; {{report}}, {{refused_by}}, {{refusal}} on a refused pass
     timeoutMs: 1800000
     gates:                   # form only: it compiles, one test per manifest id, no application file touched
       gates:
-        - { id: e2e-form, argv: [...], timeoutMs: 120000 }
+        - { id: feature-tests-form, argv: [...], timeoutMs: 120000 }
 feature:
   validate:
     agent: false
     gates:
       defaultTimeoutMs: 120000
       gates:
-        - id: e2e
-          skipWhen: skip-test-e2e      # Host does not run this Gate for a Feature that carries the label
+        - id: feature-tests
+          skipWhen: skip-feature-test      # Host does not run this Gate for a Feature that carries the label
           timeoutMs: 720000
           argv:
             - node
-            - ./node_modules/@bluewombat/slots/gates/e2e.mjs
-            - --up
-            - pnpm e2e:up
-            - --ready
-            - pnpm e2e:ready
+            - ./node_modules/@bluewombat/slots/gates/feature-tests.mjs
             - --run
-            - pnpm e2e
-            - --down
-            - pnpm e2e:down
+            - pnpm test --grep "{ids}" --reporter=junit --outputFile={junit}
 ```
 
 `skipWhen` is the one condition Host reads for a Gate, on a Feature's Gates only
 (`feature.validate`, `feature.gates`, `feature.fix`); its one value today is
-`skip-test-e2e`, whatever the tracker calls that label. A Gate left out is not a Gate that
-passed: the journal gets `gate-skipped` and the trace says "`e2e` not run: the Feature carries
-skip-test-e2e". The Gate knows nothing of the skip and no environment variable carries it.
+`skip-feature-test`, whatever the tracker calls that label. A Gate left out is not a Gate that
+passed: the journal gets `gate-skipped` and the trace says "`feature-test` not run: the Feature carries
+skip-feature-test". The Gate knows nothing of the skip and no environment variable carries it.
 
-The tracker side: a Ticket carrying the e2e label (`e2eLabel` of the TicketTracker manager) is
-made by `builder.e2e` and has no tests written first; a Feature carrying the skip label
-(`skipTestE2eLabel` of the FeatureTracker manager) has that Ticket cancelled, with a line in
+The tracker side: a Ticket carrying the feature-test label (`featureTestLabel` of the TicketTracker manager) is
+made by `builder.featureTest` and has no tests written first; a Feature carrying the skip label
+(`skipFeatureTestLabel` of the FeatureTracker manager) has that Ticket cancelled, with a line in
 the trace. The label is read again until the Feature is submitted. A Project that declares the
-check refuses a Feature that holds neither an e2e Ticket nor the skip label, or whose e2e
+check refuses a Feature that holds neither a feature-test Ticket nor the skip label, or whose feature-test
 Ticket is not blocked by every other Ticket, as `invalid`, with the reason as a comment.
 
 What the Gate proves is a red/green verdict; what the operator reads is its text in the
@@ -725,7 +734,7 @@ change that breaks it does not merge.
 | `config/`            | What a Project wrote: argv, `mason.config.yaml`, discovery, `HostOptions`. Pure: YAML in, options out                                                     | A runtime value (a Journal, a Port, a process handle)            | Node, `manager-kit` types                     |
 | `plugins/`           | Load a package by name and check its shape: a manager, an isolation strategy                                                                              | What to do with the loaded thing                                 | `config`                                      |
 | `loop/`              | The process: listen → probe → adapt → admit → run → report; composition (`open-host`, `transformers`, Authority, work line, lock, Cursor, journal, trace) | A command a human types; a string a human reads about the config | `plugins`, `config`, the kernel, Transformers |
-| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `incident`, `cancel`, `release`, `board`, the terminal prompt                                | Anything the loop needs — the loop cannot see this layer         | everything below                              |
+| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `incident`, `cancel`, `restart`, `release`, `board`, the terminal prompt                                | Anything the loop needs — the loop cannot see this layer         | everything below                              |
 | `index.ts`, `cli.ts` | The package surface and the dispatch. Nothing else sits at the top of `src/`                                                                              | Logic                                                            | everything                                    |
 
 Host's code names no plugin. A manager, an isolation strategy, a persistence
