@@ -414,7 +414,7 @@ the Gate of the feature-test Ticket, whose tests sit among the Project's code
 and answers on its exit code. It is the Gate that makes a machine, not the Builder,
 say that the code typechecks and the tests pass. The command goes through the shell,
 so it is written as the Project writes it; it knows no stack.
-The report carries the end of the output, cleaned as it arrives: escape codes removed, a line redrawn with `\r` reduced to its last state, and spinner or progress lines (`[⣷] Pulling schema...`) dropped, so thousands of redraws cannot push the real error out of the tail. `tests-red` reads its output the same way.
+The report carries the end of the output, cleaned as it arrives: escape codes removed, a line redrawn with `\r` reduced to its last state, and spinner or progress lines (`[⣷] Pulling schema...`) dropped, so thousands of redraws cannot push the real error out of the tail. `feature-tests` reads its output the same way.
 
 ```yaml
 - id: typecheck
