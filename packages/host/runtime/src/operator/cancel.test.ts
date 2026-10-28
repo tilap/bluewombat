@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { openHost } from "../loop/open-host.js";
 import { runCancel } from "./cancel.js";
 
@@ -35,7 +35,6 @@ function sandbox(): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
-        tests: { agent: false, gates: [] },
         producer: {
           cmd: [node, builder],
           timeoutMs: 30_000,
@@ -103,7 +102,6 @@ describe("runCancel", () => {
       workspaceRoot: join(cwd, ".mason/workspaces"),
       ledgerRoot: join(cwd, ".mason/ledger"),
       builder: {
-        tests: { agent: false, gates: [] },
         producer: {
           cmd: [node, builder],
           timeoutMs: 30_000,

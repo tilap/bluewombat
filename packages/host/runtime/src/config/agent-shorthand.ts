@@ -28,10 +28,9 @@ const SLOTS_PACKAGE = "node_modules/@bluewombat/slots";
 
 /** The shipped role slot behind each pass that drives an agent. */
 export const ROLE_SCRIPTS = {
-  "builder.producer": "builders/producer.mjs",
-  "builder.repair": "builders/repair.mjs",
-  "builder.tests": "builders/tests.mjs",
-  "builder.e2e": "builders/e2e.mjs",
+  "ticket.build.producer": "builders/producer.mjs",
+  "ticket.build.repair": "builders/repair.mjs",
+  "feature.test": "builders/feature-test.mjs",
   "ticket.fix": "ticket/fix.mjs",
   "ticket.validate": "ticket/validate.mjs",
   "feature.fix": "feature/fix.mjs",

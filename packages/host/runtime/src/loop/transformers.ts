@@ -55,13 +55,13 @@ export type TransformerSlots = {
 
 /** What a Task's key says of the work behind it, as the tracker last said it. */
 export type Marks = {
-  /** The key is a Ticket that holds the e2e acceptance suite of its Feature. */
-  ticketIsE2e(key: string): Promise<boolean>;
-  /** The key is a Feature that is not put through the e2e acceptance check. */
-  featureSkipsE2e(key: string): Promise<boolean>;
+  /** The key is a Ticket that holds the feature tests of its Feature. */
+  ticketIsFeatureTest(key: string): Promise<boolean>;
+  /** The key is a Feature that is not put through the feature-test acceptance check. */
+  featureSkipsFeatureTest(key: string): Promise<boolean>;
 };
 
-type Marked = { e2e: boolean; skipsE2e: boolean };
+type Marked = { featureTest: boolean; skipsFeatureTest: boolean };
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 
@@ -157,10 +157,6 @@ function commandTimeoutMs(
     }
     return feature.fix.timeoutMs;
   }
-  if (input.stage === "tests") {
-    const tests = slots.builder.tests;
-    return tests !== undefined && hasAgent(tests) ? tests.timeoutMs : slots.timeoutMs;
-  }
   if (input.validate === true) {
     const validate = slots.ticket.validate;
     return validate !== undefined && hasAgent(validate) ? validate.timeoutMs : slots.timeoutMs;
@@ -168,8 +164,8 @@ function commandTimeoutMs(
   if (input.stage === "ticket") {
     return slots.ticket.fix?.timeoutMs ?? slots.timeoutMs;
   }
-  return marked.e2e && slots.builder.e2e !== undefined
-    ? slots.builder.e2e.timeoutMs
+  return marked.featureTest && slots.builder.featureTest !== undefined
+    ? slots.builder.featureTest.timeoutMs
     : slots.builder.producer.timeoutMs;
 }
 
@@ -209,7 +205,7 @@ function gatesFor(
   const kept: GateSpec[] = [];
   const skipped: { id: string; why: string }[] = [];
   for (const { skipWhen, ...gate } of gates) {
-    if (skipWhen === "skip-test-e2e" && marked.skipsE2e) {
+    if (skipWhen === "skip-feature-test" && marked.skipsFeatureTest) {
       skipped.push({ id: gate.id, why: skipWhen });
     } else {
       kept.push(gate);
@@ -240,13 +236,6 @@ function roleWiring(
   slots: TransformerSlots,
   marked: Marked,
 ): RoleWiring {
-  if (input.stage === "tests") {
-    // The tests are written by their own agent, judged by their own Gates.
-    const tests = slots.builder.tests;
-    return tests === undefined || !hasAgent(tests)
-      ? { gates: [], repairGates: [] }
-      : { builderArgv: tests.cmd, gates: tests.gates, repairGates: [] };
-  }
   if (input.stage === "feature") {
     // The Feature's own sequences and its own fix, and nothing of a Ticket's.
     const feature = featureOf(slots);
@@ -273,9 +262,9 @@ function roleWiring(
   }
   if (input.recheck === true) {
     // The unit's own checks again, once the work has been aligned with the line:
-    // `builder.gates`, the one list that says the code stands. Nothing is produced. The e2e
+    // `ticket.build.gates`, the one list that says the code stands. Nothing is produced. The feature-test
     // Ticket's own Gates, when it is that Ticket.
-    const own = marked.e2e ? slots.builder.e2e : undefined;
+    const own = marked.featureTest ? slots.builder.featureTest : undefined;
     return { gates: (own ?? slots.builder.producer).gates, repairGates: [] };
   }
   if (input.produce === false) {
@@ -294,10 +283,10 @@ function roleWiring(
     // never produces for a ticket without one. The fix command is the producer.
     return { builderArgv: fix.cmd, gates: fix.gates, repairGates: [] };
   }
-  if (marked.e2e && slots.builder.e2e !== undefined) {
+  if (marked.featureTest && slots.builder.featureTest !== undefined) {
     // One command and one list for the first pass and for a repair: nothing of the shared
     // builder is borrowed, so no refusal reaches an agent the Project did not name for it.
-    const { cmd, gates } = slots.builder.e2e;
+    const { cmd, gates } = slots.builder.featureTest;
     return { builderArgv: cmd, gates, repairGates: gates };
   }
   const { producer, repair } = slots.builder;
@@ -317,15 +306,15 @@ async function markedBy(
 ): Promise<Marked> {
   const key = input.context;
   if (slots.marks === undefined || key === undefined) {
-    return { e2e: false, skipsE2e: false };
+    return { featureTest: false, skipsFeatureTest: false };
   }
   if (input.stage === "feature") {
-    return { e2e: false, skipsE2e: await slots.marks.featureSkipsE2e(key) };
+    return { featureTest: false, skipsFeatureTest: await slots.marks.featureSkipsFeatureTest(key) };
   }
   if (input.stage === undefined || input.stage === "unit") {
-    return { e2e: await slots.marks.ticketIsE2e(key), skipsE2e: false };
+    return { featureTest: await slots.marks.ticketIsFeatureTest(key), skipsFeatureTest: false };
   }
-  return { e2e: false, skipsE2e: false };
+  return { featureTest: false, skipsFeatureTest: false };
 }
 
 export function createTransformers(slots: TransformerSlots): TransformerPort {

@@ -5,7 +5,7 @@ import type { ManagerModule } from "@bluewombat/manager-kit";
  * What a Feature can say that makes Host leave a Gate out. Names are the ones a Gate's `skipWhen`
  * is written with, whatever the tracker calls the label behind them.
  */
-export const SKIP_WHEN = ["skip-test-e2e"] as const;
+export const SKIP_WHEN = ["skip-feature-test"] as const;
 export type SkipWhen = (typeof SKIP_WHEN)[number];
 
 /**
@@ -187,32 +187,24 @@ export type PassSpec = {
 
 /**
  * Making the unit of work: first pass, then repair when a Gate refused. The
- * config writes one `builder.gates` list; the loader puts it on both passes, so
+ * config writes one `ticket.build.gates` list; the loader puts it on both passes, so
  * a repair is judged by exactly what judged the producer (Implementer still takes
  * two sequences, one per command).
  */
 export type StageSpec = {
-  /** Produces from a specification. Judged by `builder.gates`. */
+  /** Produces from a specification. Judged by `ticket.build.gates`. */
   producer: GatedPassSpec;
-  /** Produces again, with the report of what refused the last pass. Judged by `builder.gates`. */
+  /** Produces again, with the report of what refused the last pass. Judged by `ticket.build.gates`. */
   repair: GatedPassSpec;
   /** Attempts one Task may start. Default 3. */
   maxAttempts?: number;
   /**
-   * The tests of the Task, written before its code by an agent that is not the
-   * producer, and committed as a checkpoint the producer's work builds on. Its
-   * `gates` are what makes them worth having (they must fail, for the right
-   * reason) and what the producer's own Gates then keep intact. With
-   * `agent: false` no tests are written first.
-   */
-  tests?: ReviewSpec;
-  /**
-   * The Ticket that holds a Feature's e2e acceptance suite (the tracker's e2e label) is made by
+   * The Ticket that holds a Feature's feature tests (the tracker's feature-test label) is made by
    * this pass instead of the producer and the repair: its own command, its own Gates, nothing
-   * borrowed from them. Declaring it declares the e2e check: a Feature needs an e2e Ticket or the
-   * skip label, and a Feature Gate with `skipWhen: skip-test-e2e` runs the suite.
+   * borrowed from them. Declaring it declares the feature-test check: a Feature needs a feature-test Ticket or the
+   * skip label, and a Feature Gate with `skipWhen: skip-feature-test` runs the suite.
    */
-  e2e?: GatedPassSpec;
+  featureTest?: GatedPassSpec;
 };
 
 /**

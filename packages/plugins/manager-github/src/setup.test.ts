@@ -100,9 +100,8 @@ function labelsOf(over: Record<string, string> = {}) {
 const MASON = labelsOf();
 
 const LABELS = {
-  noTestsLabel: "no-tests",
-  e2eLabel: "e2e",
-  skipTestE2eLabel: "skip-test-e2e",
+  featureTestLabel: "feature-test",
+  skipFeatureTestLabel: "skip-feature-test",
   resumeLabel: "to-resume",
   featureReadyLabel: "feature-ready",
   ticketReadyLabel: "task-ready",
@@ -116,18 +115,17 @@ describe("wantedLabels", () => {
       defaultProject: "app",
       stateLabels: MASON,
     }).map((label) => label.name);
-    assert.deepEqual(names.slice(0, 8), [
+    assert.deepEqual(names.slice(0, 7), [
       "feature-ready",
       "task-ready",
-      "no-tests",
-      "e2e",
+      "feature-test",
       "merge-when-ready",
-      "skip-test-e2e",
+      "skip-feature-test",
       "to-resume",
       "project:app",
     ]);
     assert.ok(names.includes("mason:done"));
-    assert.equal(names.length, 8 + EVENT_NAMES.length);
+    assert.equal(names.length, 7 + EVENT_NAMES.length);
   });
 
   it("names a label once even when two settings ask for it", () => {
@@ -140,10 +138,9 @@ describe("wantedLabels", () => {
     assert.deepEqual(names, [
       "feature-ready",
       "to-resume",
-      "no-tests",
-      "e2e",
+      "feature-test",
       "merge-when-ready",
-      "skip-test-e2e",
+      "skip-feature-test",
     ]);
   });
 });
@@ -159,7 +156,7 @@ describe("wantedLabels with one name for both roles", () => {
     });
     assert.deepEqual(
       labels.map((label) => label.name),
-      ["ready-for-agent", "no-tests", "e2e", "merge-when-ready", "skip-test-e2e", "to-resume"],
+      ["ready-for-agent", "feature-test", "merge-when-ready", "skip-feature-test", "to-resume"],
     );
     assert.match(labels[0]?.description ?? "", /Feature.*Ticket/);
   });
@@ -174,10 +171,9 @@ describe("wantedLabels with one name for both roles", () => {
     }).map((label) => label.name);
     assert.deepEqual(names, [
       "Ready-For-Agent",
-      "no-tests",
-      "e2e",
+      "feature-test",
       "merge-when-ready",
-      "skip-test-e2e",
+      "skip-feature-test",
       "to-resume",
     ]);
   });
@@ -188,12 +184,17 @@ describe("wantedLabels for one side", () => {
 
   it("wants only the Ticket label and the resume label for the ticket tracker", () => {
     const names = wantedLabels({ ...rest, sides: ["ticketTracker"] }).map((label) => label.name);
-    assert.deepEqual(names, ["task-ready", "no-tests", "e2e", "to-resume"]);
+    assert.deepEqual(names, ["task-ready", "feature-test", "to-resume"]);
   });
 
   it("wants only the Feature labels and the resume label for the feature tracker", () => {
     const names = wantedLabels({ ...rest, sides: ["featureTracker"] }).map((label) => label.name);
-    assert.deepEqual(names, ["feature-ready", "merge-when-ready", "skip-test-e2e", "to-resume"]);
+    assert.deepEqual(names, [
+      "feature-ready",
+      "merge-when-ready",
+      "skip-feature-test",
+      "to-resume",
+    ]);
   });
 });
 
@@ -236,10 +237,9 @@ describe("setupManager", () => {
     assert.equal(stateOf(result, "label:to-resume"), "applied");
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
     assert.deepEqual(created, [
-      "no-tests",
-      "e2e",
+      "feature-test",
       "merge-when-ready",
-      "skip-test-e2e",
+      "skip-feature-test",
       "to-resume",
     ]);
   });
@@ -260,10 +260,9 @@ describe("setupManager", () => {
     assert.deepEqual(created, [
       "spec-done",
       "ticket-done",
-      "no-tests",
-      "e2e",
+      "feature-test",
       "auto-merge",
-      "skip-test-e2e",
+      "skip-feature-test",
       "go",
     ]);
   });
@@ -282,10 +281,9 @@ describe("setupManager", () => {
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
     assert.deepEqual(created, [
       "ready-for-agent",
-      "no-tests",
-      "e2e",
+      "feature-test",
       "merge-when-ready",
-      "skip-test-e2e",
+      "skip-feature-test",
       "to-resume",
     ]);
   });
@@ -297,10 +295,9 @@ describe("setupManager", () => {
     assert.deepEqual(created, [
       "feature-ready",
       "task-ready",
-      "no-tests",
-      "e2e",
+      "feature-test",
       "merge-when-ready",
-      "skip-test-e2e",
+      "skip-feature-test",
       "to-resume",
     ]);
   });
@@ -313,7 +310,7 @@ describe("setupManager", () => {
     );
     assert.equal(result.ok, true);
     const created = calls.filter((call) => call.method === "POST").map((call) => call.body.name);
-    assert.deepEqual(created, ["ticket-done", "no-tests", "e2e", "to-resume"]);
+    assert.deepEqual(created, ["ticket-done", "feature-test", "to-resume"]);
   });
 
   it("blocks when an option sits under the wrong side", async () => {
@@ -565,47 +562,18 @@ describe("label colours", () => {
   });
 });
 
-describe("the no-tests label", () => {
-  it("is created for the Ticket side, under the name the config chose, with its own colour", async () => {
-    const github = githubOf(repositoryOf(), []);
-    await setupManager(
-      contextOf(
-        { noTestsLabel: "sans-tests", labelColors: { "no-tests": "#FFAA00" }, fetch: github.fetch },
-        ["ticketTracker"],
-      ),
-      { apply: true },
-    );
-    const created = github.calls.find((c) => c.method === "POST" && c.body.name === "sans-tests");
-    assert.equal(created?.body.color, "ffaa00");
-  });
-
-  it("is not wanted by the Feature side", () => {
-    const names = wantedLabels({
-      ...LABELS,
-      defaultProject: undefined,
-      stateLabels: undefined,
-      sides: ["featureTracker"],
-    }).map((label) => label.name);
-    assert.equal(names.includes("no-tests"), false);
-  });
-
-  it("is refused under the Feature side, where it means nothing", async () => {
-    const github = githubOf(repositoryOf(), []);
-    const result = await setupManager(
-      contextOf({ noTestsLabel: "sans-tests", fetch: github.fetch }, ["featureTracker"]),
-      { apply: false },
-    );
-    assert.equal(result.ok, false);
-  });
-});
-
-describe("the e2e labels", () => {
+describe("the feature-test labels", () => {
   it("are created on their own side, under the name the config chose, with their own colour", async () => {
     const github = githubOf(repositoryOf(), []);
     await setupManager(
-      contextOf({ e2eLabel: "acceptance", labelColors: { e2e: "#00CC00" }, fetch: github.fetch }, [
-        "ticketTracker",
-      ]),
+      contextOf(
+        {
+          featureTestLabel: "acceptance",
+          labelColors: { "feature-test": "#00CC00" },
+          fetch: github.fetch,
+        },
+        ["ticketTracker"],
+      ),
       { apply: true },
     );
     const ticket = github.calls.find((c) => c.method === "POST" && c.body.name === "acceptance");
@@ -615,15 +583,17 @@ describe("the e2e labels", () => {
     await setupManager(
       contextOf(
         {
-          skipTestE2eLabel: "sans-e2e",
-          labelColors: { "skip-test-e2e": "#FFAA00" },
+          skipFeatureTestLabel: "sans-feature-test",
+          labelColors: { "skip-feature-test": "#FFAA00" },
           fetch: features.fetch,
         },
         ["featureTracker"],
       ),
       { apply: true },
     );
-    const feature = features.calls.find((c) => c.method === "POST" && c.body.name === "sans-e2e");
+    const feature = features.calls.find(
+      (c) => c.method === "POST" && c.body.name === "sans-feature-test",
+    );
     assert.equal(feature?.body.color, "ffaa00");
   });
 
@@ -634,15 +604,15 @@ describe("the e2e labels", () => {
       );
     assert.deepEqual(
       [
-        wanted(["ticketTracker"]).includes("e2e"),
-        wanted(["ticketTracker"]).includes("skip-test-e2e"),
+        wanted(["ticketTracker"]).includes("feature-test"),
+        wanted(["ticketTracker"]).includes("skip-feature-test"),
       ],
       [true, false],
     );
     assert.deepEqual(
       [
-        wanted(["featureTracker"]).includes("e2e"),
-        wanted(["featureTracker"]).includes("skip-test-e2e"),
+        wanted(["featureTracker"]).includes("feature-test"),
+        wanted(["featureTracker"]).includes("skip-feature-test"),
       ],
       [false, true],
     );
@@ -651,12 +621,14 @@ describe("the e2e labels", () => {
   it("are refused under the other side, where they mean nothing", async () => {
     const github = githubOf(repositoryOf(), []);
     const ticketOnFeature = await setupManager(
-      contextOf({ e2eLabel: "acceptance", fetch: github.fetch }, ["featureTracker"]),
+      contextOf({ featureTestLabel: "acceptance", fetch: github.fetch }, ["featureTracker"]),
       { apply: false },
     );
     assert.equal(ticketOnFeature.ok, false);
     const featureOnTicket = await setupManager(
-      contextOf({ skipTestE2eLabel: "sans-e2e", fetch: github.fetch }, ["ticketTracker"]),
+      contextOf({ skipFeatureTestLabel: "sans-feature-test", fetch: github.fetch }, [
+        "ticketTracker",
+      ]),
       { apply: false },
     );
     assert.equal(featureOnTicket.ok, false);

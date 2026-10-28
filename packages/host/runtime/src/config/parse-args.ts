@@ -566,8 +566,7 @@ function overlayBuilder(
     return base;
   }
   return {
-    ...(base?.tests === undefined ? {} : { tests: base.tests }),
-    ...(base?.e2e === undefined ? {} : { e2e: base.e2e }),
+    ...(base?.featureTest === undefined ? {} : { featureTest: base.featureTest }),
     producer,
     repair,
     ...(maxAttempts === undefined ? {} : { maxAttempts }),
@@ -629,7 +628,7 @@ function finalize(merged: HostDraft, cwd: string, checkPaths: boolean): ParseRes
     return {
       ok: false,
       reason:
-        'Missing required "featureTracker.package". Name a package that exports createManager.',
+        'Missing required "feature.tracker.package". Name a package that exports createManager.',
     };
   }
   const ticketPackage = merged.ticketTracker?.package;
@@ -637,7 +636,7 @@ function finalize(merged: HostDraft, cwd: string, checkPaths: boolean): ParseRes
     return {
       ok: false,
       reason:
-        'Missing required "ticketTracker.package". Name a package that exports createManager.',
+        'Missing required "ticket.tracker.package". Name a package that exports createManager.',
     };
   }
   if (merged.workLineIsolation === undefined) {

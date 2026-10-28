@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { stringify as stringifyYaml } from "yaml";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { agentPartOf } from "./agent-shorthand.js";
 import { loadConfig } from "./load-config.js";
 import { hasAgent } from "./types.js";
@@ -28,7 +28,6 @@ describe("agent passes written short", () => {
     const { dir, loaded } = load({
       agents: { cursor: cursorAgent },
       builder: {
-        tests: { agent: false },
         producer: {
           agent: "cursor",
           prompt: "./prompts/builder.md",
@@ -117,7 +116,6 @@ describe("agent passes written short", () => {
   it("keeps cmd as it was, and resolves --plugin-dir and --plugins-out next to the config", () => {
     const { dir, loaded } = load({
       builder: {
-        tests: { agent: false },
         producer: {
           cmd: [
             "node",
@@ -150,7 +148,6 @@ describe("agent passes written short", () => {
     const { loaded } = load({
       agents: { cursor: cursorAgent },
       builder: {
-        tests: { agent: false },
         producer: { agent: "cursor", cmd: ["node", "x.mjs"], timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
@@ -162,7 +159,6 @@ describe("agent passes written short", () => {
   it("refuses an agent that agents does not declare", () => {
     const { loaded } = load({
       builder: {
-        tests: { agent: false },
         producer: { agent: "cursor", timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
@@ -175,7 +171,6 @@ describe("agent passes written short", () => {
     const read = load({
       agents: { cursor: cursorAgent },
       builder: {
-        tests: { agent: false },
         producer: { agent: "cursor", read: "./x", timeoutMs: 1000 },
         repair: { agent: "cursor", timeoutMs: 1000 },
       },
@@ -183,11 +178,10 @@ describe("agent passes written short", () => {
     assert.equal(read.loaded.ok, false);
     assert.match(
       read.loaded.ok ? "" : read.loaded.reason,
-      /"builder.producer" has unknown key "read"/,
+      /"ticket.build.producer" has unknown key "read"/,
     );
     const profile = load({
       builder: {
-        tests: { agent: false },
         producer: { cmd: ["node", "x.mjs"], appDeckProfile: ".ai/profiles/p", timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
@@ -200,7 +194,6 @@ describe("agent passes written short", () => {
     const { loaded } = load({
       agents: { cursor: { adapter: "cursor" } },
       builder: {
-        tests: { agent: false },
         producer: { agent: "cursor", appDeckProfile: ".ai/profiles/builder", timeoutMs: 1000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },
@@ -228,7 +221,6 @@ describe("agent passes written short", () => {
         },
       },
       builder: {
-        tests: { agent: false },
         producer: { agent: "cursor", prompt: "./prompts/builder.md", timeoutMs: 600000 },
         repair: { cmd: ["node", "r.mjs"], timeoutMs: 1000 },
       },

@@ -65,7 +65,12 @@ export type DeliveryRead = {
 export type DeliveryStore = {
   read(): Promise<DeliveryRead | undefined>;
   /** Stop for a person. */
-  freeze(input: { kind: "assembly" | "submitted"; report?: string }): Promise<ProjectRunResult>;
+  freeze(input: {
+    kind: "assembly" | "submitted";
+    report?: string;
+    /** What refused the work, when it said its name. The report already carries it as a prefix. */
+    refusedBy?: string | undefined;
+  }): Promise<ProjectRunResult>;
   /** A check refused the work before it was published: keep why, for the fix. */
   park(why: {
     report: string;
@@ -145,6 +150,7 @@ export function openDelivery(options: DeliveryOptions): Delivery {
       return await store.freeze({
         kind: "assembly",
         report: why.refusedBy === undefined ? why.report : `${why.refusedBy}: ${why.report}`,
+        refusedBy: why.refusedBy,
       });
     }
     const failure = await store.park(why);
@@ -380,6 +386,7 @@ export function openDelivery(options: DeliveryOptions): Delivery {
         return await store.freeze({
           kind: "submitted",
           report: last?.refusedBy === undefined ? report : `${last.refusedBy}: ${report}`,
+          refusedBy: last?.refusedBy,
         });
       }
       const failure = await store.refuse({ report, refusedBy: last?.refusedBy });

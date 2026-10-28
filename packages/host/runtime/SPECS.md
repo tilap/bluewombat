@@ -71,7 +71,7 @@ See § 8.
 
 ## 4. Loading a manager
 
-`featureTracker.package` and `ticketTracker.package` are each a package name or a path. The two sides may name the same package or two different ones: a package asked for a side it does not answer is refused by name. One package with the same options on both sides is built once. `doctor` and `setup` run each distinct manager once; the reference work line is named by the ticket tracker, which holds the Authority. Resolution imports the bare specifier
+`feature.tracker.package` and `ticket.tracker.package` are each a package name or a path. The two sides may name the same package or two different ones: a package asked for a side it does not answer is refused by name. One package with the same options on both sides is built once. `doctor` and `setup` run each distinct manager once; the reference work line is named by the ticket tracker, which holds the Authority. Resolution imports the bare specifier
 first — mason and its managers installed side by side in one project — then
 walks up from the config file's directory, which covers a global `mason`
 driving a locally installed manager. A module without `createManager` is
@@ -103,7 +103,7 @@ The FeatureTracker's `listen` delivers Features whose specification is final.
 | `invalid` (new, or the intention changed)   | emit `invalid` on the Feature, keyed by fingerprint                                                                                                                                                                 |
 | `invalid` (same fingerprint as recorded)    | leave it; the tracker was told, and telling it is what delivered it again                                                                                                                                           |
 | `upsert` (absent or `waiting`)              | `admitFeature`, emit `accepted`. Nothing is driven here: the sweep does it                                                                                                                                          |
-| `upsert` (`open` or `escalated`) whose `skip_e2e` differs from the ledger's | `setFeatureSkipE2e`; journal `skip-e2e`; no other change |
+| `upsert` (`open` or `escalated`) whose `skip_feature_test` differs from the ledger's | `setFeatureSkipFeatureTest`; journal `skip-feature-test`; no other change |
 | `upsert` (any other state)                  | leave it; journal `skipped`. An echo of a Host report is this row                                                                                                                                                   |
 | `upsert` + `signalsResume` while `escalated` | same as `resume` — a poll snapshot has no `labeled` edge                                                                                                                                                             |
 | `resume`                                     | resume the Feature, emit `resumed`                                                                                                                                                                                  |
@@ -140,20 +140,33 @@ advanced (`advanceProject`):
 4. A Feature whose Tickets are all blocked escalates; one that cannot be
    settled because the Authority lacks `settled` waits.
 
-The e2e acceptance check, when the Project declares it (`builder.e2e`):
+The Feature's own work (`.mason/feature-workspaces/<feature>`) is cut from its
+line once, when it is closed, and a pass that sent it to the fix finds it where
+it was left. A resume is the one time the line may have gained commits since
+(a person's): `resumeFeature` marks the work stale (`workspace_stale`), and the
+next pass, before judging, refreshes the line and runs the Integration with the
+work as Parent and the line copy as Child (`<key>:resume`), so what the work
+holds, a refused fix's commits included, stays. Once it is done the mark is
+cleared (`markFeatureWorkspaceCurrent`); a refresh that fails or an interrupt
+leaves it, and the next pass tries again. A conflict is not settled by Host: the
+Feature escalates (`assembly`) with a reason naming the conflict, the work left
+as it was, and the mark stays for the next resume. A work cut after the resume
+is current by construction.
+
+The feature-test acceptance check, when the Project declares it (`feature.test`):
 
 - A Feature does not open (and is reported `invalid`, once per reason) unless it holds exactly
-  one e2e Ticket (`TicketEntry.e2e`), blocked by every other live Ticket, or carries `skip_e2e`.
-- A Ticket with `e2e` is admitted with `e2e` and `no_tests`: no tests are written first, and
-  Transformers makes it with `builder.e2e` (its command, its Gates, for the first pass, a refused
+  one feature-test Ticket (`TicketEntry.featureTest`), blocked by every other live Ticket, or carries `skip_feature_test`.
+- A Ticket with `feature-test` is admitted with `feature-test`, and
+  Transformers makes it with `feature.test` (its command, its Gates, for the first pass, a refused
   pass and the recheck) instead of the producer and the repair.
-- A Feature with `skip_e2e` has its e2e Ticket cancelled by the sweep (journal
-  `e2e-ticket-cancelled`, a trace line), and Transformers leaves out, for that Feature, every
+- A Feature with `skip_feature_test` has its feature-test Ticket cancelled by the sweep (journal
+  `feature-test-ticket-cancelled`, a trace line), and Transformers leaves out, for that Feature, every
   Gate of `feature.validate`, `feature.gates` and `feature.fix` that has `skipWhen:
-  skip-test-e2e`: the journal gets `gate-skipped` with the Gate id and the reason, and the trace
-  says "`<id>` not run: the Feature carries skip-test-e2e". The mark is read from the ledger as
+  skip-feature-test`: the journal gets `gate-skipped` with the Gate id and the reason, and the trace
+  says "`<id>` not run: the Feature carries skip-feature-test". The mark is read from the ledger as
   each pass starts (`TransformerSlots.marks`).
-- A Feature that is not marked and no longer holds a live e2e Ticket (it was cancelled while the
+- A Feature that is not marked and no longer holds a live feature-test Ticket (it was cancelled while the
   mark was on) escalates when it closes.
 
 Host never drives an `escalated` unit: that state is frozen until a human `resume`.
@@ -221,7 +234,7 @@ the Ticket that was driven. The work line copy is refreshed onto the Feature's
 line before a Ticket starts: starting on a copy that was not fast-forwarded
 would build on a version that no longer exists.
 
-## 8. init, setup, doctor, watch, status, log, cancel and release
+## 8. init, setup, doctor, watch, status, log, incident, cancel and release
 
 `init` writes a config that already runs: the Builder is a stub that says what to replace
 (example Cursor CLI and Claude Code Builders live in `@bluewombat/slots/builders/`),
@@ -229,14 +242,14 @@ and the Gate sequence starts empty. Example Gates live in
 `@bluewombat/slots/gates/` (`parent-clean`, `sensitive-path`,
 `workspace-changed`, `ci-green`).
 
-Four Gate sequences: `builder.gates`, shared by `builder.producer` and
-`builder.repair`, then `ticket.fix.gates`, `ticket.validate.gates` and
+Four Gate sequences: `ticket.build.gates`, shared by `ticket.build.producer` and
+`ticket.build.repair`, then `ticket.fix.gates`, `ticket.validate.gates` and
 `ticket.gates` for the one judgement-only pass with no producer of its own.
 The assembly sequences are not shared and nothing is dispatched between buckets: a check that is right for one pass can be wrong
 for another, even within the same stage — `workspace-changed` says an Attempt
-that changed nothing did nothing, which is true of `builder.producer`/`repair`
+that changed nothing did nothing, which is true of `ticket.build.producer`/`repair`
 and false of `ticket.gates`'s pass, whose correct outcome is that nothing
-was left to do. A repair Attempt is judged by `builder.gates`, the same list as the
+was left to do. A repair Attempt is judged by `ticket.build.gates`, the same list as the
 producer's (Host hands Implementer that list as both `gates` and `repairGates`). The assembly's
 judgement-only pass produces nothing unless something refused it first: it is
 a judgement, and a refusal is `ticket.fix`, not a second first-pass. Two
@@ -353,9 +366,16 @@ poll. A `listen` that did not complete is never held and never hidden.
 `watch` and `status` are the operator live view. They open the ledger the same
 way `run` does (`openFilesystemPersist` then `openWorkLedger`) and they do not
 open a manager, Conductor, or Host. `status` prints a snapshot of every known
-Ticket and exits. `watch` prints that snapshot, then follows new journal lines
+Feature and Ticket and exits: a header with the counts, then one line per Feature
+(key, state, title, the Submission or why it stopped) with its Tickets indented
+under it, then the Tickets that belong to no Feature under `No Feature`. A Ticket
+holding the feature tests is marked `[feature-test]`. Features that need a person
+(`escalated`) come first, then those in progress, then `done` and `cancelled`.
+Keys are ordered by tracker, then by number (`#18` before `#107`), the order
+`incident` lists what waits for a person in too. Plain text, no colour. `watch` prints that snapshot, then follows new journal lines
 until SIGINT (exit 0). A missing journal is not an error: the snapshot still
-stands. `--json` prints the snapshot as JSON. Ctrl-C on watch leaves the worker
+stands. `--json` prints the same tree: `{ features: [{ …, tickets: […] }], tickets: […] }`,
+the latter holding the Tickets of no Feature. Ctrl-C on watch leaves the worker
 running. The file can grow without rotation. A followed line that records a
 stop includes the child's last words (`detail`, `reason`, a non-zero exit, a
 Gate report that did not pass). `run` prints that same note under the phase
@@ -371,6 +391,57 @@ problems, each stop once with how many times it happened. When a
 slot was given `--transcript-dir` it names the newest transcript files with
 the agent exit and duration read from the start of each file. A missing
 journal is not an error. Exit 2 when the config or `--tail` cannot be read.
+
+`incident [<key>]` gathers what is known about one stop into a single page, for a
+person (or anything else) who has to understand it. Read-only: it opens the
+ledger, the journal, the streams and the transcripts, and writes only where
+`--out DIR` says (`incident.md` and `incident.json`). It does not open Host, a
+manager or Conductor, so it works on a stopped run and on one still going. The
+key is a full key or the tracker's number (`106`, `#106`) when one key ends so;
+two matches name both and exit 2, no match exits 2. With no key it lists what
+waits for a person: every escalated Feature and Ticket, one line each. `--json`
+prints the page as JSON.
+
+The page is the schema `bluewombat.incident/1`. It states, without judging:
+the subject (kind, state, the first lines of what was asked, `blocked_by`); the
+stop (layer, what the ledger says verbatim, who refused it, the Gate or agent
+that ended the last round with its verdict, the Task and Attempt, the moment);
+the stops of this subject in the journal and its resumes; the budgets spent;
+the Tickets of the Feature, each with state, Attempts, pull request and the
+moment it landed; the configuration of the refusing Gate; the system (bluewombat,
+Node, the `@bluewombat/*` packages the Project installed, and what the
+configuration switched on: trackers, ledger, Authority, tickets in parallel,
+limits, which passes run an agent or only Gates, each Gate sequence, streams;
+a command shows its program only, never its arguments, which may hold a key); the journal's events
+of the last round; the stream files and the transcripts under the subject, with
+the end of the refusing Gate's stream, each agent's exit, duration, closing
+words and `MASON_VERDICT` / `MASON_BLOCKED` line; and `gaps`, what could not be
+found. A reader must never read an absence as a "no": a missing journal, a
+stream that was never filmed or is gone, a Gate no longer in the configuration
+and a subject that is not stopped are each said in `gaps`. The last round is
+what the journal holds between the previous stop of the subject (or its
+beginning) and the last `status` of phase `escalated`; without that line the
+page says so and takes the moment from the ledger. `--with-config` adds the
+configuration file itself, with the value of any `key: value` line whose key
+looks like a secret (token, secret, password, api key, credential) blanked. The
+page quotes the ledger's
+words with a fence longer than any backtick run in them.
+
+An escalation records, beside its words, who refused it (`refused_by`: a Gate's
+id or a role, when the refusal came with a name) and when (`at`, the ledger's
+clock); a Feature's also records where its line stopped (`kind`: `assembly` for
+the assembled line refused by a check, `submitted` for its offer). All are
+optional: a record written before them stays readable, and the page then takes
+the refuser from the last non-passing Gate whose words the ledger repeats. The
+tracker is told the stage of a Feature's stop from that `kind` (`integrating`
+for an assembled line, `submitting` otherwise).
+
+`restart <feature-key>` resumes an escalated Feature with a fresh workspace: the
+Feature's work is removed (the same `rm` as a cancel) and the ledger's `resumeFeature` is taken,
+so the next pass cuts the work again from the line and judges it. Nothing is said to the tracker and
+nothing is fetched. It takes the ledger lock — stop `run` first. The key is the full key or the
+tracker number, as `incident` takes it. Exit 0 once restarted, 1 when the Feature is not
+`escalated`, 2 for a missing, unknown or Ticket key. The journal gets `restarted`.
 
 `cancel <key>` abandons one Ticket the same way a `cancel` delivery does. The
 team still abandons in the TicketTracker; this is the hatch when the tracker
@@ -423,10 +494,10 @@ positional: `release github:owner/name#19`.
     open, escalated or submitted. A Feature blocked by another does not open
     until it is `done`. A Feature whose Tickets are not all `task-ready` does
     not open.
-16b. With the e2e check declared: a Feature without an e2e Ticket nor `skip_e2e` does not open and
-    is reported `invalid`; with `skip_e2e` its e2e Ticket is cancelled and the e2e Gate is not run,
-    the journal and the trace saying so; with an e2e Ticket the line is judged once by the suite,
-    red goes to `feature.fix` and green lets the line be offered. A Project without `builder.e2e`
+16b. With the feature-test check declared: a Feature without a feature-test Ticket nor `skip_feature_test` does not open and
+    is reported `invalid`; with `skip_feature_test` its feature-test Ticket is cancelled and the feature-tests Gate is not run,
+    the journal and the trace saying so; with a feature-test Ticket the line is judged once by the suite,
+    red goes to `feature.fix` and green lets the line be offered. A Project without `feature.test`
     is unchanged.
 17. After an escalation, a `probe` of `gone` cancels that Ticket (or Feature)
     and the sweep goes on. `unavailable` leaves the
@@ -440,5 +511,14 @@ positional: `release github:owner/name#19`.
     detail, hides `idle`, and `--problems` drops the phase labels that are not
     themselves the failure. `--json` returns every kept line. It does
     not import `openHost`.
+
+20. `incident` on a Feature escalated by a Gate names that Gate, quotes the ledger
+    verbatim, lists the Feature's Tickets with their pull requests and says in
+    `gaps` what it could not read. On a Ticket that stopped on a Gate it names
+    the Gate and the Feature above it. With no key it lists what waits. It
+    opens no Host and writes nothing but `--out`.
+21. A Feature's line refused by a check that cannot be repaired escalates with
+    `refused_by` set to that check and `kind` `assembly`, and the tracker is told
+    `integrating`.
 
 How to install, configure and run: [README.md](./README.md).

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { runSetup } from "./setup.js";
 
 const node = process.execPath;
@@ -24,7 +24,6 @@ function sandbox(config: Record<string, unknown>): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
-        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,
@@ -77,7 +76,7 @@ describe("runSetup", () => {
     const cwd = sandbox({ timeoutMs: 1000 });
     const { code, output } = await setupIn(cwd);
     assert.equal(code, 2);
-    assert.match(output, /Missing required "featureTracker.package"/);
+    assert.match(output, /Missing required "feature.tracker.package"/);
   });
 
   it("prints a plan, then points at --apply", async () => {

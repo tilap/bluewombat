@@ -212,7 +212,8 @@ function fileNameOf(subject: StreamSubject): string {
 }
 
 /** The slug `openTranscript` uses, so both land under the same directory name. */
-function slug(value: string): string {
+/** The directory name a key is filed under, for streams and for the transcripts beside them. */
+export function slug(value: string): string {
   const cleaned = value
     .trim()
     .toLowerCase()

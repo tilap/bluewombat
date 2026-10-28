@@ -77,13 +77,6 @@ export type OpenConductorOptions = {
    */
   validate?: boolean;
   /**
-   * Whether the tests of a Task are written before its code. Then a pass of its
-   * own runs in the Ticket's workspace first, and what it wrote is committed as a
-   * checkpoint, so the producer's work is what comes after it. Absent or `false`:
-   * the producer makes the code and the tests together, as before.
-   */
-  tests?: boolean;
-  /**
    * Whether a fix is declared. A validate refusal with nothing to
    * repair it escalates on the spot rather than spending the budget on a round
    * that can only repeat the same refusal.
@@ -230,7 +223,6 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     aggregate.intention.line ?? workLineTarget;
   const maxRefusals = options.maxRefusals ?? DEFAULT_MAX_REFUSALS;
   const validate = options.validate ?? false;
-  const testsFirst = options.tests ?? false;
   const fixDeclared = options.fixDeclared ?? false;
   const warm = options.warm;
   const maxParallel = options.maxParallel ?? 1;
@@ -288,7 +280,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
    */
   async function freeze(
     key: string,
-    input: { kind: EscalationKind; report?: string },
+    input: { kind: EscalationKind; report?: string; refusedBy?: string | undefined },
   ): Promise<ProjectRunResult> {
     const got = await ledger.get(key);
     const pending =
@@ -302,6 +294,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       key,
       kind: input.kind,
       ...(report.length === 0 ? {} : { report }),
+      ...(input.refusedBy === undefined ? {} : { refusedBy: input.refusedBy }),
     });
     const failure = fromLedger(escalated);
     if (failure !== undefined) {
@@ -552,70 +545,6 @@ export function openConductor(options: OpenConductorOptions): Conductor {
   }
 
   /**
-   * The tests of the Task, before its code.
-   *
-   * Their own agent writes them in the Ticket's workspace and their own Gates
-   * judge them (they must fail, for the right reason). What they wrote is then
-   * committed — a checkpoint, by folding the workspace into itself, which the
-   * Integration does by committing what is loose — so that the producer's work is
-   * what differs from it afterwards, and its Gates can see whether a test was
-   * touched.
-   *
-   * `undefined` when the code may be written; otherwise the result that ends the
-   * pass. Nothing of this is an Attempt of the unit: a pass that fails here is a
-   * Task whose tests could not be written, and a person looks.
-   */
-  async function writeTestsFirst(
-    key: string,
-    aggregate: TicketAggregate,
-    workspace: string,
-  ): Promise<ProjectRunResult | undefined> {
-    const written = await transformers.implement({
-      id: `${key}:tests`,
-      context: key,
-      stage: "tests",
-      produce: true,
-      intention: aggregate.intention.intention,
-      workspace,
-    });
-    if (written.outcome === "interrupted") {
-      const failure = await releaseHeldAfterInterrupt(key);
-      return failure ?? refused("interrupted");
-    }
-    if (written.outcome === "invalid-invocation") {
-      return refused("transformer-invalid");
-    }
-    if (written.outcome === "escalated") {
-      const why = reasonOfTraces(written.traces);
-      return await freeze(key, {
-        kind: "unit",
-        report: `The tests could not be written first.${why === undefined ? "" : ` ${why}`}`,
-      });
-    }
-    const checkpoint = await transformers.integrate({
-      id: `${key}:tests`,
-      context: key,
-      parent: workspace,
-      child: workspace,
-      durationMs,
-      subject: `Tests: ${subjectOf(aggregate.intention.title ?? aggregate.intention.intention)}`,
-    });
-    if (checkpoint.outcome === "interrupted") {
-      const failure = await releaseHeldAfterInterrupt(key);
-      return failure ?? refused("interrupted");
-    }
-    if (checkpoint.outcome !== "integrated") {
-      return await freeze(key, {
-        kind: "unit",
-        report: "The tests that were written first could not be committed.",
-      });
-    }
-    // A pass that is stopped from here on does not write them again.
-    const marked = await ledger.markFirstStageDone(key);
-    return fromLedger(marked);
-  }
-
-  /**
    * Run the unit: Builder, then the Gates, in the workspace Isolation made.
    * The result stays loose in the workspace; the Integration in `doIntegrating`
    * is what takes it up.
@@ -657,17 +586,6 @@ export function openConductor(options: OpenConductorOptions): Conductor {
       return refused("not-found");
     }
     const unitPath = declaredTicketPath(workspaceRoot, key, got.aggregate);
-    // The tracker can say a ticket has no tests written first: a label, not a line of its text.
-    if (
-      testsFirst &&
-      got.aggregate.intention.no_tests !== true &&
-      got.aggregate.first_stage_done !== true
-    ) {
-      const stopped = await writeTestsFirst(key, got.aggregate, unitPath);
-      if (stopped !== undefined) {
-        return stopped;
-      }
-    }
     // The Attempts the stopped pass finished count, and the next one goes on from them.
     const earlier = resumed
       ? got.aggregate.attempts.filter((attempt) => attempt.round === got.aggregate.resumes)

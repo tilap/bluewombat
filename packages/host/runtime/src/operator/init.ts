@@ -168,35 +168,35 @@ async function init(input: InitInput): Promise<InitResult> {
   // One package named at init answers both sides; the config is where they
   // are told apart afterwards.
   const config = {
-    featureTracker: { package: manager.name, options: managerOptions },
-    ticketTracker: { package: manager.name, options: managerOptions },
     workLine,
     // No `home`, `workspaceRoot` or `ledger`: the defaults put all of it under
     // `.mason`, and a key that repeats a default is one more thing to keep true.
-    // Both passes name the same stub, and both are written out: a repair runs
-    // its own agent or it runs nothing, never the first pass by default. They
-    // share one Gate list, `builder.gates`: a repair is judged by exactly what
-    // judged the producer.
-    builder: {
-      // The tests written before the code: off until a Project gives them an agent.
-      tests: { agent: false },
-      producer: {
-        cmd: ["node", `./${BUILDER_FILENAME}`],
-        timeoutMs: BUILDER_TIMEOUT_MS,
-      },
-      repair: {
-        cmd: ["node", `./${BUILDER_FILENAME}`],
-        timeoutMs: BUILDER_TIMEOUT_MS,
-      },
-      gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
-      maxAttempts: 3,
-    },
-    // No fix here: that command only runs on a Submission an Authority sent
-    // back, and this Project offers nothing yet.
     ticket: {
+      tracker: { package: manager.name, options: managerOptions },
+      // Both passes name the same stub, and both are written out: a repair runs
+      // its own agent or it runs nothing, never the first pass by default. They
+      // share one Gate list, `ticket.build.gates`: a repair is judged by exactly what
+      // judged the producer.
+      build: {
+        producer: {
+          cmd: ["node", `./${BUILDER_FILENAME}`],
+          timeoutMs: BUILDER_TIMEOUT_MS,
+        },
+        repair: {
+          cmd: ["node", `./${BUILDER_FILENAME}`],
+          timeoutMs: BUILDER_TIMEOUT_MS,
+        },
+        gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
+        maxAttempts: 3,
+      },
       // The review of an assembled ticket: off until a Project gives it an agent or gates.
+      // No fix here: that command only runs on a Submission an Authority sent
+      // back, and this Project offers nothing yet.
       validate: { agent: false },
       gates: { defaultTimeoutMs: GATE_TIMEOUT_MS, gates: [] },
+    },
+    feature: {
+      tracker: { package: manager.name, options: managerOptions },
     },
     authority: { enabled: false },
     timeoutMs: DURATION_MS,
@@ -610,8 +610,8 @@ function addManagerOption(
 
 function hostNextSteps(config: string): string[] {
   return [
-    `${BUILDER_FILENAME} — your producer; or point builder.producer at @bluewombat/slots/builders/producer.mjs and builder.repair at builders/repair.mjs, with an agent after --`,
-    `builder.gates.gates in ${config} — start with workspace-changed (examples in @bluewombat/slots/gates/); one list, judging the producer and the repair alike`,
+    `${BUILDER_FILENAME} — your producer; or point ticket.build.producer at @bluewombat/slots/builders/producer.mjs and ticket.build.repair at builders/repair.mjs, with an agent after --`,
+    `ticket.build.gates.gates in ${config} — start with workspace-changed (examples in @bluewombat/slots/gates/); one list, judging the producer and the repair alike`,
     `authority.enabled in ${config} — true to offer the assembled ticket outside, which then needs ticket.fix (ticket.validate is another way to send work back to it, local and optional) and a "feature" block (its own gates and fix for the whole line)`,
   ];
 }

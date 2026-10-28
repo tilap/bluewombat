@@ -202,9 +202,9 @@ export function normalize(
   if (!mergeWhenReady.ok) {
     return { ok: false, invalid: mergeWhenReady.invalid };
   }
-  const skipE2e = readFlag(raw, "skip_e2e");
-  if (!skipE2e.ok) {
-    return { ok: false, invalid: skipE2e.invalid };
+  const skipFeatureTest = readFlag(raw, "skip_feature_test");
+  if (!skipFeatureTest.ok) {
+    return { ok: false, invalid: skipFeatureTest.invalid };
   }
 
   const kind = readKind(raw);
@@ -267,7 +267,7 @@ export function normalize(
     priority: priority.value ?? options.defaultPriority,
     blocked_by: (blockedBy.value ?? []).map((id) => `${options.manager}:${id}`),
     merge_when_ready: mergeWhenReady.value ?? false,
-    skip_e2e: skipE2e.value ?? false,
+    skip_feature_test: skipFeatureTest.value ?? false,
     ...(Object.keys(source).length > 0 ? { source } : {}),
     fingerprint: "",
     normalized_at: options.normalizedAt,

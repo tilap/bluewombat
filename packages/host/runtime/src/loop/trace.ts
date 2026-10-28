@@ -25,7 +25,7 @@ export function describeTicket(aggregate: TicketAggregate): string {
   return `${key}  ${state.padEnd(11)} ${detailOf(aggregate)}`.trimEnd();
 }
 
-function detailOf(aggregate: TicketAggregate): string {
+export function detailOf(aggregate: TicketAggregate): string {
   switch (aggregate.state) {
     case "submitted":
       return aggregate.submission === undefined

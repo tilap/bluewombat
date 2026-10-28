@@ -8,7 +8,7 @@ import { openWorkLedger } from "@bluewombat/work-ledger";
 import { DEFAULT_PERSIST } from "../config/defaults.js";
 import { homeOf, inHome } from "../config/home.js";
 import type { HostOptions } from "../config/types.js";
-import { hasAgent, isOn } from "../config/types.js";
+import { isOn } from "../config/types.js";
 import { resolveIsolationStrategy } from "../plugins/isolation.js";
 import {
   contextOf,
@@ -21,7 +21,7 @@ import { resolvePersistModule } from "../plugins/persist.js";
 import { openAuthority, openLine } from "./authority.js";
 import type { HostRunInput } from "./context.js";
 import { releaseTicket } from "./deliveries.js";
-import { cancelKey } from "./features.js";
+import { cancelKey, restartFeature } from "./features.js";
 import { coalesceQuiet, type Journal, openJournalFile, stampJournal } from "./journal.js";
 import { acquireLock } from "./lock.js";
 import { openStreams, type Streams } from "./streams.js";
@@ -33,6 +33,7 @@ import { inspectWorkLine, materializeWorkLine, resolveWorkLine } from "./work-li
 
 export type { HostOptions } from "../config/types.js";
 export type { CancelResult, ReleaseResult } from "./deliveries.js";
+export type { RestartResult } from "./features.js";
 export type { Host, HostTickResult } from "./tick.js";
 
 /**
@@ -43,7 +44,7 @@ export type { Host, HostTickResult } from "./tick.js";
  * thing in the journal that tells them apart afterwards. Unknown rather than
  * fatal: a film is not worth failing a run over.
  */
-function hostVersion(): string {
+export function hostVersion(): string {
   try {
     const manifest = fileURLToPath(new URL("../../package.json", import.meta.url));
     const parsed: unknown = JSON.parse(readFileSync(manifest, "utf8"));
@@ -216,13 +217,13 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     fold: resolved.strategy.fold,
     // Read from the ledger as each pass starts: the tracker's labels move while work is made.
     marks: {
-      async ticketIsE2e(key) {
+      async ticketIsFeatureTest(key) {
         const got = await ledger.get(key);
-        return got.ok && got.aggregate.intention.e2e === true;
+        return got.ok && got.aggregate.intention.featureTest === true;
       },
-      async featureSkipsE2e(key) {
+      async featureSkipsFeatureTest(key) {
         const got = await ledger.getFeature(key);
-        return got.ok && got.aggregate.intention.skip_e2e === true;
+        return got.ok && got.aggregate.intention.skip_feature_test === true;
       },
     },
     timeoutMs: options.timeoutMs,
@@ -357,7 +358,6 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
       ? {}
       : { maxRefusals: options.ticket.maxRefusals }),
     validate: isOn(options.ticket.validate),
-    tests: options.builder.tests !== undefined && hasAgent(options.builder.tests),
     fixDeclared: options.ticket.fix !== undefined,
     ...(warm === undefined ? {} : { warm }),
   });
@@ -389,6 +389,7 @@ export async function openHost(options: HostOptions, deps: OpenHostDeps = {}): P
     runOnce: () => runOnce(ctx),
     run: () => run(ctx),
     cancel: (key) => cancelKey(ctx, key),
+    restart: (key) => restartFeature(ctx, key),
     release: (key) => releaseTicket(ctx, key),
     // The film closes before the lock does: whoever reads it next has to be
     // able to tell a run that ended from one whose process was killed, and the

@@ -28,9 +28,6 @@ function makeTransformers(
     builderProducerGates?: GateSpec[];
     builderRepairGates?: GateSpec[];
     builderMaxAttempts?: number;
-    /** The tests written before the code: their own command and their own Gates. */
-    testsCmd?: string[];
-    testsGates?: GateSpec[];
     /** The produce:false judgement-only pass's own list — never fix's or validate's. */
     ticketGates?: GateSpec[];
     ticketFixGates?: GateSpec[];
@@ -43,9 +40,6 @@ function makeTransformers(
   const cmd = [node, join(fixtures, "builder-ok.mjs")];
   return createTransformers({
     builder: {
-      ...(opts.testsCmd === undefined
-        ? {}
-        : { tests: { cmd: opts.testsCmd, timeoutMs: 20_000, gates: opts.testsGates ?? [] } }),
       producer: { cmd, timeoutMs: 20_000, gates: opts.builderProducerGates ?? [] },
       repair: { cmd, timeoutMs: 20_000, gates: opts.builderRepairGates ?? [] },
       maxAttempts: opts.builderMaxAttempts ?? 1,
@@ -202,48 +196,6 @@ describe("createTransformers", () => {
     assert.equal(events.includes("gate-finished"), true);
   });
 
-  it("judges the tests written first by their own gates, and not by the producer's", async () => {
-    const refusing = {
-      id: "unrelated",
-      argv: [node, join(fixtures, "gate-fail-retryable.mjs")],
-      timeoutMs: 10_000,
-    };
-    const transformers = makeTransformers({
-      builderProducerGates: [refusing],
-      testsCmd: [node, join(fixtures, "builder-ok.mjs")],
-      testsGates: [{ id: "red", argv: [node, join(fixtures, "gate-pass.mjs")], timeoutMs: 10_000 }],
-    });
-    const written = await transformers.implement({
-      id: "t:tests",
-      stage: "tests",
-      produce: true,
-      intention: "i",
-      workspace: workspace(),
-    });
-    assert.equal(written.outcome, "validated");
-    // The producer's own list still judges the producer.
-    const made = await transformers.implement({ id: "t", intention: "i", workspace: workspace() });
-    assert.equal(made.outcome, "escalated");
-  });
-
-  it("refuses tests whose gate refuses them, with the gate's name and reason", async () => {
-    const transformers = makeTransformers({
-      testsCmd: [node, join(fixtures, "builder-ok.mjs")],
-      testsGates: [
-        { id: "red", argv: [node, join(fixtures, "gate-fail-retryable.mjs")], timeoutMs: 10_000 },
-      ],
-    });
-    const result = await transformers.implement({
-      id: "t:tests",
-      stage: "tests",
-      produce: true,
-      intention: "i",
-      workspace: workspace(),
-    });
-    assert.equal(result.outcome, "escalated");
-    assert.equal(result.traces[0]?.refusedBy, "red");
-  });
-
   it("runs ticket.validate with no gates and one attempt, and carries its report", async () => {
     const transformers = makeTransformers({
       builderMaxAttempts: 3,
@@ -267,7 +219,7 @@ describe("createTransformers", () => {
     assert.equal(result.traces[0]?.report, "builder could not finish");
   });
 
-  it("checks ticket.validate against its own gates, not builder.producer's", async () => {
+  it("checks ticket.validate against its own gates, not ticket.build.producer's", async () => {
     const transformers = makeTransformers({
       builderProducerGates: [
         {
@@ -285,7 +237,7 @@ describe("createTransformers", () => {
       intention: "i",
       workspace: workspace(),
     });
-    // builder.producer's always-failing Gate never runs against a validate
+    // ticket.build.producer's always-failing Gate never runs against a validate
     // Attempt — each role's Gate list is independent.
     assert.equal(result.outcome, "validated");
   });
@@ -326,7 +278,7 @@ describe("createTransformers", () => {
     assert.equal(result.outcome, "validated");
   });
 
-  it("gives builder.producer and builder.repair independent Gate sequences", async () => {
+  it("gives ticket.build.producer and ticket.build.repair independent Gate sequences", async () => {
     const producerOnly = makeTransformers({
       builderProducerGates: [
         {

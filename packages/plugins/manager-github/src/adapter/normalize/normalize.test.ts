@@ -11,7 +11,7 @@ const options: NormalizeOptions = {
   priorityLabelPrefix: "priority:",
   resumeLabel: "to-resume",
   mergeWhenReadyLabel: "merge-when-ready",
-  skipTestE2eLabel: "skip-test-e2e",
+  skipFeatureTestLabel: "skip-feature-test",
   normalizedAt: "2026-09-05T10:00:00.000Z",
 };
 
@@ -55,7 +55,7 @@ describe("normalize", () => {
         priority: 50,
         blocked_by: [],
         merge_when_ready: false,
-        skip_e2e: false,
+        skip_feature_test: false,
         source: {
           ref: "https://github.com/tilap/mason/issues/42",
           revision: "2026-09-05T09:00:00Z",
@@ -94,19 +94,22 @@ describe("normalize", () => {
     assert.notEqual(plain.ok && plain.feature.fingerprint, marked.ok && marked.feature.fingerprint);
   });
 
-  it("reads the skip-test-e2e label, under whatever name the config gave it, without case", () => {
+  it("reads the skip-feature-test label, under whatever name the config gave it, without case", () => {
     const plain = normalize(issue(), options);
-    assert.equal(plain.ok && plain.feature.skip_e2e, false);
+    assert.equal(plain.ok && plain.feature.skip_feature_test, false);
 
-    const marked = normalize(issue({ labels: ["project:reporting", "Skip-Test-E2E"] }), options);
-    assert.equal(marked.ok && marked.feature.skip_e2e, true);
+    const marked = normalize(
+      issue({ labels: ["project:reporting", "Skip-Feature-Test"] }),
+      options,
+    );
+    assert.equal(marked.ok && marked.feature.skip_feature_test, true);
     assert.notEqual(plain.ok && plain.feature.fingerprint, marked.ok && marked.feature.fingerprint);
 
-    const renamed = { ...options, skipTestE2eLabel: "sans-e2e" };
-    const other = normalize(issue({ labels: ["project:reporting", "sans-e2e"] }), renamed);
-    assert.equal(other.ok && other.feature.skip_e2e, true);
-    const old = normalize(issue({ labels: ["project:reporting", "skip-test-e2e"] }), renamed);
-    assert.equal(old.ok && old.feature.skip_e2e, false);
+    const renamed = { ...options, skipFeatureTestLabel: "sans-feature-test" };
+    const other = normalize(issue({ labels: ["project:reporting", "sans-feature-test"] }), renamed);
+    assert.equal(other.ok && other.feature.skip_feature_test, true);
+    const old = normalize(issue({ labels: ["project:reporting", "skip-feature-test"] }), renamed);
+    assert.equal(old.ok && old.feature.skip_feature_test, false);
   });
 
   it("reads the priority label, named or numeric", () => {

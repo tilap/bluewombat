@@ -15,7 +15,7 @@ function invocation(overrides: Partial<Invocation> = {}): Invocation {
     priorityLabelPrefix: "priority:",
     resumeLabel: "to-resume",
     mergeWhenReadyLabel: "merge-when-ready",
-    skipTestE2eLabel: "skip-test-e2e",
+    skipFeatureTestLabel: "skip-feature-test",
     fetch: false,
     requestRetries: 0,
     at: "2026-09-05T10:00:00.000Z",

@@ -5,11 +5,13 @@ import { DEFAULT_HOME } from "./config/home.js";
 import { runCancel } from "./operator/cancel.js";
 import { runDoctor } from "./operator/doctor.js";
 import { runExplain } from "./operator/explain.js";
+import { runIncident } from "./operator/incident.js";
 import { runInit } from "./operator/init.js";
 import { runLive } from "./operator/live.js";
 import { runLog } from "./operator/log.js";
 import { isInteractive, terminalAsk } from "./operator/prompt.js";
 import { runRelease } from "./operator/release.js";
+import { runRestart } from "./operator/restart.js";
 import { runRun } from "./operator/run.js";
 import { runSetup } from "./operator/setup.js";
 
@@ -19,7 +21,9 @@ const USAGE = `Usage: ${CLI_NAME} <command>
   watch    snapshot the ledger and follow the journal
   status   snapshot the ledger, then exit
   log      replay the journal, including why a phase stopped
+  incident gather what is known about one stop, for whoever has to understand it (read-only)
   cancel   abandon a Ticket by key (when the tracker cannot say it is gone)
+  restart  resume an escalated Feature with a fresh workspace, made again from its line
   release  drop a held unit without waiting for the bail clock
   init     set this directory up — asks, writes, then runs setup
   doctor   check the config, the slots, and the manager
@@ -44,7 +48,11 @@ Shared flags: --config FILE --feature-tracker NAME --feature-tracker-option KEY=
 A gate's --*-gate-timeout-ms comes before the --*-gate it bounds.
 
 watch / status also take --json (snapshot as JSON). explain takes an optional role
-(builder.producer, builder.repair, ticket.fix, ticket.validate, authority.describe) and --json.
+(ticket.build.producer, ticket.build.repair, ticket.fix, ticket.validate, authority.describe) and --json.
+
+incident takes a key (or its tracker number), --json, --out DIR (writes incident.md and incident.json),
+and --with-config (adds the config file, values of secret-looking keys blanked).
+Without a key it lists what is waiting for a person.
 
 log also takes --problems, --all, and --json (every kept line).
 --tail N limits the text film (0 = no limit). With --json it names kept and shown when it drops lines.
@@ -98,6 +106,13 @@ async function main(argv: string[]): Promise<number> {
       cwd: process.cwd(),
       argv: rest,
       write: (line) => process.stdout.write(line),
+    });
+  }
+  if (command === "incident") {
+    return await runIncident({
+      cwd: process.cwd(),
+      argv: rest,
+      write: (text) => process.stdout.write(text),
     });
   }
   if (command === "watch" || command === "status") {
@@ -174,6 +189,21 @@ async function main(argv: string[]): Promise<number> {
     const detachSignals = installSignalHandlers(interruptFlag);
     try {
       return await runCancel({
+        cwd: process.cwd(),
+        argv: rest,
+        env: process.env,
+        write: (line) => process.stdout.write(line),
+        interruptFlag,
+      });
+    } finally {
+      detachSignals();
+    }
+  }
+  if (command === "restart") {
+    const interruptFlag = { interrupted: false };
+    const detachSignals = installSignalHandlers(interruptFlag);
+    try {
+      return await runRestart({
         cwd: process.cwd(),
         argv: rest,
         env: process.env,

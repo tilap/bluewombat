@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { stringify as stringifyYaml } from "yaml";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { DEFAULT_CONFIG_FILENAME } from "./find-config.js";
 import { parseArgs } from "./parse-args.js";
 import { hasAgent } from "./types.js";
@@ -84,7 +84,6 @@ function configOf(dir: ReturnType<typeof dirs>, over: Record<string, unknown> = 
     workspaceRoot: dir.workspaceRoot,
     ledger: dir.ledgerRoot,
     builder: {
-      tests: { agent: false },
       producer: {
         cmd: [node, builder],
         timeoutMs: 600_000,
@@ -173,7 +172,7 @@ describe("parseArgs", () => {
     );
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
-      assert.match(parsed.reason, /ticketTracker\.package/);
+      assert.match(parsed.reason, /ticket\.tracker\.package/);
     }
   });
 
@@ -345,7 +344,7 @@ describe("parseArgs", () => {
     const parsed = parseArgs([...paths(dir), ...slots()], { cwd: dir.root });
     assert.equal(parsed.ok, false);
     if (!parsed.ok) {
-      assert.match(parsed.reason, /Missing required "featureTracker.package"/);
+      assert.match(parsed.reason, /Missing required "feature.tracker.package"/);
     }
   });
 
@@ -357,7 +356,6 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: {
               cmd: [node, builder],
               timeoutMs: 600_000,
@@ -410,7 +408,6 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: {
               cmd: [node, builder, "--transcript-dir", "./.mason/transcripts"],
               timeoutMs: 600_000,
@@ -439,7 +436,6 @@ describe("parseArgs", () => {
       stringifyYaml(
         configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: {
               cmd: [node, builder, "--agent-home", "./.mason/agent-home"],
               timeoutMs: 600_000,
@@ -608,7 +604,6 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir),
         builder: {
-          tests: { agent: false },
           producer: { cmd: [node, builder], timeoutMs: 60_000 },
           repair: { cmd: [node, builder], timeoutMs: 60_000 },
           maxAttempts: 5,
@@ -635,7 +630,6 @@ describe("parseArgs", () => {
       stringifyYaml({
         ...configOf(dir),
         builder: {
-          tests: { agent: false },
           producer: {
             cmd: [node, builder],
             timeoutMs: 600_000,
@@ -867,7 +861,7 @@ describe("parseArgs", () => {
     assert.deepEqual(parsed.invocation.ticket.fix?.cmd, [node, builder]);
   });
 
-  it("gives builder.repair, ticket.fix and ticket.validate each their own Gate, via the CLI", () => {
+  it("gives ticket.build.repair, ticket.fix and ticket.validate each their own Gate, via the CLI", () => {
     const dir = dirs();
     const parsed = parseArgs(
       [
@@ -936,14 +930,13 @@ describe("parseArgs", () => {
     );
   });
 
-  it("reads builder.gates once and gives it to the producer and to the repair", () => {
+  it("reads ticket.build.gates once and gives it to the producer and to the repair", () => {
     const dir = dirs();
     writeFileSync(
       join(dir.root, DEFAULT_CONFIG_FILENAME),
       stringifyYaml({
         ...configOf(dir, {
           builder: {
-            tests: { agent: false },
             producer: { cmd: [node, builder], timeoutMs: 600_000 },
             repair: { cmd: [node, builder], timeoutMs: 600_000 },
             gates: {
@@ -971,11 +964,10 @@ describe("parseArgs", () => {
     assert.equal(parsed.invocation.builder.repair.gates[0]?.timeoutMs, 60_000);
   });
 
-  it("refuses gates written on builder.producer or builder.repair, and names builder.gates", () => {
+  it("refuses gates written on ticket.build.producer or ticket.build.repair, and names ticket.build.gates", () => {
     for (const pass of ["producer", "repair"]) {
       const dir = dirs();
       const passes: Record<string, unknown> = {
-        tests: { agent: false },
         producer: { cmd: [node, builder], timeoutMs: 600_000 },
         repair: { cmd: [node, builder], timeoutMs: 600_000 },
       };
@@ -993,8 +985,8 @@ describe("parseArgs", () => {
       });
       assert.equal(parsed.ok, false);
       if (!parsed.ok) {
-        assert.match(parsed.reason, new RegExp(`builder\\.${pass}" has no "gates"`));
-        assert.match(parsed.reason, /builder\.gates/);
+        assert.match(parsed.reason, new RegExp(`build\\.${pass}" has no "gates"`));
+        assert.match(parsed.reason, /ticket\.build\.gates/);
       }
     }
   });
@@ -1097,21 +1089,22 @@ describe("parseArgs", () => {
     writeFileSync(
       join(dir.root, DEFAULT_CONFIG_FILENAME),
       [
-        "featureTracker:",
-        '  package: "@bluewombat/manager-github"',
-        "  options:",
-        "    repo: tilap/mason",
-        "    defaultProject: no",
-        "    resumeLabel: on",
-        "ticketTracker:",
-        '  package: "@bluewombat/manager-github"',
+        "feature:",
+        "  tracker:",
+        '    package: "@bluewombat/manager-github"',
+        "    options:",
+        "      repo: tilap/mason",
+        "      defaultProject: no",
+        "      resumeLabel: on",
+        "ticket:",
+        "  tracker:",
+        '    package: "@bluewombat/manager-github"',
+        "  build:",
+        `    producer: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
+        `    repair: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         "workLine:",
         `  stable: ${dir.workLineStable}`,
         '  isolation: "@bluewombat/isolation-copy"',
-        `builder:`,
-        `  tests: { agent: false }`,
-        `  producer: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
-        `  repair: { cmd: [${node}, ${builder}], timeoutMs: 600000 }`,
         "timeoutMs: 1000",
       ].join("\n"),
     );

@@ -3,7 +3,6 @@ import type {
   Aggregate,
   AttemptRecord,
   EscalationKind,
-  RefusalCode,
   Summary,
   TicketAggregate,
   TicketIntention,
@@ -46,6 +45,8 @@ export type EscalateInput = {
   kind: EscalationKind;
   /** Why it stopped. Kept so the person who reads the escalation is told. */
   report?: string;
+  /** What refused it, when the refusal came with a name. */
+  refusedBy?: string;
 };
 
 export type RecordAttemptInput = {
@@ -103,8 +104,6 @@ export type WorkLedger = FeatureCommands & {
   cancel(key: string): Promise<CommandResult>;
   declareWorkspace(input: DeclareWorkspaceInput): Promise<CommandResult>;
   clearWorkspace(key: string): Promise<CommandResult>;
-  /** The stage made before the producer is complete in the declared workspace. */
-  markFirstStageDone(key: string): Promise<CommandResult>;
   expireBail(key: string): Promise<CommandResult>;
   /**
    * Drop a held unit without waiting for the bail clock. Unlike an expired bail it spends no
@@ -153,11 +152,8 @@ function cloneIntention(ticket: TicketAdmission): TicketIntention {
   if (ticket.line !== undefined) {
     intention.line = ticket.line;
   }
-  if (ticket.no_tests === true) {
-    intention.no_tests = true;
-  }
-  if (ticket.e2e === true) {
-    intention.e2e = true;
+  if (ticket.featureTest === true) {
+    intention.featureTest = true;
   }
   return intention;
 }
@@ -617,6 +613,10 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       if (input.report !== undefined && input.report.trim().length > 0) {
         escalation.report = input.report;
       }
+      if (input.refusedBy !== undefined && input.refusedBy.length > 0) {
+        escalation.refused_by = input.refusedBy;
+      }
+      escalation.at = now();
       aggregate.escalation = escalation;
       // Freezing for a human consumes the in-flight update signal. Resume
       // continues the stored intention; a newer TicketStandard lands by admit.
@@ -646,7 +646,6 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       } else {
         // A human's resume of a unit starts it from zero: what it left is not picked up.
         delete aggregate.workspace;
-        delete aggregate.first_stage_done;
       }
       return await write(aggregate);
     },
@@ -681,8 +680,6 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return refused("illegal-transition");
       }
       aggregate.workspace = input.path;
-      // Declared anew: nothing is done in it yet.
-      delete aggregate.first_stage_done;
       return await write(aggregate);
     },
 
@@ -696,20 +693,6 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
         return { ok: true };
       }
       delete aggregate.workspace;
-      delete aggregate.first_stage_done;
-      return await write(aggregate);
-    },
-
-    async markFirstStageDone(key: string): Promise<CommandResult> {
-      const current = await loadOrRefuse(key);
-      if (!current.ok) {
-        return current;
-      }
-      const { aggregate } = current;
-      if (aggregate.state !== "running" || aggregate.workspace === undefined) {
-        return refused("illegal-transition");
-      }
-      aggregate.first_stage_done = true;
       return await write(aggregate);
     },
 

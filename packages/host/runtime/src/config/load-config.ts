@@ -25,15 +25,12 @@ import type {
 import { SKIP_WHEN } from "./types.js";
 
 const KNOWN_KEYS = new Set([
-  "featureTracker",
-  "ticketTracker",
   "home",
   "workLine",
   "workspaceRoot",
   "ledger",
   "persist",
   "agents",
-  "builder",
   "ticket",
   "feature",
   "authority",
@@ -52,8 +49,10 @@ const WORK_LINE_KEYS = new Set([
 ]);
 const PASS_KEYS = new Set(["cmd", "timeoutMs"]);
 const GATED_PASS_KEYS = new Set(["cmd", "timeoutMs", "gates"]);
-const STAGE_KEYS = new Set(["tests", "e2e", "producer", "repair", "gates", "maxAttempts"]);
+const STAGE_KEYS = new Set(["producer", "repair", "gates", "maxAttempts"]);
 const TICKET_KEYS = new Set([
+  "tracker",
+  "build",
   "maxParallel",
   "maxAttempts",
   "maxRefusals",
@@ -61,7 +60,17 @@ const TICKET_KEYS = new Set([
   "validate",
   "gates",
 ]);
-const FEATURE_KEYS = new Set(["maxAttempts", "maxRefusals", "fix", "validate", "gates"]);
+const FEATURE_KEYS = new Set([
+  "tracker",
+  "test",
+  "maxAttempts",
+  "maxRefusals",
+  "fix",
+  "validate",
+  "gates",
+]);
+/** Keys of a level that name what it builds or tracks, not how its result is judged. */
+const BUILDING_KEYS = new Set(["tracker", "build", "test"]);
 const GATES_KEYS = new Set(["defaultTimeoutMs", "gates"]);
 const AUTHORITY_KEYS = new Set(["enabled", "publish", "refresh", "describe"]);
 const OBSERVABILITY_KEYS = new Set(["streams"]);
@@ -102,8 +111,16 @@ export function loadConfig(path: string): LoadedConfig {
   const configDir = dirname(file);
   const invocation: HostDraft = { configDir };
 
-  for (const side of ["featureTracker", "ticketTracker"] as const) {
-    const spec = readManagerSpec(object[side], side);
+  for (const [level, side] of [
+    ["feature", "featureTracker"],
+    ["ticket", "ticketTracker"],
+  ] as const) {
+    const block = object[level];
+    const raw =
+      block !== null && typeof block === "object" && !Array.isArray(block)
+        ? (block as Record<string, unknown>).tracker
+        : undefined;
+    const spec = readManagerSpec(raw, `${level}.tracker`);
     if (spec.ok === false) {
       return spec;
     }
@@ -178,20 +195,17 @@ export function loadConfig(path: string): LoadedConfig {
     agents = read.value;
   }
 
-  if (object.builder !== undefined) {
-    const builder = readBuilder(object.builder, configDir, agents);
-    if (builder.ok === false) {
-      return builder;
-    }
-    invocation.builder = builder.value;
-  }
-
   if (object.ticket !== undefined) {
     const ticket = readTicket(object.ticket, configDir, agents);
     if (ticket.ok === false) {
       return ticket;
     }
-    invocation.ticket = ticket.value;
+    if (ticket.builder !== undefined) {
+      invocation.builder = ticket.builder;
+    }
+    if (ticket.value !== undefined) {
+      invocation.ticket = ticket.value;
+    }
   }
 
   if (object.feature !== undefined) {
@@ -199,7 +213,19 @@ export function loadConfig(path: string): LoadedConfig {
     if (feature.ok === false) {
       return feature;
     }
-    invocation.feature = feature.value;
+    if (feature.test !== undefined) {
+      if (invocation.builder === undefined) {
+        return {
+          ok: false,
+          reason:
+            'Config "feature.test" needs "ticket.build": the Ticket that holds the suite is made like any other.',
+        };
+      }
+      invocation.builder.featureTest = feature.test;
+    }
+    if (feature.value !== undefined) {
+      invocation.feature = feature.value;
+    }
   }
 
   if (object.authority !== undefined) {
@@ -234,25 +260,24 @@ export function loadConfig(path: string): LoadedConfig {
     invocation.pollIntervalMs = pollIntervalMs.value;
   }
 
-  const e2eRefusal = checkE2eDeclaration(invocation);
-  if (e2eRefusal !== undefined) {
-    return { ok: false, reason: e2eRefusal };
+  const featureTestRefusal = checkFeatureTestDeclaration(invocation);
+  if (featureTestRefusal !== undefined) {
+    return { ok: false, reason: featureTestRefusal };
   }
 
   return { ok: true, invocation };
 }
 
 /**
- * The e2e check is declared by a pair: `builder.e2e`, which makes the Ticket that holds the
- * suite, and a Feature Gate with `skipWhen: skip-test-e2e`, which runs it. One without the other
+ * The feature-test check is declared by a pair: `feature.test`, which makes the Ticket that holds the
+ * suite, and a Feature Gate with `skipWhen: skip-feature-test`, which runs it. One without the other
  * is a check that never runs or a Ticket nobody judges, so neither is accepted alone. A `skipWhen`
  * outside a Feature's Gates has nothing to read.
  */
-function checkE2eDeclaration(invocation: HostDraft): string | undefined {
+function checkFeatureTestDeclaration(invocation: HostDraft): string | undefined {
   const outside: [string, HostGateSpec[] | undefined][] = [
-    ["builder.gates", invocation.builder?.producer.gates],
-    ["builder.tests.gates", invocation.builder?.tests?.gates],
-    ["builder.e2e.gates", invocation.builder?.e2e?.gates],
+    ["ticket.build.gates", invocation.builder?.producer.gates],
+    ["feature.test.gates", invocation.builder?.featureTest?.gates],
     ["ticket.gates", invocation.ticket?.gates],
     ["ticket.fix.gates", invocation.ticket?.fix?.gates],
     ["ticket.validate.gates", invocation.ticket?.validate?.gates],
@@ -268,13 +293,13 @@ function checkE2eDeclaration(invocation: HostDraft): string | undefined {
     ...(feature?.validate.gates ?? []),
     ...(feature?.gates ?? []),
     ...(feature?.fix.gates ?? []),
-  ].filter((gate) => gate.skipWhen === "skip-test-e2e");
-  const declared = invocation.builder?.e2e !== undefined;
+  ].filter((gate) => gate.skipWhen === "skip-feature-test");
+  const declared = invocation.builder?.featureTest !== undefined;
   if (skippable.length > 0 && !declared) {
-    return `Config gate "${skippable[0]?.id}" has "skipWhen: skip-test-e2e", so the e2e check is declared: "builder.e2e" is required (the pass that makes the Ticket holding the suite).`;
+    return `Config gate "${skippable[0]?.id}" has "skipWhen: skip-feature-test", so the feature-test check is declared: "feature.test" is required (the pass that makes the Ticket holding the suite).`;
   }
   if (declared && feature !== undefined && skippable.length === 0) {
-    return 'Config "builder.e2e" is declared, but no Feature gate runs the suite. Add a gate to "feature.validate.gates" with "skipWhen: skip-test-e2e".';
+    return 'Config "feature.test" is declared, but no Feature gate runs the suite. Add a gate to "feature.validate.gates" with "skipWhen: skip-feature-test".';
   }
   return undefined;
 }
@@ -725,8 +750,8 @@ function readPass(
 
 /**
  * A command, and its own Gate sequence — `ticket.fix`, `ticket.validate`.
- * `builder.producer` and `builder.repair` read the same shape with `gated`
- * false: their Gates are the one `builder.gates` list, read by `readBuilder`.
+ * `ticket.build.producer` and `ticket.build.repair` read the same shape with `gated`
+ * false: their Gates are the one `ticket.build.gates` list, read by `readBuilder`.
  * Deliberately its own ~10 lines rather than a parameterized `readPass`: each
  * reader's error messages and key set stay independently legible.
  */
@@ -750,7 +775,7 @@ function readGatedPass(
       return {
         ok: false,
         reason:
-          `Config "${key}" has no "gates". The builder's Gates are "builder.gates": ` +
+          `Config "${key}" has no "gates". The builder's Gates are "ticket.build.gates": ` +
           "one list, judging the producer and the repair alike.",
       };
     }
@@ -792,52 +817,6 @@ function readGatedPass(
     gates = read.value;
   }
   return { ok: true, value: { cmd, timeoutMs: timeoutMs.value, gates } };
-}
-
-/**
- * The pass that writes the tests first: an agent and the Gates that check what
- * it wrote, or `agent: false` and nothing else, which writes none. Gates with
- * no agent would have nothing to check, so they are refused rather than ignored.
- */
-function readTests(
-  value: unknown,
-  configDir: string,
-  agents: Agents,
-): { ok: true; value: ReviewSpec } | { ok: false; reason: string } {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return {
-      ok: false,
-      reason:
-        'Config "builder.tests" must be a YAML mapping with an agent (or "cmd") and "timeoutMs", or "agent: false".',
-    };
-  }
-  const object = value as Record<string, unknown>;
-  if (object.agent !== false) {
-    return readGatedPass(value, configDir, "builder.tests", agents, true);
-  }
-  for (const name of Object.keys(object)) {
-    if (name !== "agent" && name !== "gates") {
-      return {
-        ok: false,
-        reason: `Config "builder.tests" has "agent: false", so it has no "${name}": no tests are written first.`,
-      };
-    }
-  }
-  const emptyList = Array.isArray(object.gates) && object.gates.length === 0;
-  if (object.gates !== undefined && object.gates !== null && !emptyList) {
-    const gates = readGates(object.gates, configDir, "builder.tests.gates");
-    if (gates.ok === false) {
-      return gates;
-    }
-    if (gates.value.length > 0) {
-      return {
-        ok: false,
-        reason:
-          'Config "builder.tests" has "agent: false", so its gates would have no tests to check. Remove them, or give it an agent.',
-      };
-    }
-  }
-  return { ok: true, value: { agent: false, gates: [] } };
 }
 
 /**
@@ -889,50 +868,37 @@ function readBuilder(
   agents: Agents,
 ): { ok: true; value: StageSpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { ok: false, reason: 'Config "builder" must be a YAML mapping.' };
+    return { ok: false, reason: 'Config "ticket.build" must be a YAML mapping.' };
   }
   const object = value as Record<string, unknown>;
   for (const name of Object.keys(object)) {
     if (!STAGE_KEYS.has(name)) {
-      return { ok: false, reason: `Config "builder" has unknown key "${name}".` };
+      return { ok: false, reason: `Config "ticket.build" has unknown key "${name}".` };
     }
-  }
-  if (object.tests === undefined) {
-    return {
-      ok: false,
-      reason:
-        'Config "builder" needs "tests": the agent that writes the tests before the code. To write none first, say "tests: { agent: false }".',
-    };
-  }
-  const readTestsPass = readTests(object.tests, configDir, agents);
-  if (readTestsPass.ok === false) {
-    return readTestsPass;
-  }
-  let e2e: GatedPassSpec | undefined;
-  if (object.e2e !== undefined) {
-    const read = readGatedPass(object.e2e, configDir, "builder.e2e", agents);
-    if (read.ok === false) {
-      return read;
-    }
-    e2e = read.value;
   }
   if (object.producer === undefined) {
-    return { ok: false, reason: 'Config "builder" needs a "producer".' };
+    return { ok: false, reason: 'Config "ticket.build" needs a "producer".' };
   }
   if (object.repair === undefined) {
-    return { ok: false, reason: 'Config "builder" needs a "repair".' };
+    return { ok: false, reason: 'Config "ticket.build" needs a "repair".' };
   }
-  const readProducer = readGatedPass(object.producer, configDir, "builder.producer", agents, false);
+  const readProducer = readGatedPass(
+    object.producer,
+    configDir,
+    "ticket.build.producer",
+    agents,
+    false,
+  );
   if (readProducer.ok === false) {
     return readProducer;
   }
-  const readRepair = readGatedPass(object.repair, configDir, "builder.repair", agents, false);
+  const readRepair = readGatedPass(object.repair, configDir, "ticket.build.repair", agents, false);
   if (readRepair.ok === false) {
     return readRepair;
   }
   let gates: HostGateSpec[] = [];
   if (object.gates !== undefined) {
-    const read = readGates(object.gates, configDir, "builder.gates");
+    const read = readGates(object.gates, configDir, "ticket.build.gates");
     if (read.ok === false) {
       return read;
     }
@@ -941,14 +907,12 @@ function readBuilder(
   // One list, two passes: a repair is judged by exactly what judged the producer,
   // so it cannot undo what a Gate refused. Implementer still takes two sequences.
   const spec: StageSpec = {
-    tests: readTestsPass.value,
     producer: { ...readProducer.value, gates },
     repair: { ...readRepair.value, gates: [...gates] },
-    ...(e2e === undefined ? {} : { e2e }),
   };
   const maxAttempts = positiveIntField(object, "maxAttempts");
   if (maxAttempts.ok === false) {
-    return { ok: false, reason: 'Config "builder.maxAttempts" must be a positive integer.' };
+    return { ok: false, reason: 'Config "ticket.build.maxAttempts" must be a positive integer.' };
   }
   if (maxAttempts.value !== undefined) {
     spec.maxAttempts = maxAttempts.value;
@@ -964,7 +928,7 @@ function readTicket(
   value: unknown,
   configDir: string,
   agents: Agents,
-): { ok: true; value: TicketSpec } | { ok: false; reason: string } {
+): { ok: true; value?: TicketSpec; builder?: StageSpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: 'Config "ticket" must be a YAML mapping.' };
   }
@@ -981,6 +945,17 @@ function readTicket(
     if (!TICKET_KEYS.has(name)) {
       return { ok: false, reason: `Config "ticket" has unknown key "${name}".` };
     }
+  }
+  let builder: StageSpec | undefined;
+  if (object.build !== undefined) {
+    const read = readBuilder(object.build, configDir, agents);
+    if (read.ok === false) {
+      return read;
+    }
+    builder = read.value;
+  }
+  if (Object.keys(object).every((name) => BUILDING_KEYS.has(name))) {
+    return { ok: true, ...(builder === undefined ? {} : { builder }) };
   }
   if (object.validate === undefined) {
     return {
@@ -1020,7 +995,7 @@ function readTicket(
     }
     spec.gates = gates.value;
   }
-  return { ok: true, value: spec };
+  return { ok: true, value: spec, ...(builder === undefined ? {} : { builder }) };
 }
 
 /**
@@ -1031,7 +1006,7 @@ function readFeature(
   value: unknown,
   configDir: string,
   agents: Agents,
-): { ok: true; value: FeatureSpec } | { ok: false; reason: string } {
+): { ok: true; value?: FeatureSpec; test?: GatedPassSpec } | { ok: false; reason: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, reason: 'Config "feature" must be a YAML mapping.' };
   }
@@ -1040,6 +1015,17 @@ function readFeature(
     if (!FEATURE_KEYS.has(name)) {
       return { ok: false, reason: `Config "feature" has unknown key "${name}".` };
     }
+  }
+  let test: GatedPassSpec | undefined;
+  if (object.test !== undefined) {
+    const read = readGatedPass(object.test, configDir, "feature.test", agents);
+    if (read.ok === false) {
+      return read;
+    }
+    test = read.value;
+  }
+  if (Object.keys(object).every((name) => BUILDING_KEYS.has(name))) {
+    return { ok: true, ...(test === undefined ? {} : { test }) };
   }
   if (object.fix === undefined) {
     return {
@@ -1084,7 +1070,7 @@ function readFeature(
       spec[key] = read.value;
     }
   }
-  return { ok: true, value: spec };
+  return { ok: true, value: spec, ...(test === undefined ? {} : { test }) };
 }
 
 /**

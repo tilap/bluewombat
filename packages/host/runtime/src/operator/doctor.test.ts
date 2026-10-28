@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { runDoctor } from "./doctor.js";
 
 const node = process.execPath;
@@ -26,7 +26,6 @@ function sandbox(config: Record<string, unknown>): string {
       workspaceRoot: "./.mason/workspaces",
       ledger: "./.mason/ledger",
       builder: {
-        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,
@@ -290,7 +289,7 @@ describe("runDoctor", () => {
     const cwd = sandbox({ timeoutMs: 1000 });
     const { code, output } = await doctorIn(cwd);
     assert.equal(code, 1);
-    assert.match(output, /FAIL {2}invocation .*Missing required "featureTracker.package"/);
+    assert.match(output, /FAIL {2}invocation .*Missing required "feature.tracker.package"/);
   });
 
   it("fails a Gate whose command is nowhere", async () => {
@@ -304,7 +303,6 @@ describe("runDoctor", () => {
         options: { source: "./source", target: "./threads" },
       },
       builder: {
-        tests: { agent: false },
         producer: {
           cmd: [node, builder],
           timeoutMs: 600_000,

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { stringify as stringifyYaml } from "yaml";
 import { DEFAULT_CONFIG_FILENAME } from "../config/find-config.js";
+import { fixtureYaml as stringifyYaml } from "../config/fixture-yaml.js";
 import { PROMPT_PLACEHOLDERS, type RoleReport, runExplain } from "./explain.js";
 
 const node = process.execPath;
@@ -107,7 +107,6 @@ function sandbox(options: Options = {}): string {
         },
       },
       builder: {
-        tests: { agent: false },
         producer: {
           agent: "cursor",
           args: ["--model", "composer-2.5"],
@@ -133,14 +132,16 @@ async function explain(cwd: string, argv: string[] = [], env: Record<string, str
   return { code, out: out.join("") };
 }
 
-async function reports(cwd: string, role = "builder.producer", env = {}) {
+async function reports(cwd: string, role = "ticket.build.producer", env = {}) {
   const { code, out } = await explain(cwd, [role, "--json"], env);
   return { code, report: (JSON.parse(out) as { roles: RoleReport[] }).roles[0] as RoleReport };
 }
 
 describe("runExplain", () => {
   it("lays the prompt, the home's plugin and the project's deck side by side", async () => {
-    const { code, out } = await explain(sandbox(), ["builder.producer"], { CURSOR_API_KEY: "k" });
+    const { code, out } = await explain(sandbox(), ["ticket.build.producer"], {
+      CURSOR_API_KEY: "k",
+    });
     assert.equal(code, 0);
     assert.match(out, /agent {7}cursor, model composer-2\.5, 600s per attempt/);
     assert.match(out, /key from \$CURSOR_API_KEY \(set\); refuses: gh, ssh, scp/);
@@ -159,14 +160,16 @@ describe("runExplain", () => {
   });
 
   it("never prints the key, only whether its variable is set", async () => {
-    const { out } = await explain(sandbox(), ["builder.producer"], { CURSOR_API_KEY: "s3cret" });
+    const { out } = await explain(sandbox(), ["ticket.build.producer"], {
+      CURSOR_API_KEY: "s3cret",
+    });
     assert.doesNotMatch(out, /s3cret/);
-    const unset = await explain(sandbox(), ["builder.producer"]);
+    const unset = await explain(sandbox(), ["ticket.build.producer"]);
     assert.match(unset.out, /\(not set in this shell\)/);
   });
 
   it("says a role that runs a command is not an agent, and shows nothing else", async () => {
-    const { code, out } = await explain(sandbox(), ["builder.repair"]);
+    const { code, out } = await explain(sandbox(), ["ticket.build.repair"]);
     assert.equal(code, 0);
     assert.match(out, /this role runs a command, not an agent/);
     assert.doesNotMatch(out.split("Not shown here")[0] ?? "", /plugins|prompt /);
@@ -207,7 +210,7 @@ describe("runExplain", () => {
         },
       },
     });
-    const { code, out } = await explain(root, ["builder.producer"]);
+    const { code, out } = await explain(root, ["ticket.build.producer"]);
     assert.equal(code, 0);
     assert.match(
       out,
@@ -290,7 +293,10 @@ describe("runExplain", () => {
   it("refuses an unknown role by naming the roles", async () => {
     const { code, out } = await explain(sandbox(), ["builder.nope"]);
     assert.equal(code, 2);
-    assert.match(out, /No role "builder\.nope".*Roles: builder\.producer, builder\.repair/);
+    assert.match(
+      out,
+      /No role "builder\.nope".*Roles: ticket\.build\.producer, ticket\.build\.repair/,
+    );
   });
 
   it("writes JSON that carries the same facts and what it does not cover", async () => {
@@ -298,7 +304,7 @@ describe("runExplain", () => {
     const parsed = JSON.parse(out) as { roles: RoleReport[]; notCovered: string[] };
     assert.deepEqual(
       parsed.roles.map((role) => role.role),
-      ["builder.producer", "builder.repair"],
+      ["ticket.build.producer", "ticket.build.repair"],
     );
     assert.equal(parsed.notCovered.length, 2);
   });
@@ -308,8 +314,8 @@ describe("the placeholders each role fills", () => {
   it("are the ones the slots' own prompt fill, so this table cannot drift", () => {
     const slots = join(here, "../../../../plugins/slots");
     const files: Record<string, string> = {
-      "builder.producer": "builders/producer.mjs",
-      "builder.repair": "builders/repair.mjs",
+      "ticket.build.producer": "builders/producer.mjs",
+      "ticket.build.repair": "builders/repair.mjs",
       "ticket.fix": "ticket/fix.mjs",
       "ticket.validate": "ticket/validate.mjs",
       "feature.fix": "feature/fix.mjs",

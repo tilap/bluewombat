@@ -42,13 +42,13 @@ package asked for a side it does not answer is refused by name.
 | `probe`        | no       | Whether the Feature this key named is still on the tracker (`present` / `gone` / `unavailable` / `interrupted`)      |
 
 A FeatureStandard carries `blocked_by` (keys of Features that must be `done`
-first) `merge_when_ready` (its line may be folded without a human) and `skip_e2e` (it is not put through the e2e acceptance check).
+first) `merge_when_ready` (its line may be folded without a human) and `skip_feature_test` (it is not put through the feature-test acceptance check).
 
 ### TicketTrackerPort: the work that builds a Feature
 
 | Member      | Required | Job                                                                                                           |
 | ----------- | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `tickets`   | yes      | Every Ticket of a Feature, each a `TicketEntry`: the TicketStandard (`intention`, `blocked_by`, `priority`) and `task_ready`, `resume`, `no_tests`, `e2e` (it holds the Feature's e2e acceptance suite), `open` |
+| `tickets`   | yes      | Every Ticket of a Feature, each a `TicketEntry`: the TicketStandard (`intention`, `blocked_by`, `priority`) and `task_ready`, `resume`, `feature-test` (it holds the Feature's feature tests), `open` |
 | `report`    | yes      | One semantic Event onto a Ticket                                                                              |
 | `clearResume`| no       | Take a Ticket's resume signal back once acted on                                                              |
 | `probe`     | no       | Whether the Ticket this key named is still on the tracker                                                     |

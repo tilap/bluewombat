@@ -144,12 +144,9 @@ function writeTranscripts(write: (line: string) => void, invocation: HostInvocat
   }
 }
 
-function transcriptDir(invocation: HostInvocation): string | undefined {
+export function transcriptDir(invocation: HostInvocation): string | undefined {
   const commands = [
-    ...(invocation.builder.tests === undefined || !hasAgent(invocation.builder.tests)
-      ? []
-      : [invocation.builder.tests.cmd]),
-    ...(invocation.builder.e2e === undefined ? [] : [invocation.builder.e2e.cmd]),
+    ...(invocation.builder.featureTest === undefined ? [] : [invocation.builder.featureTest.cmd]),
     invocation.builder.producer.cmd,
     invocation.builder.repair.cmd,
     ...(invocation.ticket.fix === undefined ? [] : [invocation.ticket.fix.cmd]),

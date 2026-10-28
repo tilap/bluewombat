@@ -60,11 +60,11 @@ export function createManager(context: ManagerContext): CreateManagerResult {
 
 Then point a config at it:
 
-```json
-{
-  "featureTracker": { "package": "@acme/manager-jira", "options": { "board": "APP" } },
-  "ticketTracker": { "package": "@acme/manager-jira", "options": { "board": "APP" } }
-}
+```yaml
+feature:
+  tracker: { package: "@acme/manager-jira", options: { board: APP } }
+ticket:
+  tracker: { package: "@acme/manager-jira", options: { board: APP } }
 ```
 
 `checkManager` is optional. Export it and `mason doctor` prints your findings

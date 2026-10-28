@@ -24,6 +24,7 @@ a change to those files is a change to that document.
 | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | [DECISIONS.md](./DECISIONS.md)       | The rules in force, why each holds, and what was turned down                                   |
 | [RESERVATIONS.md](./RESERVATIONS.md) | Calls nobody validated, defects left in place, code never run for real, things left improvable |
+| [FEATURE_TESTS.md](./FEATURE_TESTS.md) | How a Feature is proved by its own tests, why it replaced the e2e suite, and what it does not guarantee |
 
 ## Working here
 

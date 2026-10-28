@@ -66,46 +66,41 @@ npx mason watch
 ```
 
 Two things are left for you: the Builder (the stub `mason-builder.mjs`, or
-point `builder.producer` and `builder.repair` at a shipped one from
+point `ticket.build.producer` and `ticket.build.repair` at a shipped one from
 [`@bluewombat/slots`](./packages/plugins/slots/README.md)), and any Gate you add —
-each of `builder.producer`, `builder.repair`, `ticket.fix` and
+each of `ticket.build.producer`, `ticket.build.repair`, `ticket.fix` and
 `ticket.validate` carries its own `gates`, independently.
 Passing `--manager` to `init` turns the questions off, which is what a script wants. It names one package for both sides.
 
-```json
-{
-  "featureTracker": {
-    "package": "@bluewombat/manager-github",
-    "options": { "repo": "owner/name" }
-  },
-  "ticketTracker": {
-    "package": "@bluewombat/manager-github",
-    "options": { "repo": "owner/name" }
-  },
-  "workLine": { "stable": "./work-line-stable" },
-  "authority": { "enabled": false },
-  "workspaceRoot": "./.mason/workspaces",
-  "ledger": "./.mason/ledger",
-  "builder": {
-    "producer": {
-      "cmd": ["node", "./mason-builder.mjs"],
-      "timeoutMs": 600000,
-      "gates": { "defaultTimeoutMs": 120000, "gates": [] }
-    },
-    "repair": {
-      "cmd": ["node", "./mason-builder.mjs"],
-      "timeoutMs": 600000,
-      "gates": { "defaultTimeoutMs": 120000, "gates": [] }
-    },
-    "maxAttempts": 3
-  },
-  "ticket": { "gates": { "defaultTimeoutMs": 900000, "gates": [] } },
-  "timeoutMs": 600000,
-  "pollIntervalMs": 30000
-}
+```yaml
+ticket:
+  tracker:
+    package: "@bluewombat/manager-github"
+    options: { repo: owner/name }
+  build:
+    producer:
+      cmd: [node, ./mason-builder.mjs]
+      timeoutMs: 600000
+    repair:
+      cmd: [node, ./mason-builder.mjs]
+      timeoutMs: 600000
+    gates: { defaultTimeoutMs: 120000, gates: [] }
+    maxAttempts: 3
+  validate: { agent: false }
+  gates: { defaultTimeoutMs: 900000, gates: [] }
+feature:
+  tracker:
+    package: "@bluewombat/manager-github"
+    options: { repo: owner/name }
+workLine: { stable: ./work-line-stable }
+authority: { enabled: false }
+timeoutMs: 600000
+pollIntervalMs: 30000
 ```
 
-`builder` makes the unit of work. `ticket` judges the whole, and when that
+The file groups the config by level, each in the order it is used: `tracker`, then
+what makes the work (`ticket.build`, `feature.test`), `validate`, `gates`, `fix`.
+`ticket.build` makes the unit of work. `ticket` judges the whole, and when that
 judgement refuses it, `ticket.fix` corrects what it named — not a second
 first-pass of the request. The judgement is the `ticket.gates` sequence (the
 one no producer runs — nothing new made, the existing assembled state
@@ -117,7 +112,7 @@ a local read-only review run before either, judged by its own `gates`, not
 `fix` too — a reviewer that only gates, whose refusals escalate on the spot —
 and `doctor` says so rather than failing.
 
-`featureTracker` and `ticketTracker` each name a package that exports
+`feature.tracker` and `ticket.tracker` each name a package that exports
 `createManager` — the same one or two different ones (Features in one tool,
 Tickets in another); their `options` are opaque to Host and documented by that
 package. Another tracker is another package, and nothing in Host changes —
@@ -129,7 +124,7 @@ offered as a Submission — on GitHub, a pull request — and only an accepted
 verdict enters the work line. bluewombat does not merge that line onto a further
 reference such as `main`; the Authority holds it.
 
-A real Project points `builder.producer` and `builder.repair` at a Builder that
+A real Project points `ticket.build.producer` and `ticket.build.repair` at a Builder that
 can do the work; the shipped stubs deliberately do nothing.
 
 ## Work on it

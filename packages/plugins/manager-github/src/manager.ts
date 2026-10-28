@@ -52,9 +52,8 @@ export const DEFAULT_TOKEN_ENV = "GITHUB_TOKEN";
 export const DEFAULT_RESUME_LABEL = "to-resume";
 export const DEFAULT_FEATURE_READY_LABEL = "feature-ready";
 export const DEFAULT_TICKET_READY_LABEL = "task-ready";
-export const DEFAULT_NO_TESTS_LABEL = "no-tests";
-export const DEFAULT_E2E_LABEL = "e2e";
-export const DEFAULT_SKIP_TEST_E2E_LABEL = "skip-test-e2e";
+export const DEFAULT_FEATURE_TEST_LABEL = "feature-test";
+export const DEFAULT_SKIP_FEATURE_TEST_LABEL = "skip-feature-test";
 export const DEFAULT_MERGE_WHEN_READY_LABEL = "merge-when-ready";
 export const DEFAULT_PRIORITY = 50;
 
@@ -70,12 +69,10 @@ export type GithubManagerOptions = {
   featureReadyLabel?: string;
   /** On a Ticket: its specification is final. */
   ticketReadyLabel?: string;
-  /** On a Ticket: no tests are written before its code. */
-  noTestsLabel?: string;
-  /** On a Ticket: it holds the e2e acceptance suite of its Feature. */
-  e2eLabel?: string;
-  /** On a Feature: it is not put through the e2e acceptance check. */
-  skipTestE2eLabel?: string;
+  /** On a Ticket: it holds the feature tests of its Feature. */
+  featureTestLabel?: string;
+  /** On a Feature: it is not put through the feature-test acceptance check. */
+  skipFeatureTestLabel?: string;
   /** On a Feature: its line may be folded without a human. */
   mergeWhenReadyLabel?: string;
   defaultPriority?: number;
@@ -96,9 +93,8 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
   const resumeLabel = options.resumeLabel ?? DEFAULT_RESUME_LABEL;
   const featureReadyLabel = options.featureReadyLabel ?? DEFAULT_FEATURE_READY_LABEL;
   const ticketReadyLabel = options.ticketReadyLabel ?? DEFAULT_TICKET_READY_LABEL;
-  const noTestsLabel = options.noTestsLabel ?? DEFAULT_NO_TESTS_LABEL;
-  const e2eLabel = options.e2eLabel ?? DEFAULT_E2E_LABEL;
-  const skipTestE2eLabel = options.skipTestE2eLabel ?? DEFAULT_SKIP_TEST_E2E_LABEL;
+  const featureTestLabel = options.featureTestLabel ?? DEFAULT_FEATURE_TEST_LABEL;
+  const skipFeatureTestLabel = options.skipFeatureTestLabel ?? DEFAULT_SKIP_FEATURE_TEST_LABEL;
   const mergeWhenReadyLabel = options.mergeWhenReadyLabel ?? DEFAULT_MERGE_WHEN_READY_LABEL;
   const defaultPriority = options.defaultPriority ?? DEFAULT_PRIORITY;
   const testNetwork = options.githubFetch !== undefined;
@@ -268,7 +264,7 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
         priorityLabelPrefix: DEFAULT_PRIORITY_LABEL_PREFIX,
         resumeLabel,
         mergeWhenReadyLabel,
-        skipTestE2eLabel,
+        skipFeatureTestLabel,
         fetch: true,
         fetchDurationMs: options.durationMs,
         requestRetries: testNetwork ? 0 : DEFAULT_REQUEST_RETRIES,
@@ -320,8 +316,7 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
         priorityLabelPrefix: DEFAULT_PRIORITY_LABEL_PREFIX,
         resumeLabel,
         ticketReadyLabel,
-        noTestsLabel,
-        e2eLabel,
+        featureTestLabel,
         deadlineMs: now() + options.durationMs,
         now,
         shouldInterrupt: () => options.interruptFlag.interrupted,

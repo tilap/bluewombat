@@ -2,7 +2,13 @@ export { DEFAULT_CONFIG_FILENAME, findConfig } from "./config/find-config.js";
 export type { ParseInput, ParseResult } from "./config/parse-args.js";
 export { parseArgs } from "./config/parse-args.js";
 export type { HostInvocation, HostOptions } from "./config/types.js";
-export type { CancelResult, Host, HostTickResult, OpenHostDeps } from "./loop/open-host.js";
+export type {
+  CancelResult,
+  Host,
+  HostTickResult,
+  OpenHostDeps,
+  RestartResult,
+} from "./loop/open-host.js";
 export { openHost } from "./loop/open-host.js";
 export type { TransformerSlots } from "./loop/transformers.js";
 export { createTransformers } from "./loop/transformers.js";
@@ -23,6 +29,8 @@ export type { Ask } from "./operator/prompt.js";
 export { isInteractive, terminalAsk } from "./operator/prompt.js";
 export type { ReleaseInput } from "./operator/release.js";
 export { runRelease } from "./operator/release.js";
+export type { RestartInput } from "./operator/restart.js";
+export { runRestart } from "./operator/restart.js";
 export type { SetupInput } from "./operator/setup.js";
 export { runSetup } from "./operator/setup.js";
 export type { DiscoveredManager } from "./plugins/discover.js";

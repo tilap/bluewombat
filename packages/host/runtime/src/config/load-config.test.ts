@@ -3,9 +3,10 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { stringify as stringifyYaml } from "yaml";
+import { stringify as plainYaml } from "yaml";
+import { fixtureYaml as stringifyYaml } from "./fixture-yaml.js";
 import { loadConfig } from "./load-config.js";
-import { hasAgent, isOn } from "./types.js";
+import { isOn } from "./types.js";
 
 function load(config: Record<string, unknown>) {
   const dir = mkdtempSync(join(tmpdir(), "host-load-"));
@@ -32,6 +33,66 @@ describe("the two sides of the config", () => {
     assert.match(loaded.ok ? "" : loaded.reason, /unknown key "other"/);
   });
 });
+
+describe("the file groups the config by level", () => {
+  const cmd = { cmd: ["node", "x.mjs"], timeoutMs: 1000 };
+
+  function loadFile(config: Record<string, unknown>) {
+    const dir = mkdtempSync(join(tmpdir(), "host-load-"));
+    const file = join(dir, "mason.config.yaml");
+    writeFileSync(file, plainYaml(config));
+    return loadConfig(file);
+  }
+
+  it("reads the tracker and the build under ticket, the tracker and the test under feature", () => {
+    const loaded = loadConfig(
+      writeRaw(`
+ticket:
+  tracker: { package: "@acme/tickets" }
+  build:
+    producer: { cmd: [node, p.mjs], timeoutMs: 1000 }
+    repair: { cmd: [node, r.mjs], timeoutMs: 1000 }
+feature:
+  tracker: { package: "@acme/features" }
+`),
+    );
+    assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
+    if (loaded.ok) {
+      assert.equal(loaded.invocation.ticketTracker?.package, "@acme/tickets");
+      assert.equal(loaded.invocation.featureTracker?.package, "@acme/features");
+      assert.equal(loaded.invocation.builder?.producer.cmd?.[1] !== undefined, true);
+      assert.equal(loaded.invocation.ticket, undefined);
+      assert.equal(loaded.invocation.feature, undefined);
+    }
+  });
+
+  it("refuses the old top-level keys", () => {
+    for (const key of ["featureTracker", "ticketTracker", "builder"]) {
+      const loaded = loadFile({ [key]: side });
+      assert.equal(loaded.ok, false);
+      assert.match(loaded.ok ? "" : loaded.reason, new RegExp(`unknown key "${key}"`));
+    }
+  });
+
+  it("refuses feature.test without ticket.build", () => {
+    const loaded = loadFile({ feature: { test: cmd } });
+    assert.equal(loaded.ok, false);
+    assert.match(loaded.ok ? "" : loaded.reason, /"feature.test" needs "ticket.build"/);
+  });
+
+  it("names the nested path in an error", () => {
+    const loaded = loadFile({ ticket: { build: { producer: cmd } } });
+    assert.equal(loaded.ok, false);
+    assert.match(loaded.ok ? "" : loaded.reason, /"ticket.build" needs a "repair"/);
+  });
+});
+
+function writeRaw(text: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "host-load-"));
+  const file = join(dir, "mason.config.yaml");
+  writeFileSync(file, text);
+  return file;
+}
 
 describe("ticket.maxParallel", () => {
   it("reads a positive whole number", () => {
@@ -170,77 +231,25 @@ describe("a review without its agent", () => {
   });
 });
 
-describe("builder.tests", () => {
-  const gate = { id: "red", argv: ["node", "tests-red.mjs"], timeoutMs: 1000 };
-  const producer = { cmd: ["node", "p.mjs"], timeoutMs: 1000 };
-  const builder = (tests: unknown) => ({ tests, producer, repair: producer });
-
-  it("reads an agent with its gates, written like any pass", () => {
-    const loaded = load({
-      featureTracker: side,
-      ticketTracker: side,
-      builder: builder({ cmd: ["node", "tests.mjs"], timeoutMs: 1000, gates: { gates: [gate] } }),
-    });
-    assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
-    if (loaded.ok) {
-      const tests = loaded.invocation.builder?.tests;
-      assert.equal(tests !== undefined && hasAgent(tests) ? tests.gates[0]?.id : undefined, "red");
-    }
-  });
-
-  it("is required, and says how to write none", () => {
-    const loaded = load({
-      featureTracker: side,
-      ticketTracker: side,
-      builder: { producer, repair: producer },
-    });
-    assert.equal(loaded.ok, false);
-    assert.match(loaded.ok ? "" : loaded.reason, /needs "tests".*agent: false/);
-  });
-
-  it("writes none with agent: false, however the empty gates are written", () => {
-    for (const tests of [
-      { agent: false },
-      { agent: false, gates: null },
-      { agent: false, gates: [] },
-      { agent: false, gates: { gates: [] } },
-    ]) {
-      const loaded = load({ featureTracker: side, ticketTracker: side, builder: builder(tests) });
-      assert.equal(loaded.ok, true, `${JSON.stringify(tests)}: ${loaded.ok ? "" : loaded.reason}`);
-      if (loaded.ok) {
-        assert.equal(isOn(loaded.invocation.builder?.tests), false);
-      }
-    }
-  });
-
-  it("refuses gates, or anything else, beside agent: false", () => {
-    for (const tests of [
-      { agent: false, gates: { gates: [gate] } },
-      { agent: false, timeoutMs: 1000 },
-      { agent: false, prompt: "./p.md" },
-    ]) {
-      const loaded = load({ featureTracker: side, ticketTracker: side, builder: builder(tests) });
-      assert.equal(loaded.ok, false, JSON.stringify(tests));
-    }
-  });
-});
-
-describe("the e2e check", () => {
+describe("the feature-test check", () => {
   const gate = { id: "check", argv: ["node", "check.mjs"], timeoutMs: 1000 };
-  const e2eGate = {
-    id: "e2e",
-    argv: ["node", "e2e.mjs"],
+  const featureTestsGate = {
+    id: "feature-test",
+    argv: ["node", "feature-test.mjs"],
     timeoutMs: 1000,
-    skipWhen: "skip-test-e2e",
+    skipWhen: "skip-feature-test",
   };
   const pass = { cmd: ["node", "build.mjs"], timeoutMs: 1000 };
   const builder = {
-    tests: { agent: false },
     producer: pass,
     repair: pass,
     gates: { gates: [gate] },
   };
-  const e2e = { cmd: ["node", "e2e-build.mjs"], timeoutMs: 1000, gates: { gates: [gate] } };
+  const featureTest = {
+    cmd: ["node", "feature-test-build.mjs"],
+    timeoutMs: 1000,
+    gates: { gates: [gate] },
+  };
   const feature = (gates: unknown[]) => ({
     fix: pass,
     gates: { gates: [gate] },
@@ -252,18 +261,21 @@ describe("the e2e check", () => {
     ...over,
   });
 
-  it("is declared by builder.e2e and a Feature gate with skipWhen, and both are read", () => {
+  it("is declared by feature.test and a Feature gate with skipWhen, and both are read", () => {
     const loaded = load(
-      config({ builder: { ...builder, e2e }, feature: feature([gate, e2eGate]) }),
+      config({ builder: { ...builder, featureTest }, feature: feature([gate, featureTestsGate]) }),
     );
     assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
     if (loaded.ok) {
       assert.deepEqual(
-        loaded.invocation.builder?.e2e?.gates.map((g) => g.id),
+        loaded.invocation.builder?.featureTest?.gates.map((g) => g.id),
         ["check"],
       );
       const validate = loaded.invocation.feature?.validate;
-      assert.equal(validate?.gates.find((g) => g.id === "e2e")?.skipWhen, "skip-test-e2e");
+      assert.equal(
+        validate?.gates.find((g) => g.id === "feature-test")?.skipWhen,
+        "skip-feature-test",
+      );
       assert.equal(validate?.gates.find((g) => g.id === "check")?.skipWhen, undefined);
     }
   });
@@ -272,41 +284,47 @@ describe("the e2e check", () => {
     const loaded = load(config({ builder, feature: feature([gate]) }));
     assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
     if (loaded.ok) {
-      assert.equal(loaded.invocation.builder?.e2e, undefined);
+      assert.equal(loaded.invocation.builder?.featureTest, undefined);
     }
   });
 
-  it("requires builder.e2e as soon as a Feature gate can be skipped for the e2e check", () => {
-    const loaded = load(config({ builder, feature: feature([e2eGate]) }));
+  it("requires feature.test as soon as a Feature gate can be skipped for the feature-test check", () => {
+    const loaded = load(config({ builder, feature: feature([featureTestsGate]) }));
     assert.equal(loaded.ok, false);
-    assert.match(loaded.ok ? "" : loaded.reason, /"builder.e2e" is required/);
+    assert.match(loaded.ok ? "" : loaded.reason, /"feature.test" is required/);
   });
 
-  it("refuses builder.e2e when no Feature gate runs the suite", () => {
-    const loaded = load(config({ builder: { ...builder, e2e }, feature: feature([gate]) }));
+  it("refuses feature.test when no Feature gate runs the suite", () => {
+    const loaded = load(config({ builder: { ...builder, featureTest }, feature: feature([gate]) }));
     assert.equal(loaded.ok, false);
     assert.match(loaded.ok ? "" : loaded.reason, /no Feature gate runs the suite/);
   });
 
-  it("gives builder.e2e its own command and gates, nothing is borrowed from the shared builder", () => {
+  it("gives feature.test its own command and gates, nothing is borrowed from the shared builder", () => {
     const loaded = load(
       config({
-        builder: { ...builder, e2e: { cmd: ["node", "e2e-build.mjs"], timeoutMs: 1000 } },
-        feature: feature([e2eGate]),
+        builder: {
+          ...builder,
+          featureTest: { cmd: ["node", "feature-test-build.mjs"], timeoutMs: 1000 },
+        },
+        feature: feature([featureTestsGate]),
       }),
     );
     assert.equal(loaded.ok, true, loaded.ok ? "" : loaded.reason);
     if (loaded.ok) {
-      assert.deepEqual(loaded.invocation.builder?.e2e?.gates, []);
+      assert.deepEqual(loaded.invocation.builder?.featureTest?.gates, []);
     }
     const noCommand = load(
-      config({ builder: { ...builder, e2e: { timeoutMs: 1000 } }, feature: feature([e2eGate]) }),
+      config({
+        builder: { ...builder, featureTest: { timeoutMs: 1000 } },
+        feature: feature([featureTestsGate]),
+      }),
     );
     assert.equal(noCommand.ok, false);
     const noCeiling = load(
       config({
-        builder: { ...builder, e2e: { cmd: ["node", "x.mjs"] } },
-        feature: feature([e2eGate]),
+        builder: { ...builder, featureTest: { cmd: ["node", "x.mjs"] } },
+        feature: feature([featureTestsGate]),
       }),
     );
     assert.equal(noCeiling.ok, false);
@@ -315,17 +333,17 @@ describe("the e2e check", () => {
   it("refuses a condition it does not know, and a skipWhen outside a Feature's gates", () => {
     const unknown = load(
       config({
-        builder: { ...builder, e2e },
-        feature: feature([{ ...e2eGate, skipWhen: "skip-everything" }]),
+        builder: { ...builder, featureTest },
+        feature: feature([{ ...featureTestsGate, skipWhen: "skip-everything" }]),
       }),
     );
     assert.equal(unknown.ok, false);
-    assert.match(unknown.ok ? "" : unknown.reason, /skip-test-e2e/);
+    assert.match(unknown.ok ? "" : unknown.reason, /skip-feature-test/);
 
     const outside = load(
       config({
-        builder: { ...builder, e2e, gates: { gates: [e2eGate] } },
-        feature: feature([e2eGate]),
+        builder: { ...builder, featureTest, gates: { gates: [featureTestsGate] } },
+        feature: feature([featureTestsGate]),
       }),
     );
     assert.equal(outside.ok, false);

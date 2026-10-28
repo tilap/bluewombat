@@ -45,18 +45,18 @@ describe("listTickets", () => {
     assert.match(tickets[0]?.ticket.fingerprint ?? "", /^sha256:/);
   });
 
-  it("reads which Ticket holds the e2e acceptance suite", () => {
+  it("reads which Ticket holds the feature tests", () => {
     const source = sourceWith({
       "0001.json": {
         id: "F1",
         tickets: [
           { id: "1", intention: "first" },
-          { id: "2", intention: "the suite", e2e: true, blocked_by: ["1"] },
+          { id: "2", intention: "the suite", featureTest: true, blocked_by: ["1"] },
         ],
       },
     });
     assert.deepEqual(
-      listTickets(source, feature).map((entry) => entry.e2e),
+      listTickets(source, feature).map((entry) => entry.featureTest),
       [false, true],
     );
   });

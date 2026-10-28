@@ -272,13 +272,14 @@ A Feature is stored through the same Port, beside the Tickets, with
 
 | Command                | Meaning                                                                                                                                                                          | Refused when                                                        |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `setFeatureSkipE2e`    | Put on or take off the tracker's e2e skip mark of a Feature (`intention.skip_e2e`), while it is `waiting`, `open` or `escalated`. A Ticket's `intention.e2e` is set by its admission | `submitted`, `done`, `cancelled` (`illegal-transition`); unknown key (`not-found`) |
+| `setFeatureSkipFeatureTest`    | Put on or take off the tracker's feature-test skip mark of a Feature (`intention.skip_feature_test`), while it is `waiting`, `open` or `escalated`. A Ticket's `intention.featureTest` is set by its admission | `submitted`, `done`, `cancelled` (`illegal-transition`); unknown key (`not-found`) |
 | `admitFeature`         | Store as `waiting`. While waiting, an edit replaces the intention; once held (`open` / `submitted` / `escalated`), it is recorded as pending and the echo of an edit is a success | `done` (`too-late`); `cancelled` (`illegal-transition`)             |
 | `openFeature`          | `waiting` → `open`, recording the line and the keys of its Tickets                                                                                                               | Not `waiting`; the Project already holds a Feature (`project-busy`) |
 | `markFeatureSubmitted` | `open` → `submitted`, recording the Authority's opaque `reference`                                                                                                               | Not `open`                                                          |
 | `markFeatureDone`      | `submitted` → `done`, recording the fold's reference when given                                                                                                                  | Not `submitted`                                                     |
 | `escalateFeature`      | `open` or `submitted` → `escalated` with the report; consumes a pending edit                                                                                                     | Any other state                                                     |
-| `resumeFeature`        | `escalated` → `open`, counting a round. The Submission, if there is one, stays                                                                                                   | Not `escalated`                                                     |
+| `resumeFeature`        | `escalated` → `open`, counting a round and marking the Feature's work stale (`workspace_stale`): its line may have gained commits while it waited. The Submission, if there is one, stays | Not `escalated`                                                     |
+| `markFeatureWorkspaceCurrent` | Take the stale mark off an `open` Feature: its work holds what the line gained, or was made after the resume                                                              | Not `open`                                                          |
 | `cancelFeature`        | Any state but `done` → `cancelled`                                                                                                                                               | `done` (`point-of-no-return`)                                       |
 
 | Query             | Out                                                                                                                                         |
@@ -301,16 +302,14 @@ in this implementation. Glue renews with `startUnit` / `markIntegrating` /
 long Attempt.
 
 Expired bail: `expireBail`. A `running` Ticket's unit stops and consumes an
-Attempt. The declared workspace stays declared, with `first_stage_done` if the
-stage before the producer was complete in it: the next pass picks it up, or
+Attempt. The declared workspace stays declared: the next pass picks it up, or
 starts over if the directory is gone (`clearWorkspace`, `releaseBail` + glue).
-A human's `resumeTicket` of a unit forgets both: that unit starts from zero.
+A human's `resumeTicket` of a unit forgets the workspace: that unit starts from zero.
 The ledger decides; glue acts.
 
 A clean stop (or an operator) that knows the holder is gone calls
 `releaseBail`: the same `running` outcome, without the clock and without
-consuming an Attempt (`markFirstStageDone` records that the stage before the
-producer is complete in the declared workspace; `declareWorkspace` resets it). It refuses
+consuming an Attempt. It refuses
 `integrating`, `submitted`, `merging`, and every terminal state — those do not
 hold a unit. A `running` Ticket that holds no bail is success with no rewrite.
 
@@ -327,7 +326,7 @@ A refused command leaves the store as it was. `code` is one token.
 | `not-found`            | `key` is unknown                                                                                   |
 | `duplicate`            | Reserved; `admit` of an identical fingerprint is success, not this                                 |
 | `illegal-transition`   | State does not allow this command                                                                  |
-| `project-busy`         | `claim` while that Project already has an active TicketStandard; `openFeature` while it holds a Feature |
+| `project-busy`         | `claim` while that Project already has `limit` active TicketStandards (default 1); `openFeature` while it holds a Feature |
 | `another-running`      | `startUnit` while a unit is already held                                                           |
 | `missing-trace`        | `escalate` after an Attempt with no Trace                                                          |
 | `point-of-no-return`   | `cancel` in `merging` or `done`, or abandon after merging-born escalation                          |
@@ -408,8 +407,8 @@ consequence: another answer was possible.
 
 1. **Not a Transformer.** A store with many verbs is not IN/OUT-shaped. One IN
    and one OUT would force a toolbox CLI and hide the transition table.
-2. **Commands, not `set(state)`.** The product rules (one active
-   TicketStandard per Project, no abandon in `merging`) live here or they live
+2. **Commands, not `set(state)`.** The product rules (at most `limit` active
+   TicketStandards per Project, no abandon in `merging`) live here or they live
    nowhere.
 3. **Injected Persistence Port.** Sniffing env or a path to pick SQLite later
    would couple the ledger to ops. Glue chooses; the ledger stays portable.

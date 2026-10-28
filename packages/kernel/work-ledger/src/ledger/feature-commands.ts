@@ -45,12 +45,21 @@ export type FeatureCommands = {
   clearFeatureParkedRefusal(key: string): Promise<CommandResult>;
   /** `submitted` → `done`. */
   markFeatureDone(key: string, input?: { reference?: string | undefined }): Promise<CommandResult>;
-  /** The tracker's e2e skip label moved: honoured while the Feature waits, is open or is escalated. */
-  setFeatureSkipE2e(input: { key: string; skip: boolean }): Promise<CommandResult>;
+  /** The tracker's feature-test skip label moved: honoured while the Feature waits, is open or is escalated. */
+  setFeatureSkipFeatureTest(input: { key: string; skip: boolean }): Promise<CommandResult>;
   /** `open` or `submitted` → `escalated`, for a human. Consumes a pending edit. */
-  escalateFeature(input: { key: string; report?: string }): Promise<CommandResult>;
-  /** `escalated` → `open`, a round later. */
+  escalateFeature(input: {
+    key: string;
+    report?: string;
+    /** Where the line stopped, when the caller knows. */
+    kind?: "assembly" | "submitted";
+    /** What refused it, when the refusal came with a name. */
+    refusedBy?: string;
+  }): Promise<CommandResult>;
+  /** `escalated` → `open`, a round later. The Feature's work is marked stale: its line may have gained commits while it waited. */
   resumeFeature(key: string): Promise<CommandResult>;
+  /** An `open` Feature's work holds what its line gained since a resume (or was made after it): the stale mark goes. */
+  markFeatureWorkspaceCurrent(key: string): Promise<CommandResult>;
   /** Anything but `done` → `cancelled`. */
   cancelFeature(key: string): Promise<CommandResult>;
   getFeature(key: string): Promise<FeatureGetResult>;
@@ -69,8 +78,8 @@ function cloneIntention(feature: FeatureAdmission): FeatureIntention {
     blocked_by: [...feature.blocked_by],
     merge_when_ready: feature.merge_when_ready,
   };
-  if (feature.skip_e2e === true) {
-    intention.skip_e2e = true;
+  if (feature.skip_feature_test === true) {
+    intention.skip_feature_test = true;
   }
   if (feature.title !== undefined) {
     intention.title = feature.title;
@@ -296,11 +305,17 @@ export function openFeatureCommands(options: {
     async escalateFeature(input) {
       return await transition(input.key, ["open", "submitted"], (aggregate) => {
         aggregate.state = "escalated";
+        const escalation: NonNullable<FeatureAggregate["escalation"]> = { at: now() };
         if (input.report !== undefined && input.report.trim().length > 0) {
-          aggregate.escalation = { report: input.report };
-        } else {
-          aggregate.escalation = {};
+          escalation.report = input.report;
         }
+        if (input.kind !== undefined) {
+          escalation.kind = input.kind;
+        }
+        if (input.refusedBy !== undefined && input.refusedBy.length > 0) {
+          escalation.refused_by = input.refusedBy;
+        }
+        aggregate.escalation = escalation;
         delete aggregate.pending_fingerprint;
       });
     },
@@ -309,16 +324,23 @@ export function openFeatureCommands(options: {
       return await transition(key, ["escalated"], (aggregate) => {
         aggregate.state = "open";
         aggregate.resumes += 1;
+        aggregate.workspace_stale = true;
         delete aggregate.escalation;
       });
     },
 
-    async setFeatureSkipE2e(input) {
+    async markFeatureWorkspaceCurrent(key) {
+      return await transition(key, ["open"], (aggregate) => {
+        delete aggregate.workspace_stale;
+      });
+    },
+
+    async setFeatureSkipFeatureTest(input) {
       return await transition(input.key, ["waiting", "open", "escalated"], (aggregate) => {
         if (input.skip) {
-          aggregate.intention.skip_e2e = true;
+          aggregate.intention.skip_feature_test = true;
         } else {
-          delete aggregate.intention.skip_e2e;
+          delete aggregate.intention.skip_feature_test;
         }
       });
     },

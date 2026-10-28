@@ -243,7 +243,7 @@ One TicketStandard, one Project. Pause flag is off.
    3b. **Recheck.** Aligning brought other tickets' code in, so the unit's own
       Gates run again: `implement` on the ticket workspace with
       `stage: "ticket"`, `produce: false`, `recheck: true` (one attempt; Host
-      judges it by `builder.gates`, no other list). `validated` →
+      judges it by `ticket.build.gates`, no other list). `validated` →
       `clearParkedRefusal`. `escalated` → sent back with the Gate's report and name.
 
    **Sent back** (align conflict, failed recheck, `ticket.validate` refusal): with
@@ -389,9 +389,6 @@ src/
    then `escalate({ kind: "unit" })`; no `integrate`; the directory is not
    deleted by Conductor. After `resumeTicket` the unit starts from a fresh
    workspace.
-4a. A Ticket whose admission says `no_tests` (the tracker's label, carried beside its
-   words) has no stage before its producer: no `implement` for the tests, no checkpoint,
-   and `first_stage_done` is never set. Everything else about the unit is the same.
 4b. `implement` `interrupted` (the process was stopped) → the Attempts that
    finished are `recordAttempt`d (the interrupted one is not an Attempt), then
    `releaseBail`: no Attempt is spent, the workspace stays declared and on disk.
