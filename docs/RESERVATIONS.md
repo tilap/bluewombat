@@ -322,7 +322,9 @@ checks (typecheck, tests) mean the same thing there. The structural ones do not:
 `sensitive-path` compares the disk to the last commit, and after the commit it
 sees nothing, so it always passes; `workspace-changed` and `parent-clean` pass by
 design. The first is therefore blind on the recheck. It judges the Builder's loose
-work before the commit, which is where it can.
+work before the commit, which is where it can. `base-diff --deny GLOB --base REF`
+judges the same question against the line instead of `HEAD`, and does see the
+committed work: use it where the recheck or the Feature must answer (U24).
 
 ### C34 · `workspace-unchanged` after checks that leave files behind
 
@@ -942,6 +944,24 @@ said `MASON_BLOCKED:`; a stop by an Authority's refusal after a Submission; a Ti
 twice; a journal rotated or truncated; a Project with `observability.streams` off, where the page
 has the Gate's report but nothing of what it printed; a transcript from a slot that is not the
 Cursor CLI (the closing words are read from its `result` line only).
+
+### U24 · `base-diff` and `ci-green --require-check` have run against fixtures only
+
+`packages/plugins/slots/gates/base-diff.mjs`; `packages/plugins/slots/gates/ci-green.mjs` — `judgeRequired`
+
+Covered by `test/gates.test.ts` against throwaway repositories and the stand-in GitHub. Never seen on a
+real workspace or a real GitHub. For `base-diff`: that `--base main` resolves in a ticket and in a
+Feature workspace is deduced (they are worktrees of the work line's copy, a single-branch clone, so its
+local branch is shared), as `gitignore-leak`'s `--base` was (U14). It is not proved that the copy's local
+`main` is the line the Authority holds: the Refresher fast-forwards the copy, and a `main` that lagged
+would widen the diff with other people's changes. In a Ticket of a Feature the base is the target, not the
+Feature's line, so the whole Feature so far is judged, not the Ticket alone; per-Ticket precision would
+need Implementer to pass the cut point. **Instead** of a static `--base`: that flag. The `--run` of
+`--when` is `project-checks` without its output cleaning or timeout handling (the Gate's own
+`timeoutMs` kills it, and a kill reads as a refusal). For `--require-check`: a name is exact, so a
+matrix needs every cell listed; the name of a check run in the real API (`name`, not the workflow's) was
+taken from GitHub's documentation, and a required check that is `skipped` goes to the fix agent
+(`fail-retryable`), which can change the workflow but not the missing secret.
 
 ## I — Working, and worse than it could be
 
