@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/conductor",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "type": "module",
   "description": "Sequences Transformers for one TicketStandard. Writes the WorkLedger before it acts.",
   "keywords": [
@@ -41,6 +41,6 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@bluewombat/work-ledger": "^0.10.0"
+    "@bluewombat/work-ledger": "^0.11.0"
   }
 }

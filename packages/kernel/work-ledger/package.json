@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/work-ledger",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "type": "module",
   "description": "Durable store of TicketStandards, states, Attempts, and Traces.",
   "keywords": [

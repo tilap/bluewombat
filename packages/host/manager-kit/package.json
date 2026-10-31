@@ -1,6 +1,6 @@
 {
   "name": "@bluewombat/manager-kit",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "type": "module",
   "description": "Contract a TicketTracker package implements for Host.",
   "keywords": [
