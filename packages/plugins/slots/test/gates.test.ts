@@ -385,15 +385,16 @@ describe("ci-green", () => {
       }
     });
 
-    it("refuses a named check that was skipped, which the general rule lets through", {
+    it("blocks on a named check that was skipped, which the general rule lets through", {
       timeout: 20_000,
     }, async () => {
       const github = await fakeGitHub([done("unit", "success"), done("e2e", "skipped")], () => []);
       try {
         assert.equal((await judge(onTicketBranch(), github.base)).verdict, "pass");
         const result = await judge(onTicketBranch(), github.base, e2e);
-        assert.equal(result.verdict, "fail-retryable");
+        assert.equal(result.verdict, "fail-blocking");
         assert.match(result.report, /^e2e: skipped/);
+        assert.match(result.report, /not a refusal of the work/);
       } finally {
         github.close();
       }
@@ -1023,9 +1024,8 @@ describe("base-diff", () => {
 
   const assembly = ["--stage", "assembly"];
 
-  it("needs a base, and something to do with the changed paths", () => {
+  it("needs something to do with the changed paths", () => {
     const cwd = onTicket();
-    assert.match(verdictOf(run(baseDiff, cwd, ["--deny", ".env"])).report, /--base/);
     const idle = verdictOf(run(baseDiff, cwd, ["--base", "main"]));
     assert.equal(idle.verdict, "fail-blocking");
     assert.match(idle.report, /--deny/);
@@ -1037,7 +1037,7 @@ describe("base-diff", () => {
   it("fail-blocks on a base this workspace does not have", () => {
     const result = verdictOf(run(baseDiff, onTicket(), ["--base", "nope", "--deny", ".env"]));
     assert.equal(result.verdict, "fail-blocking");
-    assert.match(result.report, /cannot find --base "nope"/);
+    assert.match(result.report, /cannot find the base "nope"/);
   });
 
   it("sees a denied path already committed, which sensitive-path no longer does", () => {
@@ -1116,6 +1116,86 @@ describe("base-diff", () => {
     assert.equal(verdictOf(run(baseDiff, cwd, args("exit 3", "docs/**"))).verdict, "pass");
     const missing = verdictOf(run(baseDiff, cwd, args("no-such-command-here")));
     assert.equal(missing.verdict, "fail-blocking");
+  });
+
+  /**
+   * What Isolation makes: a work line's copy on `feature/line`, whose local `main`
+   * is stale (the Refresher moves the line, never `main`), and a workspace that is
+   * a worktree of it, on its own branch.
+   */
+  function onWorktree(): { line: string; ws: string } {
+    const line = sandbox();
+    gitInit(line);
+    mkdirSync(join(line, "src"));
+    writeFileSync(join(line, "src/a.txt"), "a\n");
+    writeFileSync(join(line, ".env"), "secret\n");
+    gitCommit(line, "seed");
+    execFileSync("git", ["-C", line, "checkout", "-q", "-b", "feature/line"]);
+    writeFileSync(join(line, ".env"), "moved on the line\n");
+    gitCommit(line, "an earlier ticket landed");
+    const ws = join(sandbox(), "ws");
+    execFileSync("git", ["-C", line, "worktree", "add", "-q", "-b", "issue/1", ws, "feature/line"]);
+    execFileSync("git", ["-C", ws, "config", "user.email", "gate@test.local"]);
+    execFileSync("git", ["-C", ws, "config", "user.name", "Gate Test"]);
+    writeFileSync(join(ws, "src/a.txt"), "edited\n");
+    gitCommit(ws, "ticket");
+    return { line, ws };
+  }
+
+  it("derives its base from the main worktree's branch: the line, not a stale main", () => {
+    const { ws } = onWorktree();
+    // The ticket did not touch .env; an earlier ticket did, on the line.
+    assert.equal(verdictOf(run(baseDiff, ws, ["--deny", ".env", ...assembly])).verdict, "pass");
+    const own = verdictOf(run(baseDiff, ws, ["--deny", "src/**", ...assembly]));
+    assert.equal(own.verdict, "fail-retryable");
+    assert.match(own.report, /src\/a\.txt/);
+    assert.match(own.report, /refs\/heads\/feature\/line/);
+    // The same question against the copy's stale local main sees the line's work too.
+    const stale = verdictOf(run(baseDiff, ws, ["--base", "main", "--deny", ".env", ...assembly]));
+    assert.equal(stale.verdict, "fail-retryable");
+  });
+
+  it("has no base to derive in the main worktree itself, detached, or at the feature stage", () => {
+    const { line, ws } = onWorktree();
+    const itself = verdictOf(run(baseDiff, line, ["--deny", ".env"]));
+    assert.equal(itself.verdict, "fail-blocking");
+    assert.match(itself.report, /main worktree itself/);
+
+    const feature = verdictOf(run(baseDiff, ws, ["--deny", ".env", "--stage", "feature"]));
+    assert.equal(feature.verdict, "fail-blocking");
+    assert.match(feature.report, /feature stage/);
+    // Named, the target is a base like any other.
+    const named = verdictOf(
+      run(baseDiff, ws, ["--base", "main", "--deny", ".env", "--stage", "feature"]),
+    );
+    assert.equal(named.verdict, "fail-retryable");
+
+    execFileSync("git", ["-C", line, "checkout", "-q", "--detach"]);
+    const detached = verdictOf(run(baseDiff, ws, ["--deny", ".env", ...assembly]));
+    assert.equal(detached.verdict, "fail-blocking");
+    assert.match(detached.report, /no branch checked out/);
+  });
+
+  it("gives the --run command to project-checks: its ceiling stops a hung command", () => {
+    const cwd = onTicket();
+    writeFileSync(join(cwd, "src/a.txt"), "edited\n");
+    gitCommit(cwd, "ticket");
+    const started = Date.now();
+    const result = verdictOf(
+      run(baseDiff, cwd, [
+        "--base",
+        "main",
+        "--when",
+        "src/**",
+        "--run",
+        "sleep 30",
+        "--timeout-ms",
+        "7000",
+      ]),
+    );
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /did not finish/);
+    assert.ok(Date.now() - started < 15_000, "the Gate answered before its own ceiling");
   });
 
   it("hands the command the base and the changed paths", () => {

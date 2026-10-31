@@ -406,24 +406,26 @@ the workspace — tracked paths, and new ones `.gitignore` does not exclude — 
 what an install left under an ignored directory (a dependency's own `.github/`)
 is not a change to guard.
 
-`base-diff --base REF` is `sensitive-path` against the work line instead of `HEAD`. It
-takes the paths that differ between `REF` and the workspace — the commits since the
-workspace left `REF` (`REF...HEAD`) and what is on disk and not committed, an ignored
-path excluded — so it still sees the work after the commit, and answers at every stage,
-the recheck (`--stage assembly`) and the Feature included. `REF` is the work line's
-branch (`main`), a ref the workspace has: Isolation makes it a worktree of the work
-line's copy. Two uses, alone or together:
+`base-diff` is `sensitive-path` against the work line instead of `HEAD`. It takes the
+paths that differ between the base and the workspace — the commits since the workspace
+left it (`BASE...HEAD`) and what is on disk and not committed, an ignored path excluded —
+so it still sees the work after the commit, and answers at the unit, the ticket and the
+recheck (`--stage assembly`). The base is the branch checked out in the **main worktree**
+of the repository the workspace belongs to: Isolation makes every workspace a worktree of
+the work line's copy, and Host keeps that copy on the line the work lands on, a
+Feature's own line while a Feature is open. In a Ticket of a Feature the diff is therefore
+the Ticket's own, not the Feature's so far. `--base REF` names another ref instead; a
+hand-named `main` is the copy's local branch, which Host does not move (the Refresher
+moves the Feature's line), so it can be weeks old. Two uses, alone or together:
 
 ```yaml
 - id: no-workflow-edit
-  argv: [node, ./node_modules/@bluewombat/slots/gates/base-diff.mjs, --base, main, --deny, ".github/workflows/**"]
+  argv: [node, ./node_modules/@bluewombat/slots/gates/base-diff.mjs, --deny, ".github/workflows/**"]
 - id: e2e-when-app-changes
   timeoutMs: 600000
   argv:
     - node
     - ./node_modules/@bluewombat/slots/gates/base-diff.mjs
-    - --base
-    - main
     - --when
     - "src/**"
     - --run
@@ -431,12 +433,14 @@ line's copy. Two uses, alone or together:
 ```
 
 `--deny GLOB` (repeatable) fail-retries when a changed path matches. `--when GLOB`
-(repeatable) with `--run COMMAND` runs the command through the shell when a changed path
-matches, and answers on its exit code (`MASON_BASE` is `REF`, `MASON_CHANGED_FILES` the
-changed paths one per line); when nothing matches it passes without running it. A
-command the shell cannot start, or a `REF` the workspace lacks, is `fail-blocking`. In a
-Ticket of a Feature the diff is against `REF`, so it holds the Feature's earlier Tickets
-too.
+(repeatable) with `--run COMMAND` hands the command to `project-checks` when a changed path
+matches (so it is cleaned, bounded by the Gate's ceiling and classified as every command of
+the Project is) and answers as it does; `MASON_BASE` is the base and `MASON_CHANGED_FILES`
+the changed paths one per line. When nothing matches it passes without running it. It
+fail-blocks where there is no base to derive: the workspace is the main worktree itself,
+the main worktree has no branch (detached), a `--base` the workspace lacks, and
+`--stage feature` without `--base` — the Feature's workspace is its line with the target
+merged in, so the line would show the target's work; name the target there.
 
 `tests-only` is its counterpart: it fail-retries if the workspace changed a path that matches
 none of the globs (added, modified, deleted or renamed, tracked or new and not ignored). It is
@@ -542,7 +546,7 @@ run. `--remote`, `--poll-ms` and `--api-base` (GitHub Enterprise) are there too.
 `--require-check NAME` (repeatable) names a check that must exist and have succeeded:
 the check run (or status context) called exactly `NAME`. The general rule counts a
 `skipped` or `neutral` run as green, so an e2e job skipped for want of its secrets lets the
-line through; a required one that settled so is refused (`fail-retryable`). One not created yet is
+line through; a required one that settled so is `fail-blocking`: the work cannot make it run, so a person reads it, not a fix agent. One not created yet is
 waited for like `--require-checks`, and at the ceiling the CI did not answer
 (`fail-blocking`). A name is exact: a matrix job is one check per cell (`e2e (chrome)`), and each is listed. It talks to GitHub, and knows
 nothing about `@bluewombat/manager-github`: a Project may run either one

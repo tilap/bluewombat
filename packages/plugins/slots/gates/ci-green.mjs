@@ -104,7 +104,13 @@ for (;;) {
   }
   const required = judgeRequired(checks.named);
   if (required.refused.length > 0) {
-    emitVerdict("fail-retryable", required.refused.join("\n"));
+    // A check that settled without running says nothing of the work, and nothing
+    // the work could change (a job skipped for want of its secrets): a person's,
+    // not an agent's to repair.
+    emitVerdict(
+      "fail-blocking",
+      `${required.refused.join("\n")}\nThis is not a refusal of the work: the CI did not run a check the Project requires, and no change to the work makes it run.`,
+    );
     process.exit(0);
   }
   if (required.missing.length > 0) {
@@ -132,7 +138,8 @@ for (;;) {
  * What `--require-check` asks of the checks read: each name must have a
  * success. A name not there yet is `missing` (the CI may still create it); one
  * still running is waited for with the rest; one that settled without success
- * (`skipped`, `neutral`) is `refused`, for nothing will turn it green.
+ * (`skipped`, `neutral`) is `refused`: nothing will turn it green, and no change
+ * to the work can, so it goes to a person.
  *
  * @param {Map<string, string[]>} named every check by name, with its outcome:
  *   `success`, `pending`, or the conclusion it settled on

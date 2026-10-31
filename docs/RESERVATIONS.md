@@ -322,7 +322,7 @@ checks (typecheck, tests) mean the same thing there. The structural ones do not:
 `sensitive-path` compares the disk to the last commit, and after the commit it
 sees nothing, so it always passes; `workspace-changed` and `parent-clean` pass by
 design. The first is therefore blind on the recheck. It judges the Builder's loose
-work before the commit, which is where it can. `base-diff --deny GLOB --base REF`
+work before the commit, which is where it can. `base-diff --deny GLOB`
 judges the same question against the line instead of `HEAD`, and does see the
 committed work: use it where the recheck or the Feature must answer (U24).
 
@@ -949,21 +949,24 @@ Cursor CLI (the closing words are read from its `result` line only).
 
 `packages/plugins/slots/gates/base-diff.mjs`; `packages/plugins/slots/gates/ci-green.mjs` — `judgeRequired`
 
-Covered by `test/gates.test.ts` against throwaway repositories and the stand-in GitHub. Never seen on a
-real workspace or a real GitHub. For `base-diff`: that `--base main` resolves in a ticket and in a
-Feature workspace is deduced (they are worktrees of the work line's copy, a single-branch clone, so its
-local branch is shared), as `gitignore-leak`'s `--base` was (U14). It is not proved that the copy's local
-`main` is the line the Authority holds: the Refresher fast-forwards the copy, and a `main` that lagged
-would widen the diff with other people's changes. In a Ticket of a Feature the base is the target, not the
-Feature's line, so the whole Feature so far is judged, not the Ticket alone; per-Ticket precision would
-need Implementer to pass the cut point. **Instead** of a static `--base`: that flag. The `--run` of
-`--when` is `project-checks` without its output cleaning or timeout handling (the Gate's own
-`timeoutMs` kills it, and a kill reads as a refusal). For `--require-check`: a name is exact, so a
-matrix needs every cell listed; the name of a check run in the real API (`name`, not the workflow's) was
-taken from GitHub's documentation, and a required check that is `skipped` goes to the fix agent
-(`fail-retryable`), which can change the workflow but not the missing secret.
-
-## I — Working, and worse than it could be
+Covered by `test/gates.test.ts` against throwaway repositories (a main worktree and a linked
+one, as Isolation makes them) and the stand-in GitHub. Never run by a Host on a real ticket.
+Seen on the real thing, by reading only: in Orangemonkey's `work-line` the main worktree is on
+the Feature's line (`feature/tilap-orangemonkey-site-132`) and the Feature's workspace is a
+linked worktree of it, so the derived base is the line; its local `main` was 17 days old during
+that Feature, which is why a hand-named `--base main` was dropped as the default (DECISIONS): run read-only on that
+work line, `--deny "**" --base main` flagged 378 paths, against 3 for `--base HEAD~1`.
+**Not settled**: at `--stage feature` there is no base to derive (the workspace is the line
+with the target merged in), so `--base` is required there and the target has no reliable name
+in the workspace: the target copy (`target-line`) is a separate clone, and its `origin/main`
+is as fresh as its last refresh. A Project that wants the Gate at the Feature level has to
+name a ref it keeps current. The `--run` of `--when` goes through `project-checks`; the
+Gate's own work (git, a few milliseconds) is not counted in the ceiling it forwards. For
+`--require-check`: a name is exact, so a matrix needs every cell listed. Names were checked
+against the real API on `tilap/orangemonkey-site` (`check`, `e2e`, the job's name). A job
+that is skipped at the job level (`if:`) reports `skipped`; a job whose steps are skipped
+reports `success`, which `--require-check` cannot see (that is a workflow's to fail). A
+required check that settled `skipped` or `neutral` is `fail-blocking`.
 
 ### I4 · `ci-green` polling has no backoff
 
