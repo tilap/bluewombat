@@ -67,6 +67,7 @@ these all use it. How Host wires a slot into a run:
 | `gates/workspace-changed.mjs`   | Gate      | The Attempt left an uncommitted change                                                                                                                                                                                                                |
 | `gates/parent-clean.mjs`        | Gate      | Isolator's Parent working files did not move                                                                                                                                                                                                          |
 | `gates/sensitive-path.mjs`      | Gate      | No path matching a glob was touched                                                                                                                                                                                                                   |
+| `gates/base-diff.mjs`           | Gate      | What the work changed since the line (`--base`): no denied path was touched, or a command holds when a path did |
 | `gates/tests-only.mjs`          | Gate      | Every path the workspace changed matches a glob: the tests, their helpers and the manifest, nothing else |
 | `gates/workspace-unchanged.mjs` | Gate      | A read-only pass changed nothing at all (a file modified, deleted or added)                                                                                                                                                                           |
 | `gates/gitignore-leak.mjs`      | Gate      | The ticket's commits add nothing its own `.gitignore` excludes                                                                                                                                                                                        |
@@ -405,6 +406,42 @@ the workspace — tracked paths, and new ones `.gitignore` does not exclude — 
 what an install left under an ignored directory (a dependency's own `.github/`)
 is not a change to guard.
 
+`base-diff` is `sensitive-path` against the work line instead of `HEAD`. It takes the
+paths that differ between the base and the workspace — the commits since the workspace
+left it (`BASE...HEAD`) and what is on disk and not committed, an ignored path excluded —
+so it still sees the work after the commit, and answers at the unit, the ticket and the
+recheck (`--stage assembly`). The base is the branch checked out in the **main worktree**
+of the repository the workspace belongs to: Isolation makes every workspace a worktree of
+the work line's copy, and Host keeps that copy on the line the work lands on, a
+Feature's own line while a Feature is open. In a Ticket of a Feature the diff is therefore
+the Ticket's own, not the Feature's so far. `--base REF` names another ref instead; a
+hand-named `main` is the copy's local branch, which Host does not move (the Refresher
+moves the Feature's line), so it can be weeks old. Two uses, alone or together:
+
+```yaml
+- id: no-workflow-edit
+  argv: [node, ./node_modules/@bluewombat/slots/gates/base-diff.mjs, --deny, ".github/workflows/**"]
+- id: e2e-when-app-changes
+  timeoutMs: 600000
+  argv:
+    - node
+    - ./node_modules/@bluewombat/slots/gates/base-diff.mjs
+    - --when
+    - "src/**"
+    - --run
+    - "npm run e2e"
+```
+
+`--deny GLOB` (repeatable) fail-retries when a changed path matches. `--when GLOB`
+(repeatable) with `--run COMMAND` hands the command to `project-checks` when a changed path
+matches (so it is cleaned, bounded by the Gate's ceiling and classified as every command of
+the Project is) and answers as it does; `MASON_BASE` is the base and `MASON_CHANGED_FILES`
+the changed paths one per line. When nothing matches it passes without running it. It
+fail-blocks where there is no base to derive: the workspace is the main worktree itself,
+the main worktree has no branch (detached), a `--base` the workspace lacks, and
+`--stage feature` without `--base` — the Feature's workspace is its line with the target
+merged in, so the line would show the target's work; name the target there.
+
 `tests-only` is its counterpart: it fail-retries if the workspace changed a path that matches
 none of the globs (added, modified, deleted or renamed, tracked or new and not ignored). It is
 the Gate of the feature-test Ticket, whose tests sit among the Project's code
@@ -505,11 +542,17 @@ the variable holding a token that can read the checks — the same one the
 manager's `tokenEnv` names. It has no default on purpose: `GITHUB_TOKEN` is
 what `gh` reads ahead of its own login, so an operator must not export it,
 and a Gate that fell back to it refused only at the first assembly of a real
-run. `--remote`, `--poll-ms` and `--api-base` (GitHub Enterprise) are there too. It talks to GitHub, and knows
+run. `--remote`, `--poll-ms` and `--api-base` (GitHub Enterprise) are there too.
+`--require-check NAME` (repeatable) names a check that must exist and have succeeded:
+the check run (or status context) called exactly `NAME`. The general rule counts a
+`skipped` or `neutral` run as green, so an e2e job skipped for want of its secrets lets the
+line through; a required one that settled so is `fail-blocking`: the work cannot make it run, so a person reads it, not a fix agent. One not created yet is
+waited for like `--require-checks`, and at the ceiling the CI did not answer
+(`fail-blocking`). A name is exact: a matrix job is one check per cell (`e2e (chrome)`), and each is listed. It talks to GitHub, and knows
 nothing about `@bluewombat/manager-github`: a Project may run either one
 without the other.
 
-`sensitive-path`, `workspace-changed`, `gitignore-leak` and `ci-green` need a git workspace, which
+`sensitive-path`, `base-diff`, `workspace-changed`, `gitignore-leak` and `ci-green` need a git workspace, which
 is what Isolator makes when WorkLineStable is a git tree. They fail-block on a
 workspace Isolator had to copy.
 

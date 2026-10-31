@@ -20,6 +20,14 @@ import { emitVerdict, GATE_FLAGS, ownArgv, take } from "@bluewombat/slot-kit";
 //                        to it failed only at the first assembly of a real run
 //   --require-checks     wait for a check to appear; without it, a commit with no
 //                        check at all passes
+//   --require-check NAME repeatable. The check run (or status context) called
+//                        exactly NAME must exist and have succeeded. A `skipped` or
+//                        `neutral` one is not a pass, which is what the general
+//                        rule lets through (a job skipped for want of its secrets
+//                        would let the line go green): it is refused. One not
+//                        there yet is waited for like --require-checks, and at the
+//                        ceiling the CI did not answer. A matrix is one check per
+//                        cell, named as GitHub names it ("e2e (chrome)"): list each one.
 //
 // It also receives `--timeout-ms` from Implementer: the ceiling it will be
 // killed at. A Gate that waits on a CI it does not run must not wait to be cut
@@ -38,6 +46,7 @@ if (!options.ok) {
   process.exit(0);
 }
 const apiBase = options.apiBase;
+const requireCheck = options.requireCheck;
 
 if (git(["rev-parse", "--is-inside-work-tree"]).stdout.trim() !== "true") {
   emitVerdict("fail-blocking", "ci-green needs a git workspace.");
@@ -93,6 +102,25 @@ for (;;) {
     await sleep(Math.min(options.pollMs, Math.max(0, stopAt - Date.now())));
     continue;
   }
+  const required = judgeRequired(checks.named);
+  if (required.refused.length > 0) {
+    // A check that settled without running says nothing of the work, and nothing
+    // the work could change (a job skipped for want of its secrets): a person's,
+    // not an agent's to repair.
+    emitVerdict(
+      "fail-blocking",
+      `${required.refused.join("\n")}\nThis is not a refusal of the work: the CI did not run a check the Project requires, and no change to the work makes it run.`,
+    );
+    process.exit(0);
+  }
+  if (required.missing.length > 0) {
+    // Same window as above, for a check the Project named.
+    if (Date.now() >= stopAt) {
+      stopWaiting(pull, `required check ${quoted(required.missing)} has not appeared`, true);
+    }
+    await sleep(Math.min(options.pollMs, Math.max(0, stopAt - Date.now())));
+    continue;
+  }
   if (checks.running === 0) {
     emitVerdict("pass");
     process.exit(0);
@@ -104,6 +132,40 @@ for (;;) {
     );
   }
   await sleep(Math.min(options.pollMs, Math.max(0, stopAt - Date.now())));
+}
+
+/**
+ * What `--require-check` asks of the checks read: each name must have a
+ * success. A name not there yet is `missing` (the CI may still create it); one
+ * still running is waited for with the rest; one that settled without success
+ * (`skipped`, `neutral`) is `refused`: nothing will turn it green, and no change
+ * to the work can, so it goes to a person.
+ *
+ * @param {Map<string, string[]>} named every check by name, with its outcome:
+ *   `success`, `pending`, or the conclusion it settled on
+ * @returns {{ missing: string[]; refused: string[] }}
+ */
+function judgeRequired(named) {
+  /** @type {string[]} */
+  const missing = [];
+  /** @type {string[]} */
+  const refused = [];
+  for (const name of requireCheck) {
+    const outcomes = named.get(name);
+    if (outcomes === undefined) {
+      missing.push(name);
+    } else if (!outcomes.includes("success") && !outcomes.includes("pending")) {
+      refused.push(
+        `${name}: ${outcomes[0]}. It is required to succeed, and a check that did not run is not a pass.`,
+      );
+    }
+  }
+  return { missing, refused };
+}
+
+/** @param {readonly string[]} names */
+function quoted(names) {
+  return names.map((name) => `"${name}"`).join(", ");
 }
 
 /**
@@ -153,7 +215,7 @@ function stopWaiting(pr, what, never = false) {
 
 /**
  * @param {readonly string[]} tokens
- * @returns {{ ok: true; remote: string; apiBase: string; pollMs: number; tokenEnv: string; requireChecks: boolean } | { ok: false; reason: string }}
+ * @returns {{ ok: true; remote: string; apiBase: string; pollMs: number; tokenEnv: string; requireChecks: boolean; requireCheck: string[] } | { ok: false; reason: string }}
  */
 function parseOwnArgv(tokens) {
   let remote = "origin";
@@ -161,6 +223,8 @@ function parseOwnArgv(tokens) {
   let pollMs = 15_000;
   let tokenEnv;
   let requireChecks = false;
+  /** @type {string[]} */
+  const requireCheck = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token === "--require-checks") {
@@ -176,6 +240,8 @@ function parseOwnArgv(tokens) {
       remote = value;
     } else if (token === "--api-base") {
       apiBase = value.replace(/\/+$/, "");
+    } else if (token === "--require-check") {
+      requireCheck.push(value);
     } else if (token === "--token-env") {
       tokenEnv = value;
     } else if (token === "--poll-ms") {
@@ -195,7 +261,7 @@ function parseOwnArgv(tokens) {
         "ci-green needs --token-env NAME: the environment variable holding a token that can read the checks (the same one @bluewombat/manager-github's tokenEnv names, never GITHUB_TOKEN).",
     };
   }
-  return { ok: true, remote, apiBase, pollMs, tokenEnv, requireChecks };
+  return { ok: true, remote, apiBase, pollMs, tokenEnv, requireChecks, requireCheck };
 }
 
 /**
@@ -269,12 +335,25 @@ async function readChecks(sha) {
   // on the same commit: same name, same log. Said once.
   const seen = new Set();
   let running = 0;
+  /** @type {Map<string, string[]>} */
+  const named = new Map();
+  /**
+   * @param {unknown} name
+   * @param {string} outcome
+   */
+  const note = (name, outcome) => {
+    if (typeof name === "string") {
+      named.set(name, [...(named.get(name) ?? []), outcome]);
+    }
+  };
   for (const entry of checkRuns) {
     const run = record(entry) ?? {};
     if (run.status !== "completed") {
       running += 1;
+      note(run.name, "pending");
       continue;
     }
+    note(run.name, String(run.conclusion));
     if (
       run.conclusion === "success" ||
       run.conclusion === "neutral" ||
@@ -293,6 +372,7 @@ async function readChecks(sha) {
   // and where it said more is all there is.
   for (const entry of statuses) {
     const status = record(entry) ?? {};
+    note(status.context, status.state === "pending" ? "pending" : String(status.state));
     if (status.state === "pending") {
       running += 1;
       continue;
@@ -310,7 +390,7 @@ async function readChecks(sha) {
     );
     failed.push([heading, ...more].join("\n"));
   }
-  return { total: checkRuns.length + statuses.length, running, failed };
+  return { total: checkRuns.length + statuses.length, running, failed, named };
 }
 
 /**

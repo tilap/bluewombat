@@ -322,7 +322,9 @@ checks (typecheck, tests) mean the same thing there. The structural ones do not:
 `sensitive-path` compares the disk to the last commit, and after the commit it
 sees nothing, so it always passes; `workspace-changed` and `parent-clean` pass by
 design. The first is therefore blind on the recheck. It judges the Builder's loose
-work before the commit, which is where it can.
+work before the commit, which is where it can. `base-diff --deny GLOB`
+judges the same question against the line instead of `HEAD`, and does see the
+committed work: use it where the recheck or the Feature must answer (U24).
 
 ### C34 · `workspace-unchanged` after checks that leave files behind
 
@@ -943,7 +945,28 @@ twice; a journal rotated or truncated; a Project with `observability.streams` of
 has the Gate's report but nothing of what it printed; a transcript from a slot that is not the
 Cursor CLI (the closing words are read from its `result` line only).
 
-## I — Working, and worse than it could be
+### U24 · `base-diff` and `ci-green --require-check` have run against fixtures only
+
+`packages/plugins/slots/gates/base-diff.mjs`; `packages/plugins/slots/gates/ci-green.mjs` — `judgeRequired`
+
+Covered by `test/gates.test.ts` against throwaway repositories (a main worktree and a linked
+one, as Isolation makes them) and the stand-in GitHub. Never run by a Host on a real ticket.
+Seen on the real thing, by reading only: in Orangemonkey's `work-line` the main worktree is on
+the Feature's line (`feature/tilap-orangemonkey-site-132`) and the Feature's workspace is a
+linked worktree of it, so the derived base is the line; its local `main` was 17 days old during
+that Feature, which is why a hand-named `--base main` was dropped as the default (DECISIONS): run read-only on that
+work line, `--deny "**" --base main` flagged 378 paths, against 3 for `--base HEAD~1`.
+**Not settled**: at `--stage feature` there is no base to derive (the workspace is the line
+with the target merged in), so `--base` is required there and the target has no reliable name
+in the workspace: the target copy (`target-line`) is a separate clone, and its `origin/main`
+is as fresh as its last refresh. A Project that wants the Gate at the Feature level has to
+name a ref it keeps current. The `--run` of `--when` goes through `project-checks`; the
+Gate's own work (git, a few milliseconds) is not counted in the ceiling it forwards. For
+`--require-check`: a name is exact, so a matrix needs every cell listed. Names were checked
+against the real API on `tilap/orangemonkey-site` (`check`, `e2e`, the job's name). A job
+that is skipped at the job level (`if:`) reports `skipped`; a job whose steps are skipped
+reports `success`, which `--require-check` cannot see (that is a workflow's to fail). A
+required check that settled `skipped` or `neutral` is `fail-blocking`.
 
 ### I4 · `ci-green` polling has no backoff
 

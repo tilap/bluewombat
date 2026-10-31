@@ -12,6 +12,7 @@ const node = process.execPath;
 const gates = join(dirname(fileURLToPath(import.meta.url)), "../gates");
 const parentClean = join(gates, "parent-clean.mjs");
 const sensitivePath = join(gates, "sensitive-path.mjs");
+const baseDiff = join(gates, "base-diff.mjs");
 const testsOnly = join(gates, "tests-only.mjs");
 const workspaceChanged = join(gates, "workspace-changed.mjs");
 const ciGreen = join(gates, "ci-green.mjs");
@@ -364,6 +365,93 @@ describe("ci-green", () => {
     } finally {
       github.close();
     }
+  });
+
+  describe("--require-check", () => {
+    const e2e = ["--require-check", "e2e"];
+    const done = (name: string, conclusion: string) => ({
+      id: 1,
+      name,
+      status: "completed",
+      conclusion,
+    });
+
+    it("passes when the named check succeeded", { timeout: 20_000 }, async () => {
+      const github = await fakeGitHub([done("unit", "success"), done("e2e", "success")], () => []);
+      try {
+        assert.equal((await judge(onTicketBranch(), github.base, e2e)).verdict, "pass");
+      } finally {
+        github.close();
+      }
+    });
+
+    it("blocks on a named check that was skipped, which the general rule lets through", {
+      timeout: 20_000,
+    }, async () => {
+      const github = await fakeGitHub([done("unit", "success"), done("e2e", "skipped")], () => []);
+      try {
+        assert.equal((await judge(onTicketBranch(), github.base)).verdict, "pass");
+        const result = await judge(onTicketBranch(), github.base, e2e);
+        assert.equal(result.verdict, "fail-blocking");
+        assert.match(result.report, /^e2e: skipped/);
+        assert.match(result.report, /not a refusal of the work/);
+      } finally {
+        github.close();
+      }
+    });
+
+    it("waits for a named check not there yet, then blocks at the ceiling", {
+      timeout: 20_000,
+    }, async () => {
+      const github = await fakeGitHub([done("unit", "success")], () => []);
+      try {
+        const result = await judge(onTicketBranch(), github.base, [...e2e, "--timeout-ms", "3000"]);
+        assert.equal(result.verdict, "fail-blocking");
+        assert.match(result.report, /required check "e2e" has not appeared on abc/);
+      } finally {
+        github.close();
+      }
+    });
+
+    it("waits for a named check still running, and answers when it succeeds", {
+      timeout: 20_000,
+    }, async () => {
+      let reads = 0;
+      const github = await fakeGitHub([{ id: 2, name: "e2e", status: "in_progress" }], () => {
+        reads += 1;
+        return [];
+      });
+      try {
+        const result = await judge(onTicketBranch(), github.base, [...e2e, "--timeout-ms", "3000"]);
+        assert.equal(result.verdict, "fail-blocking");
+        assert.match(result.report, /1 check was still running/);
+        assert.ok(reads >= 2);
+      } finally {
+        github.close();
+      }
+    });
+
+    it("takes a commit status by its context, and every name it is given", {
+      timeout: 20_000,
+    }, async () => {
+      const github = await fakeGitHub([done("e2e", "success")], () => [
+        { context: "Vercel", state: "success" },
+      ]);
+      try {
+        const both = ["--require-check", "e2e", "--require-check", "Vercel"];
+        assert.equal((await judge(onTicketBranch(), github.base, both)).verdict, "pass");
+        // A name is exact: "e2e" does not stand for "e2e (chrome)".
+        const cell = await judge(onTicketBranch(), github.base, [
+          "--require-check",
+          "e2e (chrome)",
+          "--timeout-ms",
+          "3000",
+        ]);
+        assert.equal(cell.verdict, "fail-blocking");
+      } finally {
+        github.close();
+      }
+    });
   });
 
   it("still judges check runs, and a status it cannot read is no status", {
@@ -918,5 +1006,213 @@ describe("tests-only", () => {
   it("is blocking without a glob or outside a git workspace", () => {
     assert.equal(verdictOf(run(testsOnly, repo())).verdict, "fail-blocking");
     assert.equal(verdictOf(run(testsOnly, sandbox(), globs)).verdict, "fail-blocking");
+  });
+});
+
+describe("base-diff", () => {
+  /** `main` with a seed, and a `ticket` branch cut from it. */
+  function onTicket(): string {
+    const cwd = sandbox();
+    gitInit(cwd);
+    mkdirSync(join(cwd, "src"));
+    writeFileSync(join(cwd, "src/a.txt"), "a\n");
+    writeFileSync(join(cwd, ".env"), "secret\n");
+    gitCommit(cwd, "seed");
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "-b", "ticket"]);
+    return cwd;
+  }
+
+  const assembly = ["--stage", "assembly"];
+
+  it("needs something to do with the changed paths", () => {
+    const cwd = onTicket();
+    const idle = verdictOf(run(baseDiff, cwd, ["--base", "main"]));
+    assert.equal(idle.verdict, "fail-blocking");
+    assert.match(idle.report, /--deny/);
+    const half = verdictOf(run(baseDiff, cwd, ["--base", "main", "--when", "src/**"]));
+    assert.equal(half.verdict, "fail-blocking");
+    assert.match(half.report, /together/);
+  });
+
+  it("fail-blocks on a base this workspace does not have", () => {
+    const result = verdictOf(run(baseDiff, onTicket(), ["--base", "nope", "--deny", ".env"]));
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /cannot find the base "nope"/);
+  });
+
+  it("sees a denied path already committed, which sensitive-path no longer does", () => {
+    const cwd = onTicket();
+    writeFileSync(join(cwd, ".env"), "changed\n");
+    gitCommit(cwd, "ticket");
+    assert.equal(verdictOf(run(sensitivePath, cwd, [".env", ...assembly])).verdict, "pass");
+    const result = verdictOf(run(baseDiff, cwd, ["--base", "main", "--deny", ".env", ...assembly]));
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /\.env/);
+  });
+
+  it("sees a denied path not committed yet, new, deleted or moved", () => {
+    const cwd = onTicket();
+    writeFileSync(join(cwd, "src/new.txt"), "n\n");
+    assert.equal(
+      verdictOf(run(baseDiff, cwd, ["--base", "main", "--deny", "src/new.txt"])).verdict,
+      "fail-retryable",
+    );
+    unlinkSync(join(cwd, ".env"));
+    assert.equal(
+      verdictOf(run(baseDiff, cwd, ["--base", "main", "--deny", ".env"])).verdict,
+      "fail-retryable",
+    );
+    execFileSync("git", ["-C", cwd, "mv", "src/a.txt", "src/b.txt"]);
+    const moved = verdictOf(run(baseDiff, cwd, ["--base", "main", "--deny", "src/a.txt"]));
+    assert.equal(moved.verdict, "fail-retryable");
+  });
+
+  it("passes when nothing denied changed, and ignores a path git ignores", () => {
+    const cwd = onTicket();
+    writeFileSync(join(cwd, ".gitignore"), "dist/\n");
+    mkdirSync(join(cwd, "dist"));
+    writeFileSync(join(cwd, "dist/out.js"), "x\n");
+    writeFileSync(join(cwd, "src/a.txt"), "edited\n");
+    gitCommit(cwd, "ticket");
+    const result = verdictOf(
+      run(baseDiff, cwd, ["--base", "main", "--deny", ".env", "--deny", "dist/**", ...assembly]),
+    );
+    assert.equal(result.verdict, "pass");
+  });
+
+  it("judges what the work changed since the base, not since the last commit", () => {
+    const cwd = onTicket();
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "main"]);
+    writeFileSync(join(cwd, ".env"), "moved on\n");
+    gitCommit(cwd, "main moved");
+    execFileSync("git", ["-C", cwd, "checkout", "-q", "ticket"]);
+    writeFileSync(join(cwd, "src/a.txt"), "edited\n");
+    gitCommit(cwd, "ticket");
+    // The base moved under the ticket: only the ticket's own side counts.
+    assert.equal(
+      verdictOf(run(baseDiff, cwd, ["--base", "main", "--deny", ".env"])).verdict,
+      "pass",
+    );
+  });
+
+  it("runs the command only when a --when path changed, and answers on its exit code", () => {
+    const cwd = onTicket();
+    writeFileSync(join(cwd, "src/a.txt"), "edited\n");
+    gitCommit(cwd, "ticket");
+    const args = (command: string, glob = "src/**") => [
+      "--base",
+      "main",
+      "--when",
+      glob,
+      "--run",
+      command,
+      ...assembly,
+    ];
+    assert.equal(verdictOf(run(baseDiff, cwd, args("true"))).verdict, "pass");
+    const failing = verdictOf(run(baseDiff, cwd, args("echo boom; exit 3")));
+    assert.equal(failing.verdict, "fail-retryable");
+    assert.match(failing.report, /boom/);
+    // Nothing under docs/ changed: the command is not even run.
+    assert.equal(verdictOf(run(baseDiff, cwd, args("exit 3", "docs/**"))).verdict, "pass");
+    const missing = verdictOf(run(baseDiff, cwd, args("no-such-command-here")));
+    assert.equal(missing.verdict, "fail-blocking");
+  });
+
+  /**
+   * What Isolation makes: a work line's copy on `feature/line`, whose local `main`
+   * is stale (the Refresher moves the line, never `main`), and a workspace that is
+   * a worktree of it, on its own branch.
+   */
+  function onWorktree(): { line: string; ws: string } {
+    const line = sandbox();
+    gitInit(line);
+    mkdirSync(join(line, "src"));
+    writeFileSync(join(line, "src/a.txt"), "a\n");
+    writeFileSync(join(line, ".env"), "secret\n");
+    gitCommit(line, "seed");
+    execFileSync("git", ["-C", line, "checkout", "-q", "-b", "feature/line"]);
+    writeFileSync(join(line, ".env"), "moved on the line\n");
+    gitCommit(line, "an earlier ticket landed");
+    const ws = join(sandbox(), "ws");
+    execFileSync("git", ["-C", line, "worktree", "add", "-q", "-b", "issue/1", ws, "feature/line"]);
+    execFileSync("git", ["-C", ws, "config", "user.email", "gate@test.local"]);
+    execFileSync("git", ["-C", ws, "config", "user.name", "Gate Test"]);
+    writeFileSync(join(ws, "src/a.txt"), "edited\n");
+    gitCommit(ws, "ticket");
+    return { line, ws };
+  }
+
+  it("derives its base from the main worktree's branch: the line, not a stale main", () => {
+    const { ws } = onWorktree();
+    // The ticket did not touch .env; an earlier ticket did, on the line.
+    assert.equal(verdictOf(run(baseDiff, ws, ["--deny", ".env", ...assembly])).verdict, "pass");
+    const own = verdictOf(run(baseDiff, ws, ["--deny", "src/**", ...assembly]));
+    assert.equal(own.verdict, "fail-retryable");
+    assert.match(own.report, /src\/a\.txt/);
+    assert.match(own.report, /refs\/heads\/feature\/line/);
+    // The same question against the copy's stale local main sees the line's work too.
+    const stale = verdictOf(run(baseDiff, ws, ["--base", "main", "--deny", ".env", ...assembly]));
+    assert.equal(stale.verdict, "fail-retryable");
+  });
+
+  it("has no base to derive in the main worktree itself, detached, or at the feature stage", () => {
+    const { line, ws } = onWorktree();
+    const itself = verdictOf(run(baseDiff, line, ["--deny", ".env"]));
+    assert.equal(itself.verdict, "fail-blocking");
+    assert.match(itself.report, /main worktree itself/);
+
+    const feature = verdictOf(run(baseDiff, ws, ["--deny", ".env", "--stage", "feature"]));
+    assert.equal(feature.verdict, "fail-blocking");
+    assert.match(feature.report, /feature stage/);
+    // Named, the target is a base like any other.
+    const named = verdictOf(
+      run(baseDiff, ws, ["--base", "main", "--deny", ".env", "--stage", "feature"]),
+    );
+    assert.equal(named.verdict, "fail-retryable");
+
+    execFileSync("git", ["-C", line, "checkout", "-q", "--detach"]);
+    const detached = verdictOf(run(baseDiff, ws, ["--deny", ".env", ...assembly]));
+    assert.equal(detached.verdict, "fail-blocking");
+    assert.match(detached.report, /no branch checked out/);
+  });
+
+  it("gives the --run command to project-checks: its ceiling stops a hung command", () => {
+    const cwd = onTicket();
+    writeFileSync(join(cwd, "src/a.txt"), "edited\n");
+    gitCommit(cwd, "ticket");
+    const started = Date.now();
+    const result = verdictOf(
+      run(baseDiff, cwd, [
+        "--base",
+        "main",
+        "--when",
+        "src/**",
+        "--run",
+        "sleep 30",
+        "--timeout-ms",
+        "7000",
+      ]),
+    );
+    assert.equal(result.verdict, "fail-blocking");
+    assert.match(result.report, /did not finish/);
+    assert.ok(Date.now() - started < 15_000, "the Gate answered before its own ceiling");
+  });
+
+  it("hands the command the base and the changed paths", () => {
+    const cwd = onTicket();
+    writeFileSync(join(cwd, "src/a.txt"), "edited\n");
+    gitCommit(cwd, "ticket");
+    const result = verdictOf(
+      run(baseDiff, cwd, [
+        "--base",
+        "main",
+        "--when",
+        "src/**",
+        "--run",
+        'echo "$MASON_BASE: $MASON_CHANGED_FILES"; exit 1',
+      ]),
+    );
+    assert.equal(result.verdict, "fail-retryable");
+    assert.match(result.report, /main: src\/a\.txt/);
   });
 });
