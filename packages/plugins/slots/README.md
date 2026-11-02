@@ -572,7 +572,20 @@ in the workspace, and the Gate runs it, compares and judges.
 
 A scenario is a manifest id, and every test carries its id in its name (`S2 pays by card`). The
 comparison is exact: an id with no test, a test with no manifest id, and a test the runner
-skipped are failures. There is no retry. The verdict:
+skipped are failures. There is no retry.
+
+The report must therefore hold **only** the Feature's scenarios. A name filter is enough only for a
+runner that leaves the filtered-out tests out of its report. A runner that lists them as `skipped`
+(Vitest with `-t` does) puts tests with no manifest id in the report, and the Gate refuses the run
+(`tests that carry no id of the manifest`): restrict the files the command loads as well, for
+example to the files that hold the Feature's tests by a naming convention.
+
+```yaml
+# Vitest: only the *.feature.test.ts files are loaded, then only the manifest's scenarios run
+- pnpm exec vitest run .feature.test.ts -t "{ids}" --reporter=junit --outputFile={junit}
+```
+
+`{ids}` and `{junit}` are both required in `--run`; `mason doctor` warns when one is missing. The verdict:
 
 | Verdict | When |
 | --- | --- |
