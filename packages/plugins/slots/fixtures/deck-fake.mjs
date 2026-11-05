@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Plays `deck materialize --json` for the agent wrapper tests. It records its
 // argv in the project (-C), then answers like deck 1.0: one plugin folder per
 // id under --out, and the profile's prompt path when the profile has one.
 // DECK_FAKE_MODE=fail answers like a lock that does not pin a request.
+// DECK_FAKE_LOG=FILE appends "start <out>" and "end <out>" around DECK_FAKE_SLEEP_MS of work.
 const args = process.argv.slice(2);
 const value = (flag) => {
   const at = args.indexOf(flag);
@@ -18,6 +19,16 @@ if (process.env.DECK_FAKE_MODE === "fail") {
   process.exit(1);
 }
 const out = value("--out");
+if (process.env.DECK_FAKE_LOG) {
+  appendFileSync(process.env.DECK_FAKE_LOG, `start ${out}\n`);
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    Number(process.env.DECK_FAKE_SLEEP_MS ?? 0),
+  );
+  appendFileSync(process.env.DECK_FAKE_LOG, `end ${out}\n`);
+}
 const profile = value("--profile") ?? null;
 const ids = profile === null ? ["git-workflow"] : ["git-workflow", `${profile}-kit`];
 const plugins = ids.map((id) => {
