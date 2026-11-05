@@ -13,6 +13,24 @@ export async function handleResume(
   if (!before.ok || before.aggregate.state !== "escalated") {
     return;
   }
+  // A resume is not a claim, so the limit on Tickets worked on at once would not stop it: two
+  // resumed together run side by side, and the second is cut from a line that does not yet hold
+  // the first. It waits, with its signal kept, until a place is free. A Ticket waiting for a
+  // person holds a place but works on nothing, so only the others count.
+  const limit = input.options.ticket?.maxParallel ?? 1;
+  const working = (await input.ledger.activeTickets(ticket.project)).filter(
+    (summary) => summary.state !== "escalated",
+  );
+  if (working.length >= limit) {
+    const waiting = `${ticket.key}:resume-waits`;
+    if (!input.said.has(waiting)) {
+      input.said.add(waiting);
+      input.trace(
+        `resume     ${ticket.key} waits: ${working.length} ticket(s) already worked on, the limit is ${limit}`,
+      );
+    }
+    return;
+  }
   const resumePoint = resumePointOf(before.aggregate);
   const taken = await input.ledger.resumeTicket(ticket.key);
   if (!taken.ok) {
