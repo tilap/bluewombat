@@ -782,6 +782,7 @@ function featureStore(input: HostDeliveryInput, feature: FeatureAggregate): Deli
           (aggregate.submission?.refusals ?? 0) +
           (aggregate.parked_refusals ?? 0) +
           (aggregate.submission?.realigns ?? 0),
+        realigned: aggregate.submission?.realigns ?? 0,
         submission:
           aggregate.submission === undefined
             ? undefined
