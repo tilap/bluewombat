@@ -252,7 +252,10 @@ One TicketStandard, one Project. Pause flag is off.
    validates again. Otherwise (blocking, budget spent, no fix declared) →
    `escalate({ kind: "assembly" })`. **One budget** covers every loop of a ticket:
    `submission.refusals + parked_refusals + submission.realigns`, against
-   `maxRefusals`.
+   `maxRefusals`. The one exception is the align
+   conflict: the rounds spent as realigns (the line moved, nothing was wrong with the
+   work) are not counted against its repair, so a ticket whose line moved is not stopped
+   before the one repair that settles the conflict. The repair itself is a round.
    4. **Validate**, when `validate` is set — with or without an
       Authority. `implement` on the ticket workspace with `stage: "ticket"`
       and `validate: true` (no gates, one attempt). `validated` →
