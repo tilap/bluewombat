@@ -417,7 +417,11 @@ it first: every Gate after it then judges work that exists. It passes at
 producer to send back.
 
 `parent-clean` fail-blocks if Isolator's Parent working files changed
-(`--parent DIR`, or the other git worktrees of this Child).
+(`--parent DIR`, plus the main worktree of this Child's repository). Only files written
+after the Child was created count, so an edit that was already there is not a leak. The
+other linked worktrees are sibling Children (parallel tickets, escalated leftovers) and are
+ignored; `--siblings` watches them too, for a serial run. Not covered: an Agent writing
+into a sibling worktree.
 
 `sensitive-path` fail-retries if the workspace changed a path matching a glob.
 `*` is one segment, `**` any depth. It looks at what a fold can carry out of
