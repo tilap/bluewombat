@@ -391,7 +391,8 @@ What no Gate can see, by construction:
   commands: one that writes outside `.gitignore` (coverage, `.tsbuildinfo`, a build
   directory) reads as the review writing. Allow those paths with `--allow GLOB`.
 - `parent-clean` on a Parent with no `.git` takes the workspace's oldest file as
-  its baseline time: a heuristic (copy mode, issue #48).
+  its baseline time: a file newer than that is a leak. It is the only baseline a
+  copy-mode work line has.
 - `workspace-changed` asks whether something changed, not whether the change
   answers the report: a producer that ignores its report and changes something
   else passes.
@@ -724,3 +725,12 @@ messages/      what a commit says: a rule, or an agent under the team's guidelin
 test/          one suite per kind; each spawns the real command
 fixtures/      fake agent CLIs the Builder suites run against
 ```
+
+## Copy mode
+
+A work line isolated by `@bluewombat/isolation-copy` has no `.git`. The slots
+that read git need one: the `git` Publisher and Refresher,
+`messages/git-producer`, and the Gates `workspace-changed`, `workspace-unchanged`,
+`sensitive-path`, `base-diff`, `ci-green`, `gitignore-leak` and `tests-only`. A
+copy-mode Project uses `parent-clean`, `project-checks` and `feature-tests`, and
+brings its own Publisher and Gates for what it hands over.

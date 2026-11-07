@@ -10,3 +10,7 @@ import { strategy } from "@bluewombat/isolation-copy";
 ```
 
 No git bookkeeping. A Child is a plain directory snapshot of the Parent.
+
+It is the isolation for a work line that is not a git tree (a manuscript, a
+dataset). The slots that need git are listed in
+[`@bluewombat/slots`](../slots/README.md) § Copy mode.
