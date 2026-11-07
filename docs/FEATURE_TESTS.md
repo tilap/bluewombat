@@ -5,6 +5,7 @@ covers:
   - packages/plugins/slots/gates/feature-tests.mjs
   - packages/plugins/slots/builders/feature-test.mjs
   - packages/plugins/slots/gates/tests-only.mjs
+  - packages/host/runtime/src/operator/doctor.ts
 ---
 
 # Feature tests
@@ -25,6 +26,16 @@ read the run's JUnit file as a change to the tests.
 | A Feature, its own tests | A last Ticket, made by another agent than the one that built the Feature, writes one test per scenario of the PRD and a manifest, may change only tests (`tests-only` Gate), and runs them against the built Feature through the `feature-tests` Gate after each attempt; the same Gate runs **only those** once more on the assembled line | `feature.test` and its `tests-only` Gate, the `feature-tests` Gate in `feature.validate.gates` |
 | A Feature, after a red run | The fix repairs the application; the tests are frozen | `feature.fix.gates` |
 | The whole suite | The Project's CI, when the Feature is merged. Not run by mason during a Feature | the Project |
+
+## What the command must report
+
+The `feature-tests` Gate takes its ids from the manifest, substitutes `{ids}` and `{junit}` in the Project's
+`--run` command, and judges the JUnit report. The report must hold only the Feature's scenarios: a test with
+no manifest id fails the Gate even when it is skipped. A runner that keeps filtered-out tests in its report as
+`skipped` (Vitest with `-t`) therefore needs its files restricted too, not only its names. The Gate does not
+know the runner, so this lives in the Project's command; `mason doctor` only checks that `{ids}` and `{junit}`
+are present. The `feature-tests` Gate of `feature.test` is the same as `feature.validate`'s minus `skipWhen`,
+which only a Feature's own gates can carry.
 
 ## Why it is not an e2e suite
 

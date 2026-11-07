@@ -111,6 +111,7 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
         input.env,
         stable,
       ),
+      ...featureTestsGateFindings("Builder feature-test", invocation.builder.featureTest.gates),
     );
   }
   findings.push(
@@ -148,6 +149,11 @@ export async function runDoctor(input: DoctorInput): Promise<number> {
     findings.push(
       ...reviewFindings("Feature validate", invocation.feature.validate, input.env, stable),
     );
+    if (isOn(invocation.feature.validate)) {
+      findings.push(
+        ...featureTestsGateFindings("Feature validate", invocation.feature.validate.gates),
+      );
+    }
     if (!isOn(invocation.feature.validate) && invocation.feature.gates.length === 0) {
       findings.push({
         level: "warn",
@@ -449,6 +455,52 @@ function reviewFindings(
     { level: "ok", label, detail: "no agent (agent: false): its gates run alone" },
     ...review.gates.map((gate) => commandFinding(`${label} gate ${gate.id}`, gate.argv, env)),
   ];
+}
+
+/**
+ * The `feature-tests` Gate runs the command it is given and judges the JUnit report that command
+ * writes. It substitutes `{ids}` (the scenarios of the manifest) and `{junit}` (where the report
+ * must go) itself; without them the command runs more than the Feature's scenarios, or writes
+ * the report elsewhere, and the Gate refuses the run. Said here, before a Feature is built.
+ */
+function featureTestsGateFindings(
+  label: string,
+  gates: readonly { id: string; argv: string[] }[],
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const gate of gates) {
+    if (!gate.argv.some((word) => /(^|\/)feature-tests\.mjs$/.test(word))) {
+      continue;
+    }
+    const gateLabel = `${label} gate ${gate.id}`;
+    const at = gate.argv.indexOf("--run");
+    const run = at === -1 ? undefined : gate.argv[at + 1];
+    if (run === undefined || run.trim().length === 0) {
+      findings.push({
+        level: "fail",
+        label: gateLabel,
+        detail: 'no "--run <command>": the Gate has nothing to run',
+      });
+      continue;
+    }
+    if (!run.includes("{ids}")) {
+      findings.push({
+        level: "warn",
+        label: gateLabel,
+        detail:
+          'the --run command has no "{ids}": it runs more than the Feature\'s scenarios, and the Gate refuses every test whose name carries no id of the manifest',
+      });
+    }
+    if (!run.includes("{junit}")) {
+      findings.push({
+        level: "warn",
+        label: gateLabel,
+        detail:
+          'the --run command has no "{junit}": the report must be written where the Gate reads it',
+      });
+    }
+  }
+  return findings;
 }
 
 function gatedPassFindings(
