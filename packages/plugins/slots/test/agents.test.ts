@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { workspaceSegment } from "../agents/agent-plugins.mjs";
 
 const node = process.execPath;
 const here = dirname(fileURLToPath(import.meta.url));
@@ -480,6 +481,11 @@ describe("agent plugin folders", () => {
     );
   }
 
+  /** Where the wrapper builds the profiles of the workspace `cwd`: one folder per workspace. */
+  function own(cwd: string, out: string): string {
+    return join(out, workspaceSegment(realpathSync(cwd)));
+  }
+
   function pluginDirs(cwd: string): string[] {
     const argv = JSON.parse(readFileSync(join(cwd, "argv.json"), "utf8")) as string[];
     return argv.flatMap((arg, at) => (argv[at - 1] === "--plugin-dir" ? [arg] : []));
@@ -501,8 +507,8 @@ describe("agent plugin folders", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(pluginDirs(cwd), [
       core,
-      join(out, "builder", "git-workflow"),
-      join(out, "builder", "builder-kit"),
+      join(own(cwd, out), "builder", "git-workflow"),
+      join(own(cwd, out), "builder", "builder-kit"),
     ]);
     const deckArgs = JSON.parse(readFileSync(join(cwd, "deck-args.json"), "utf8")) as string[];
     assert.deepEqual(deckArgs, [
@@ -510,7 +516,7 @@ describe("agent plugin folders", () => {
       "-C",
       realpathSync(cwd),
       "--out",
-      join(out, "builder"),
+      join(own(cwd, out), "builder"),
       "--json",
       "--profile",
       "builder",
@@ -520,13 +526,13 @@ describe("agent plugin folders", () => {
       { id: "core-builder", path: core, from: "local", integrity: null },
       {
         id: "git-workflow",
-        path: join(out, "builder", "git-workflow"),
+        path: join(own(cwd, out), "builder", "git-workflow"),
         from: "deck",
         integrity: "sha256-git-workflow",
       },
       {
         id: "builder-kit",
-        path: join(out, "builder", "builder-kit"),
+        path: join(own(cwd, out), "builder", "builder-kit"),
         from: "deck",
         integrity: "sha256-builder-kit",
       },
@@ -578,7 +584,7 @@ describe("agent plugin folders", () => {
     assert.equal(result.status, 0, result.stderr);
     const deckArgs = JSON.parse(readFileSync(join(cwd, "deck-args.json"), "utf8")) as string[];
     assert.equal(deckArgs.includes("--profile"), false);
-    assert.deepEqual(pluginDirs(cwd), [join(out, "reviewer", "git-workflow")]);
+    assert.deepEqual(pluginDirs(cwd), [join(own(cwd, out), "reviewer", "git-workflow")]);
     assert.match(result.stderr, /no deck profile \.ai\/profiles\/reviewer: base plugins only/);
   });
 
@@ -606,9 +612,91 @@ describe("agent plugin folders", () => {
     assert.equal(deckArgs[deckArgs.indexOf("--profile") + 1], "builder");
     assert.equal(existsSync(join(cwd, "deck-args.json")), false);
     assert.deepEqual(pluginDirs(cwd), [
-      join(out, "builder", "git-workflow"),
-      join(out, "builder", "builder-kit"),
+      join(own(cwd, out), "builder", "git-workflow"),
+      join(own(cwd, out), "builder", "builder-kit"),
     ]);
+  });
+
+  it("gives each workspace its own folder under --plugins-out", () => {
+    const root = sandbox();
+    const out = join(root, "plugins");
+    const first = project(join(root, "a"), { base: true, profile: "builder" });
+    const second = project(join(root, "b"), { base: true, profile: "builder" });
+    const args = ["--app-deck-profile", ".ai/profiles/builder", "--plugins-out", out];
+    assert.equal(runCursor(first, args).status, 0);
+    assert.equal(runCursor(second, args).status, 0);
+    assert.notEqual(own(first, out), own(second, out));
+    assert.deepEqual(pluginDirs(first), [
+      join(own(first, out), "builder", "git-workflow"),
+      join(own(first, out), "builder", "builder-kit"),
+    ]);
+    assert.equal(existsSync(join(own(first, out), "builder", "builder-kit")), true);
+    assert.equal(existsSync(join(own(second, out), "builder", "builder-kit")), true);
+  });
+
+  it("drops the folder of a workspace that is gone, and only that", () => {
+    const root = sandbox();
+    const out = join(root, "plugins");
+    const gone = project(join(root, "a"), { base: true, profile: "builder" });
+    const kept = project(join(root, "b"), { base: true, profile: "builder" });
+    const args = ["--app-deck-profile", ".ai/profiles/builder", "--plugins-out", out];
+    assert.equal(runCursor(gone, args).status, 0);
+    assert.equal(runCursor(kept, args).status, 0);
+    // A folder of the older layout has no mark, so it is not this wrapper's to remove.
+    mkdirSync(join(out, "builder"), { recursive: true });
+    const goneFolder = own(gone, out);
+    rmSync(gone, { recursive: true, force: true });
+
+    const later = project(join(root, "c"), { base: true, profile: "builder" });
+    assert.equal(runCursor(later, args).status, 0);
+    assert.equal(existsSync(goneFolder), false);
+    assert.equal(existsSync(own(kept, out)), true);
+    assert.equal(existsSync(join(out, "builder")), true);
+  });
+
+  it("makes agents that start together materialize one after the other", async () => {
+    const root = sandbox();
+    const out = join(root, "plugins");
+    const log = join(root, "deck.log");
+    const args = ["--app-deck-profile", ".ai/profiles/builder", "--plugins-out", out];
+    const env = { ...process.env, DECK_FAKE_LOG: log, DECK_FAKE_SLEEP_MS: "700" };
+    const runs = ["a", "b", "c"].map((name) => {
+      const cwd = project(join(root, name), { base: true, profile: "builder" });
+      return new Promise<number | null>((done) => {
+        const child = spawn(
+          node,
+          [cursor, "--bin", agentEchoArgv, "--prompt", "x", "--deck-bin", deckFake, ...args],
+          { cwd, env, stdio: "ignore" },
+        );
+        child.on("close", done);
+      });
+    });
+    assert.deepEqual(await Promise.all(runs), [0, 0, 0]);
+    const marks = readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => line.split(" ")[0]);
+    assert.deepEqual(marks, ["start", "end", "start", "end", "start", "end"]);
+    assert.equal(existsSync(join(out, ".materialize.lock")), false);
+  });
+
+  it("takes over a lock whose holder is gone", () => {
+    const root = sandbox();
+    const out = join(root, "plugins");
+    const dead = spawnSync(node, ["-e", "process.stdout.write(String(process.pid))"], {
+      encoding: "utf8",
+    }).stdout;
+    mkdirSync(join(out, ".materialize.lock"), { recursive: true });
+    writeFileSync(join(out, ".materialize.lock", "pid"), dead);
+    const cwd = project(root, { base: true, profile: "builder" });
+    const result = runCursor(cwd, [
+      "--app-deck-profile",
+      ".ai/profiles/builder",
+      "--plugins-out",
+      out,
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(out, ".materialize.lock")), false);
   });
 
   it("refuses an app deck profile that leaves the checkout, or is not a deck path", () => {
