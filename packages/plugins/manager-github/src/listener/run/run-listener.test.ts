@@ -213,6 +213,7 @@ describe("runListener", () => {
     assert.equal(result.outcome, "source-lost");
     assert.equal(result.exitCode, 1);
     assert.equal(String(ofEvent(lines, "run-finished")[0]?.detail).includes("Not Found"), true);
+    assert.equal(String(result.detail).includes("Not Found"), true);
   });
 
   it("waits out a rate limit and then delivers", async () => {

@@ -147,6 +147,8 @@ export type ReportInput = {
 
 export type ListenResult = {
   outcome: string;
+  /** Why the Source could not be read, in the manager's words (GitHub's message). */
+  detail?: string;
   deliveries: Delivery[];
 };
 
