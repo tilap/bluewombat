@@ -15,6 +15,8 @@ export type IsolationBackend = {
     child: string;
     /** Isolation id; a strategy may derive a branch or other label from it. */
     id?: string;
+    /** Continue the work already published under `id`; never discard it. */
+    resume?: boolean;
     timeoutMs: number;
     shouldInterrupt: () => boolean;
     shouldStop: () => IsolationStop | undefined;

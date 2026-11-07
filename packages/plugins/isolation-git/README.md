@@ -18,6 +18,11 @@ The Child is a worktree of the Parent, then wiped and filled with the Parent's
 working files so dirty and untracked content matches — `.cursor/`, `CLAUDE.md`,
 `node_modules/`, tracked or not, all of it.
 
+With `resume` (the Ticket already has a Submission) and a branch that exists, the
+Child is that branch checked out as it is, and nothing is copied over it: the
+branch was published and is never reset. With no such branch it is made from the
+Parent as usual.
+
 ## What a Child does not get
 
 `.env` and `.env.*`, at any depth, unless the Project says otherwise: a secret

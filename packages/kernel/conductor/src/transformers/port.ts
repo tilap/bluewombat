@@ -10,6 +10,8 @@ export type IsolateInput = {
    * guessing at a format nobody promised. Said here, it is a fact.
    */
   context?: string;
+  /** The Ticket has a Submission: the isolation continues its published work, it does not start over. */
+  resume?: boolean;
 };
 
 export type IsolateOutcome = "isolated" | "failed" | "invalid-invocation" | "interrupted";

@@ -4,7 +4,7 @@ import { combinedOutput, runChild } from "./child/run-child.js";
 const CLEANUP_TIMEOUT_MS = 5_000;
 
 export type GitAddResult =
-  | { ok: true }
+  | { ok: true; continued: boolean }
   | { ok: false; stop: IsolationStop }
   | { ok: false; detail: string };
 
@@ -14,6 +14,8 @@ export type GitAddResult =
  * `-B` points the name at the Parent's current commit whether or not it already
  * exists, so an Isolation that runs again lands where a first one would: the
  * Child is a snapshot of the Parent, never the leftovers of an earlier run.
+ * `resume` is the exception: the branch was published with a Submission, so it
+ * is checked out untouched when it exists.
  *
  * A Child that was deleted from disk is still registered with the Parent, and
  * git refuses to check its branch out a second time — so an Isolation that runs
@@ -24,6 +26,8 @@ export async function addGitWorktree(input: {
   parent: string;
   child: string;
   branch?: string;
+  /** Check the branch out as it is; a missing one is made from the Parent's head. */
+  resume?: boolean;
   timeoutMs: number;
   shouldInterrupt: () => boolean;
 }): Promise<GitAddResult> {
@@ -34,8 +38,16 @@ export async function addGitWorktree(input: {
     timeoutClock: "isolation",
     shouldInterrupt: input.shouldInterrupt,
   });
+  const continued =
+    input.branch !== undefined &&
+    input.resume === true &&
+    (await branchExists(input.parent, input.branch, input));
   const placement =
-    input.branch === undefined ? ["--detach", input.child] : ["-B", input.branch, input.child];
+    input.branch === undefined
+      ? ["--detach", input.child]
+      : continued
+        ? [input.child, input.branch]
+        : ["-B", input.branch, input.child];
   const outcome = await runChild({
     argv: ["git", "-C", input.parent, "worktree", "add", ...placement],
     cwd: input.parent,
@@ -60,7 +72,22 @@ export async function addGitWorktree(input: {
     const detail = combinedOutput(outcome.stdout, outcome.stderr) || "git worktree add failed.";
     return { ok: false, detail: `Git could not complete the Isolation: ${detail}` };
   }
-  return { ok: true };
+  return { ok: true, continued };
+}
+
+async function branchExists(
+  parent: string,
+  branch: string,
+  input: { shouldInterrupt: () => boolean },
+): Promise<boolean> {
+  const outcome = await runChild({
+    argv: ["git", "-C", parent, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
+    cwd: parent,
+    timeoutMs: CLEANUP_TIMEOUT_MS,
+    timeoutClock: "isolation",
+    shouldInterrupt: input.shouldInterrupt,
+  });
+  return outcome.kind === "exited" && outcome.exitCode === 0;
 }
 
 /**

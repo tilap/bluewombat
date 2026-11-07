@@ -90,7 +90,7 @@ Three operations. Real Transformers or test doubles; the Port does not care.
 
 | Operation   | In (minimum)                                                                                                       | Out (minimum)                                                                                       |
 | ----------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `isolate`   | `id`, `parent`, `child` (absolute paths), `durationMs`                                                             | `isolated` / `failed` / `invalid-invocation` / `interrupted`                                        |
+| `isolate`   | `id`, `parent`, `child` (absolute paths), `durationMs`, `resume?`                                                          | `isolated` / `failed` / `invalid-invocation` / `interrupted`                                        |
 | `implement` | `id`, intention, `workspace`, durations / attempt bound, `report`, `stage`, `produce`                              | `validated` / `escalated` / `interrupted` / `invalid-invocation`, plus ordered Traces               |
 | `integrate` | `id`, `parent`, `child`, `durationMs`                                                                              | `integrated` / `conflict` / `failed` / `invalid-invocation` / `interrupted`                         |
 
@@ -160,6 +160,10 @@ its branch is free to be taken again. The Authority is handed the workspace in
 
 It **declares** that path on the WorkLedger, **then** calls `isolate`. After
 `markDone`, it deletes the directory and `clearWorkspace`.
+
+When the Ticket's record carries a Submission, `isolate` is called with
+`resume: true`: the strategy continues the published work instead of cutting a
+new Child from the Parent.
 
 ## 7. Commands
 

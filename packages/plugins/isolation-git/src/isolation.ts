@@ -20,6 +20,7 @@ export function createGitIsolation(options: GitIsolationOptions): IsolationBacke
         parent: input.parent,
         child: input.child,
         ...(branch === undefined ? {} : { branch }),
+        ...(input.resume === true ? { resume: true } : {}),
         timeoutMs: input.timeoutMs,
         shouldInterrupt: input.shouldInterrupt,
       });
@@ -29,6 +30,10 @@ export function createGitIsolation(options: GitIsolationOptions): IsolationBacke
       const stop = input.shouldStop();
       if (stop !== undefined) {
         return { ok: false, stop };
+      }
+      if (added.continued) {
+        // The branch carries the published work: the Parent's files would overwrite it.
+        return { ok: true };
       }
       await wipeWorkingFiles(input.child, input.shouldStop);
       await copyWorkingFiles({

@@ -48,6 +48,7 @@ read configuration from the Parent or the Child.
 | ------------------------ | -------------------------------------------------------------------------------------------------- |
 | `--id`                   | Isolation id. Copied onto every Status and progress line. Non-empty.                               |
 | `--context`              | Optional. The Ticket this isolation serves. Named as `key` on every Status and progress line. |
+| `--resume`               | Optional, no value. The id was isolated before and its work handed on: the strategy continues it instead of starting over from the Parent. |
 | `--parent`               | Absolute path. Must already exist as a directory. Working files here are the snapshot source.      |
 | `--child`                | Absolute path. Must not exist. Isolator creates this directory, including missing ancestors.       |
 | `--duration-ms`          | Positive integer. Wall clock of the Isolation, from the moment Isolator starts creating the Child. |
