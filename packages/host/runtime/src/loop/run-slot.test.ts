@@ -58,6 +58,22 @@ describe("runSlot", () => {
     assert.ok(await waitDead(Number(readFileSync(pidFile, "utf8")), 5_000));
   });
 
+  it("does not count the time the machine was suspended against the ceiling", async () => {
+    let jump = 0;
+    setTimeout(() => {
+      jump = 60_000;
+    }, 300);
+    const run = await runSlot({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => console.log('done'), 2500)"],
+      timeoutMs: 1_500,
+      now: () => Date.now() + jump,
+    });
+    assert.equal(run.error, undefined);
+    assert.equal(run.stdout.trim(), "done");
+    assert.ok(run.suspendedMs >= 50_000, `counted ${run.suspendedMs}`);
+  });
+
   it("says why a slot could not start", async () => {
     const run = await runSlot({ command: "/no/such/command", args: [], timeoutMs: 1_000 });
     assert.ok(run.error);
