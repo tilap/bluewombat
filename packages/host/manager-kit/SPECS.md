@@ -34,7 +34,7 @@ package asked for a side it does not answer is refused by name.
 
 | Member         | Required | Job                                                                                                                  |
 | -------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
-| `listen`       | yes      | Drain the tracker since a Cursor, for Features whose specification is final. Returns an outcome and ordered Deliveries |
+| `listen`       | yes      | Drain the tracker since a Cursor, for Features whose specification is final. Returns an outcome, ordered Deliveries and, when the tracker could not be read, a `detail` saying why |
 | `adapt`        | yes      | One raw payload → a FeatureStandard, or `invalid` / `unavailable` / `interrupted`                                    |
 | `report`       | yes      | One semantic Event onto the Feature. `false` when it could not be written                                            |
 | `signalsResume` | no       | Whether this payload says a human unblocked an escalated Feature                                                     |

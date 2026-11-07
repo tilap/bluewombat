@@ -50,6 +50,7 @@ export async function runOnce(input: HostRunInput): Promise<HostTickResult> {
     event: "listen",
     outcome: listened.outcome,
     deliveries: listened.deliveries.length,
+    ...(listened.detail !== undefined ? { detail: listened.detail } : {}),
   });
   if (listened.deliveries.length > 0) {
     trace(`listen     ${listened.deliveries.length} to look at`);
@@ -57,7 +58,9 @@ export async function runOnce(input: HostRunInput): Promise<HostTickResult> {
   // A tracker that cannot be read is the one thing a quiet loop must not hide:
   // it is repeated on every poll until it answers again.
   if (listened.outcome === "source-lost" || listened.outcome === "invalid-invocation") {
-    trace(`listen     ${listened.outcome}: the tracker could not be read`);
+    trace(
+      `listen     ${listened.outcome}: the tracker could not be read${listened.detail === undefined ? "" : ` (${listened.detail})`}`,
+    );
   }
 
   const deliveryInput = { ...input, reported };

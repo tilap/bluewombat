@@ -16,6 +16,8 @@ export type RunResult = {
   scans: number;
   pages: number;
   exitCode: number;
+  /** Why the run could not read the Source: GitHub's message, or the invalid invocation. */
+  detail?: string;
 };
 
 export type RunOptions = {
@@ -61,6 +63,7 @@ export function invalidInvocationResult(write: ProgressWriter, reason: string): 
     scans: 0,
     pages: 0,
     exitCode: exitCodeFor("invalid-invocation"),
+    detail: reason,
   };
 }
 
@@ -150,6 +153,9 @@ async function runLoop(input: LoopInput): Promise<RunResult> {
     };
     if (cursor !== undefined) {
       result.cursor = cursor;
+    }
+    if (detail !== undefined) {
+      result.detail = detail;
     }
     return result;
   };
