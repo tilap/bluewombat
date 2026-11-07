@@ -3,6 +3,7 @@ import { CLI_NAME } from "@bluewombat/manager-kit";
 import { DEFAULT_CONFIG_FILENAME } from "./config/find-config.js";
 import { DEFAULT_HOME } from "./config/home.js";
 import { runCancel } from "./operator/cancel.js";
+import { runDash } from "./operator/dash.js";
 import { runDoctor } from "./operator/doctor.js";
 import { runExplain } from "./operator/explain.js";
 import { runIncident } from "./operator/incident.js";
@@ -14,14 +15,17 @@ import { runRelease } from "./operator/release.js";
 import { runRestart } from "./operator/restart.js";
 import { runRun } from "./operator/run.js";
 import { runSetup } from "./operator/setup.js";
+import { runSupervise } from "./operator/supervise/supervise.js";
 
 const USAGE = `Usage: ${CLI_NAME} <command>
 
   run      drain the tracker, run Conductor, report
   watch    snapshot the ledger and follow the journal
   status   snapshot the ledger, then exit
+  dash     a dashboard that redraws itself: version, worker, active, upcoming, past
   log      replay the journal, including why a phase stopped
   incident gather what is known about one stop, for whoever has to understand it (read-only)
+  supervise  watch a run and do what a person would: find the cause of a stop, fix it, resume
   cancel   abandon a Ticket by key (when the tracker cannot say it is gone)
   restart  resume an escalated Feature with a fresh workspace, made again from its line
   release  drop a held unit without waiting for the bail clock
@@ -47,6 +51,7 @@ Shared flags: --config FILE --feature-tracker NAME --feature-tracker-option KEY=
 
 A gate's --*-gate-timeout-ms comes before the --*-gate it bounds.
 
+dash also takes --tree (open on the dependency tree; t flips it), --once (one frame), --interval-ms N (default 2000) and --no-color.
 watch / status also take --json (snapshot as JSON). explain takes an optional role
 (ticket.build.producer, ticket.build.repair, ticket.fix, ticket.validate, authority.describe) and --json.
 
@@ -66,6 +71,23 @@ Naming the directory is what turns it on; the config key "observability.streams"
 is the same switch for good. It is off by default: a stream is the Project's own
 material — its code, its prompts — written down in the clear.
 `;
+
+/** Raw keys from the terminal, so one press is one key; Ctrl-C then arrives as a key and not as a signal. */
+function stdinKeys(): { subscribe: (onKey: (key: string) => void) => () => void } {
+  return {
+    subscribe(onKey) {
+      const onData = (chunk: Buffer): void => onKey(chunk.toString("utf8"));
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.on("data", onData);
+      return () => {
+        process.stdin.off("data", onData);
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+      };
+    },
+  };
+}
 
 function installSignalHandlers(state: { interrupted: boolean }): () => void {
   const onSignal = (): void => {
@@ -115,6 +137,20 @@ async function main(argv: string[]): Promise<number> {
       write: (text) => process.stdout.write(text),
     });
   }
+  if (command === "supervise") {
+    const interruptFlag = { interrupted: false };
+    const detachSignals = installSignalHandlers(interruptFlag);
+    try {
+      return await runSupervise({
+        cwd: process.cwd(),
+        argv: rest,
+        write: (text) => process.stdout.write(text),
+        interruptFlag,
+      });
+    } finally {
+      detachSignals();
+    }
+  }
   if (command === "watch" || command === "status") {
     const interruptFlag = { interrupted: false };
     const detachSignals = installSignalHandlers(interruptFlag);
@@ -125,6 +161,32 @@ async function main(argv: string[]): Promise<number> {
         write: (line) => process.stdout.write(line),
         interruptFlag,
         follow: command === "watch",
+      });
+    } finally {
+      detachSignals();
+    }
+  }
+  if (command === "dash") {
+    const interruptFlag = { interrupted: false };
+    const detachSignals = installSignalHandlers(interruptFlag);
+    const out = process.stdout;
+    try {
+      return await runDash({
+        cwd: process.cwd(),
+        argv: rest,
+        write: (text) => out.write(text),
+        interruptFlag,
+        ...(process.stdin.isTTY ? { keys: stdinKeys() } : {}),
+        ...(out.isTTY
+          ? {
+              screen: {
+                columns: out.columns,
+                rows: out.rows,
+                color: process.env.NO_COLOR === undefined,
+                size: () => ({ columns: out.columns, rows: out.rows }),
+              },
+            }
+          : {}),
       });
     } finally {
       detachSignals();

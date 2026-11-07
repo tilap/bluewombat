@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { runSlot } from "./run-slot.js";
+import { runSlot, watchSuspension } from "./run-slot.js";
 
 // A slot that starts a grandchild sharing its pipes, then waits.
 const SPAWNS_GRANDCHILD = `
@@ -40,6 +40,7 @@ describe("runSlot", () => {
     });
     assert.equal(run.error, undefined);
     assert.equal(run.status, 0);
+    assert.equal(run.suspendedMs, 0);
     assert.equal(run.stdout.trim(), "{}");
     assert.equal(run.stderr.trim(), "note");
   });
@@ -61,5 +62,26 @@ describe("runSlot", () => {
     const run = await runSlot({ command: "/no/such/command", args: [], timeoutMs: 1_000 });
     assert.ok(run.error);
     assert.equal(run.status, null);
+  });
+
+  it("counts the time the clock ran while nothing did", async () => {
+    let clock = 0;
+    const watch = watchSuspension(() => clock, 5, 50);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    clock += 600_000; // the machine slept ten minutes
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    watch.stop();
+    assert.ok(watch.suspendedMs() >= 590_000, `counted ${watch.suspendedMs()}`);
+  });
+
+  it("counts nothing for a clock that ran with the process", async () => {
+    let clock = 0;
+    const watch = watchSuspension(() => clock, 5, 50);
+    for (let i = 0; i < 5; i++) {
+      clock += 5;
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    watch.stop();
+    assert.equal(watch.suspendedMs(), 0);
   });
 });

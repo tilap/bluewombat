@@ -137,7 +137,7 @@ takes an accepted one in.
 
 The pull request is titled after the issue (trailing full stop dropped, `(#N)`
 appended) and its body is the issue's intention and
-`Closes #N` — so GitHub closes the issue when the pull request is merged. GitHub honours `Closes` only for a merge into the default branch, so a Ticket folded into a Feature's line stays open until a reservation says otherwise (`docs/RESERVATIONS.md`).
+`Closes #N` — so GitHub closes the issue when the pull request is merged. GitHub honours `Closes` only for a merge into the default branch, so a Ticket folded into a Feature's line stays open on GitHub (issue #64).
 Nothing in it is generated.
 
 `verdict` counts the grace for a commit with no check from the **commit**, not

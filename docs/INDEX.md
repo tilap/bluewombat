@@ -23,7 +23,6 @@ a change to those files is a change to that document.
 | Document                             | Answers                                                                                        |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | [DECISIONS.md](./DECISIONS.md)       | The rules in force, why each holds, and what was turned down                                   |
-| [RESERVATIONS.md](./RESERVATIONS.md) | Calls nobody validated, defects left in place, code never run for real, things left improvable |
 | [FEATURE_TESTS.md](./FEATURE_TESTS.md) | How a Feature is proved by its own tests, why it replaced the e2e suite, and what it does not guarantee |
 
 ## Working here
@@ -32,7 +31,7 @@ a change to those files is a change to that document.
 | ---------------------------------- | ----------------------------------------------------------------------------------- |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | The toolchain — Node 24.20, Biome, node:test, Turborepo — and the everyday commands |
 | [TESTING.md](./TESTING.md)         | Where tests live, how `npm test` runs them, and what no suite proves                |
-| [RUNBOOKS.md](./RUNBOOKS.md)       | Pause, emergency stop, escalation, and how a release is cut                         |
+| [RUNBOOKS.md](./RUNBOOKS.md)       | Stopping a run, escalation, secrets, and how a release is cut                       |
 
 A package's own README and SPECS say how to run it and what it must do; nothing
 here repeats that.

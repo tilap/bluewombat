@@ -125,15 +125,16 @@ Two things to know:
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Unclear product rule                  | [PRODUCT.md](./PRODUCT.md)                                                                                                                                                                                                         |
 | Unclear where code belongs            | [ARCHITECTURE.md](./ARCHITECTURE.md) — `kernel` vs `host` vs `plugins`; then [`packages/README.md`](../packages/README.md)                                                                                                         |
-| Unclear how an operator watches a run | [`packages/host/runtime/README.md`](../packages/host/runtime/README.md) — `mason watch` / `status`, and `observability.streams` for what each child says; what it still lacks: [RESERVATIONS.md](./RESERVATIONS.md) § I10, I12–I15 |
+| Unclear how an operator watches a run | [`packages/host/runtime/README.md`](../packages/host/runtime/README.md) — `mason watch` / `status` / `dash`, and `observability.streams` for what each child says |
 | A Transformer will not start          | that Transformer's own docs                                                                                                                                                                                                        |
 | Tests fail on missing `dist/`         | `npm run build` — or just `npm test`, which runs `^build` first                                                                                                                                                                    |
+| A dependent package shows stale type errors after an edit | Packages import each other through their built `dist/*.d.ts`: run `npm run build` in the edited package before `tsc` in its dependents |
 
 ## Known traps
 
 | Trap                                                               | Sign                                                        | Fix                                                                            |
 | ------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Describing a plan as if it were the present                        | A `docs/` file that says what will exist                    | `docs/` is the present; what is owed goes to RESERVATIONS.md                   |
+| Describing a plan as if it were the present                        | A `docs/` file that says what will exist                    | `docs/` is the present; what is owed is an issue                               |
 | Using `resume` and `feature-ready` as if they were the same word | Resuming an escalation confused with opening work | `resume` resumes; `feature-ready` and `task-ready` open — see [PRODUCT.md](./PRODUCT.md) |
 | Putting a Transformer's CLI in root `docs/`                        | DEVELOPMENT.md lists `--workspace` for Implementer          | Move argv next to the Transformer; this file stays the repo toolchain          |
 | Adding a per-package `.nvmrc` or `biome.json`                      | A Transformer drifts off Node 24.20 or the shared formatter | Delete it; extend `tsconfig.base.json`; use the root Biome file                |

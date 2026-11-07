@@ -47,6 +47,16 @@ export async function acquireLock(ledgerRoot: string): Promise<() => Promise<voi
   };
 }
 
+/** The pid that holds this ledger, when that process is still there. Read-only: a stale lock is left alone. */
+export async function liveLockHolder(ledgerRoot: string): Promise<number | undefined> {
+  try {
+    const holder = Number.parseInt((await readFile(lockPath(ledgerRoot), "utf8")).trim(), 10);
+    return isAlive(holder) ? holder : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) {
     return false;

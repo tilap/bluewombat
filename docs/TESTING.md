@@ -36,13 +36,17 @@ this document and CI diverge.
 
 ## What no suite proves
 
-Two things, both recorded in [RESERVATIONS.md](./RESERVATIONS.md) § U11 so
-they are not forgotten: a Submission judged from outside by the **shipped**
+Two things (issue #49): a Submission judged from outside by the **shipped**
 Gates on a real git work line (the assembly that did this was deleted), and
 the GitHub round trip — issue in, comments, labels, pull request, merge, then
 the red variant — which belongs to a script and a pre-release checklist, never
-to `npm test`. The one hard-won rule for making a CI go red on purpose is
-written there too.
+to `npm test`.
+
+Making a trial repository's CI go red on purpose: a rule the agent can read in
+the repository proves nothing, since it satisfies it before the first push. Use a
+rule it cannot anticipate but can satisfy once told, such as requiring
+`refs #<pull request number>` in the changelog: the number does not exist until
+the pull request does, so every run pays exactly one refusal round.
 
 ## Writing tests
 

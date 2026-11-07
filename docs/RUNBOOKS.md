@@ -1,6 +1,6 @@
 ---
 title: Runbooks
-summary: Pause, emergency stop, escalation, and how the packages reach npm.
+summary: Stopping a run, escalation, secrets, and how the packages reach npm.
 covers:
   - ".github/workflows/release.yml"
   - "scripts/release.mjs"
@@ -81,22 +81,23 @@ The product does not automatically revert a TicketStandard already in WorkLineSt
 That repair is out of scope. If integration is stuck in `merging`, the human path is
 escalation then `resume` → `integrating`, not abandon.
 
-## Pause (global)
+## Stop a run
 
-Intended behaviour when implemented:
+Ctrl-C (SIGINT) or SIGTERM on `mason run`. Host sets the interrupt flag, stops
+taking new work, kills a child at work with its tree, and exits 130. Nothing is
+integrated after the signal.
 
-1. **Preconditions** — you need the process to stop taking new work without crashing the unit in flight.
-2. **Steps** — not built. Effect: no new TicketStandard admission, no new unit start; the current unit may finish; **no** integration into WorkLineStable.
-3. **Verify** — WorkLedger shows no new unit started after the pause; Emitter does not report `done` for work that finished after the pause.
-4. **If it failed** — use *Emergency stop* below.
+The next `mason run` picks each stopped unit up in the workspace it left: the
+Attempts it finished still count. To throw a unit's work away instead, with
+`run` stopped:
 
-## Emergency stop
+```bash
+mason release github:owner/name#19    # a Ticket: the next run isolates afresh
+mason restart github:owner/name#106   # an escalated Feature: cut again from its line
+```
 
-Intended behaviour when implemented:
-
-1. **Steps** — not built. Effect: Implementers are interrupted; the unit in flight starts over from zero; isolated workspaces are destroyed.
-2. **Verify** — no Implementer still holds a bail; WorkLedger is the only remaining state; the workspace of that unit is gone.
-3. **Undo** — there is no undo of destroyed workspaces. Resume is from zero, consuming an Attempt.
+A `pause` that lets the unit in flight finish, and a one-command emergency stop,
+are issue #56.
 
 ## Incident response — escalation
 
@@ -131,9 +132,23 @@ afresh. Work in flight is untouched: the workspaces are their own worktrees.
 
 ## Rotate a leaked secret
 
-No secrets are defined yet. When the first credential exists, the order is: revoke first,
-issue a replacement, update the store and running processes, verify the old credential
-is dead, assess exposure.
+A Mason home holds two kinds of credential, both read from the environment of
+`mason run`: the tracker token (the variable the manager's `tokenEnv` names,
+`GITHUB_TOKEN` by default) and each agent's vendor key (the variable given to
+`--api-key-env`, for example `CURSOR_API_KEY`). Agents see their vendor key; they
+never see the tracker token. Releases need no secret (npm trusted publishing).
+
+1. **Revoke** the leaked credential at its issuer (GitHub settings, the vendor's
+   dashboard).
+2. **Issue** a replacement with the fewest rights: for GitHub, a fine-grained
+   token limited to contents, issues and pull requests on the Project's repository.
+3. **Update** the environment `mason run` starts from, stop the run (Ctrl-C) and
+   start it again: a running process keeps the old value.
+4. **Verify** the old credential is refused and the new one accepted:
+   `curl -H "Authorization: Bearer <token>" https://api.github.com/user` answers
+   401 for the old token and 200 for the new one.
+5. **Assess** exposure: the tracker's audit log, and the transcripts and streams
+   of the period, which hold what agents printed.
 
 ## Restore from backup
 
