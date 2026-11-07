@@ -100,7 +100,7 @@ on every refactor, a glob survives one.
 | Transformers | `packages/kernel/{isolator,implementer,integrator}` | One IN, one OUT, binary + CLI. Shared contract in [`packages/kernel/README.md`](../packages/kernel/README.md) (§ Transformers) | Depend on another Transformer or a kernel sibling; hold examples or regressions; choose a private toolchain |
 | Host         | `packages/host/**`                                                    | `runtime`: the composition root and the binary `mason`. `manager-kit`, `slot-kit`: the contracts a plugin answers              | `runtime` importing a plugin; a kit depending on anything in the repository                                 |
 | Plugins      | `packages/plugins/**`                                                 | What a config names and Host loads or spawns: managers, isolation strategies, persistence backends, slots                      | Import `runtime` or another plugin; be imported by the kernel                                               |
-| Root docs    | `docs/**`                                                             | Product, global layout, shared toolchain, cross-cutting concepts, decisions, reservations                                      | Document a package's internals or CLI                                                                       |
+| Root docs    | `docs/**`                                                             | Product, global layout, shared toolchain, cross-cutting concepts, decisions                                                    | Document a package's internals or CLI                                                                       |
 
 Dependencies point one way — `plugins → host (kits) → kernel`, and
 `host/runtime → kernel` — and three scripts refuse the reverse:
@@ -222,7 +222,7 @@ Deliberate non-capabilities, so nobody re-implements them by accident.
 - Isolator Transformer (behavioural spec): [`packages/kernel/isolator/SPECS.md`](../packages/kernel/isolator/SPECS.md)
 - Integrator Transformer (behavioural spec): [`packages/kernel/integrator/SPECS.md`](../packages/kernel/integrator/SPECS.md)
 - Transformer contract (all of them): [`packages/kernel/README.md`](../packages/kernel/README.md) (§ Transformers)
-- Operator live view (`mason watch` / `status`), the journal, and what a run films of its children: [`packages/host/runtime/SPECS.md`](../packages/host/runtime/SPECS.md) § 8; what it still lacks: [RESERVATIONS.md](./RESERVATIONS.md) § I10, I12–I15
+- Operator live view (`mason watch` / `status` / `dash`), the journal, and what a run films of its children: [`packages/host/runtime/SPECS.md`](../packages/host/runtime/SPECS.md) § 8
 - Kernel packages: [`packages/kernel/README.md`](../packages/kernel/README.md)
 - Host and its kits: [`packages/host/README.md`](../packages/host/README.md)
 - Plugins: [`packages/plugins/README.md`](../packages/plugins/README.md)

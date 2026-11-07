@@ -53,12 +53,14 @@ package's README — Host does not grow a `--repo` flag for it.
 | --------------- | -------------------------------------------------------------------------------------- |
 | `mason run`     | Drain the TicketTracker, run Conductor, report                                        |
 | `mason watch`   | Snapshot the ledger and follow the journal. Ctrl-C leaves the worker running           |
+| `mason dash`    | A dashboard that redraws itself: version (npm or local copy), worker running or stopped, active / upcoming / past. `t` flips to a dependency tree, `q` quits; `--tree`, `--once`, `--interval-ms N`, `--no-color` |
 | `mason status`  | Snapshot the ledger as a Feature / Ticket tree, then exit. `--json` for scripts        |
 | `mason log`     | Replay the journal, with the reason a phase stopped. `--problems` for just those       |
 | `mason init`    | Set this directory up: asks, writes the config and the Builder stub, then runs `setup` |
 | `mason setup`   | Prepare the tracker. A plan by default; `--apply` writes. Exit 1 on a blocked step     |
 | `mason doctor`  | Check the config, the slots, and the manager. Exit 1 on any failure                    |
 | `mason incident` | Gather what is known about one stop (ledger, journal, streams, transcripts) into one page, for a person to read or hand on. Without a key, list what waits. `--json`, `--out DIR`, `--with-config`. Read-only |
+| `mason supervise` | Watch a run from another process and do what a person would: find the cause of a stop with a council of agents, resume the run, and offer the change that stops it coming back. `--once`, `--dry-run`, `--supervisor-config FILE` |
 | `mason explain` | Say what an agent role starts with: prompt, plugins, skills, the project's profile. Read-only, offline. Exit 1 on a setup every attempt would fail on |
 | `mason cancel`  | Abandon a Ticket by key, when the tracker cannot say it is gone                       |
 | `mason restart` | Resume an escalated Feature with a fresh workspace, made again from its line. Offline: the tracker is not told |
@@ -165,6 +167,80 @@ of the last round and where the streams and transcripts are. What it could not
 find is listed under "Not found". Streams exist only if the Project turned them
 on (`--streams-dir`); without them the page has the Gate's report but not what
 the Gate printed.
+
+### Supervising a run
+
+> **In test, and meant to leave mason.** Do not rely on it unattended. Its move out of Host is issue #55.
+
+A run stops: a Gate blocks, two Tickets conflict, the disk fills, the worker dies. Each time, a person
+reads the page above, finds the cause, resumes, and fixes whatever made it happen. `supervise` does that
+by hand-work, in a loop, in a process of its own on the same ledger:
+
+```bash
+mason supervise --dry-run     # deliberate and write what it would do; do none of it
+mason supervise               # watch, decide, act
+mason supervise --once        # one pass, then exit
+```
+
+It watches for four things: an escalated Ticket or Feature, a journal silent while work is active, a
+worker gone, a disk running low. The last two it answers directly. For the first two it gathers the
+`incident` page, then three agents read it from different seats and cannot see each other (the
+*root cause*: the chain, with the code read; the *remedies*: every way to resume and to prevent; the
+*skeptic*: how the obvious answer fails). An *arbiter* reads the three and the code and decides: a
+cause with evidence, the moves that put the run back in motion, and the changes to make so it does not
+return. A decision it is not sure of (`confidence: low`) is not acted on: it is asked again with that
+on record. A stop only a person can settle is not resumed, but the changes that keep it from
+returning are still made.
+
+Every member reads the target's *rules* first (`targets.<name>.rules`, default `AGENTS.md`, which routes to
+the decisions and the product): the code says what mason does, the rules say what it must be. The arbiter
+states each fix as a result, its constraints and its proof, not as a design, and adds its *conformity* (the
+rules and decisions it touches). A fix that cannot reach its result without revisiting an accepted decision
+carries `revises`: it is not made and a person decides. The guard also reads the proposal before the fixer
+writes anything, and a change whose same guard point is rejected twice in a row is stopped for a person.
+
+The changes are made by a *fixer* agent in a worktree of its own, checked by the repository's own
+commands, then read by a *guard* agent that is shown the change and the repository but not the stop (does it
+fit the product, its decisions, its callers, its documents, and is it proved?) and refused without evidence.
+A change the guard approves is offered as a pull request, and left for a person to fold unless the target has
+`autoMerge: true`; nothing that waits on it moves meanwhile. Then whatever follows the fold
+(a release, an upgrade) runs. A Project declares which repositories may be changed; with none, the
+supervisor only moves the run. The moves are `resume`, `restart` (a Feature), `cancel`, `start-worker`,
+`restart-worker` and `cleanup-disk`; a bound is never one of them.
+
+It is configured in `mason.supervisor.yaml`, next to the main configuration. Nothing in it is required
+but what the Project wants done:
+
+```yaml
+pollIntervalMs: 15000
+maxAttempts: 3            # per ticket, before a person is asked
+cooldownMs: 300000        # after acting, the same finding is left this long to take effect
+worker:
+  start: { cmd: [mason, run], timeoutMs: 30000 }
+resume:                    # how a resume reaches the tracker: {key} and {number} are filled
+  cmd: [gh, issue, edit, "{number}", --repo, owner/name, --add-label, to-resume]
+diskCleanup:
+  - cmd: [sh, -c, "rm -rf .mason/workspaces/*done*"]
+notify: { cmd: [say, "mason needs you: {subject}"] }   # optional; needs-human.md is written either way
+agents:                    # defaults to Claude Code: plan mode for the council, a worktree for the fixer
+  arbiter: { cmd: [claude, -p, "{prompt}", --model, opus, --permission-mode, plan, "{addDirArgs}"] }
+targets:
+  mason:
+    repo: ../bluewombat                  # a checkout; the supervisor never edits it, it adds worktrees
+    base: main
+    checks:
+      - { cmd: [npm, test] }
+      - { cmd: [npm, run, lint] }
+    deny: [.github/workflows/]           # paths the fixer may not change
+    after:                               # once folded: cut and install the release, restart the worker
+      - { cmd: [sh, -c, "./scripts/ship-and-restart.sh"] }
+```
+
+`open`, `merge` and `merged` default to `gh pr create`, `gh pr merge --squash --auto` and a `gh pr view`
+state check; a repository that folds otherwise names its own. Everything the supervisor does is filed
+under `<home>/supervisor/`: `events.jsonl` (the film), `memory.json` (attempts per subject),
+`incidents/<stamp>-<key>/` (the dossier, each member's prompt and answer, `decision.json`,
+`outcomes.json`) and `needs-human.md`, the one page a person needs to read: what only they can decide.
 
 To abandon a Ticket the tracker can no longer mention (a deleted issue, a
 manager with no `probe`), stop `run` if it holds the ledger lock, then:
@@ -566,8 +642,7 @@ Ticket is not blocked by every other Ticket, as `invalid`, with the reason as a 
 
 What the Gate proves is a red/green verdict; what the operator reads is its text in the
 journal (`gate-finished`) — a red suite is also in the reason of the refusal the fix is
-given and in the escalation. A passing suite's text is not shown on the pull request: see
-RESERVATIONS I17.
+given and in the escalation. A passing suite's text is not shown on the pull request (issue #62).
 
 ### Describer
 
@@ -737,7 +812,7 @@ change that breaks it does not merge.
 | `config/`            | What a Project wrote: argv, `mason.config.yaml`, discovery, `HostOptions`. Pure: YAML in, options out                                                     | A runtime value (a Journal, a Port, a process handle)            | Node, `manager-kit` types                     |
 | `plugins/`           | Load a package by name and check its shape: a manager, an isolation strategy                                                                              | What to do with the loaded thing                                 | `config`                                      |
 | `loop/`              | The process: listen → probe → adapt → admit → run → report; composition (`open-host`, `transformers`, Authority, work line, lock, Cursor, journal, trace) | A command a human types; a string a human reads about the config | `plugins`, `config`, the kernel, Transformers |
-| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `incident`, `cancel`, `restart`, `release`, `board`, the terminal prompt                                | Anything the loop needs — the loop cannot see this layer         | everything below                              |
+| `operator/`          | Tools for a human: `init`, `setup`, `doctor`, `watch` / `status`, `log`, `incident`, `supervise/`, `cancel`, `restart`, `release`, `board`, the terminal prompt                                | Anything the loop needs — the loop cannot see this layer         | everything below                              |
 | `index.ts`, `cli.ts` | The package surface and the dispatch. Nothing else sits at the top of `src/`                                                                              | Logic                                                            | everything                                    |
 
 Host's code names no plugin. A manager, an isolation strategy, a persistence
@@ -792,6 +867,6 @@ src/
   config/                argv, JSON config, config discovery → HostOptions; defaults: the plugin names Host ships with
   plugins/               load: the one loader; manager, isolation, persist: one shape each; discover
   loop/                  open-host (composition), tick (the loop), deliveries, drive, probe, report, authority, work-line, cursor, lock, journal (the film), streams (what a child said), trace, transformers
-  operator/              run, init, setup, doctor, explain, live (watch / status), log, incident, film, cancel, release, board, prompt, git-remote
+  operator/              run, init, setup, doctor, explain, live (watch / status), log, incident, supervise/ (observe, council, act), film, cancel, release, board, prompt, git-remote
 fixtures/                stand-in slots for the loop's tests
 ```

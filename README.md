@@ -40,8 +40,8 @@ bluewombat is the system — the npm packages `@bluewombat/*` and the rules they
 follow. mason is the name on the binary, the config file, the home directory,
 and the labels it writes on a tracker.
 
-This is a 0.x cut. Node.js 24.20 is required. What has been run for real, and
-what has not, is in [docs/RESERVATIONS.md](./docs/RESERVATIONS.md).
+This is a 0.x cut. Node.js 24.20 is required. What has not yet run on a real
+Project is tracked as issues labelled `trial`.
 
 ## Use it
 
@@ -160,7 +160,7 @@ to work in the repo: [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 | [`packages/kernel/`](./packages/kernel/README.md)   | What stands alone: Conductor, WorkLedger, the four Transformers                 |
 | [`packages/host/`](./packages/host/README.md)       | What runs it (`runtime`, the binary `mason`) and the contracts a plugin answers |
 | [`packages/plugins/`](./packages/plugins/README.md) | What a config names: managers, isolation strategies, persistence, slots         |
-| [`docs/`](./docs/INDEX.md)                          | Product, layout, toolchain, decisions, reservations                             |
+| [`docs/`](./docs/INDEX.md)                          | Product, layout, toolchain, decisions                                           |
 
 ## Stack
 
@@ -182,4 +182,3 @@ on purpose.
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Understanding how it is built                       |
 | [packages/README.md](./packages/README.md)     | Who exists, who may import whom                     |
 | [docs/DECISIONS.md](./docs/DECISIONS.md)       | Understanding why                                   |
-| [docs/RESERVATIONS.md](./docs/RESERVATIONS.md) | What is not settled, and what was never proved      |

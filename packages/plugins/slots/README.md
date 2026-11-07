@@ -104,7 +104,10 @@ others, plus the names given with `--pass-env`), not the operator's whole
 shell; git's credential helpers are cleared for it; and `ssh`, `scp` plus the
 commands given with `--deny-shell` are denied in its own `cli-config.json`,
 rewritten every run. That
-lowers a risk and confines nothing (RESERVATIONS F32). `claude.mjs`
+lowers a risk and confines nothing: the deny list matches command names (`node -e`,
+`env gh` or an absolute path pass), the operator's files stay readable, the login
+keychain is reachable unless `gh` and `security` are denied, and `CURSOR_API_KEY`
+is visible to the agent. Real confinement is issue #36. `claude.mjs`
 needs `claude`, signed in once, and refuses those two flags: Claude is not
 isolated yet, and starting it would keep the operator's own config.
 
@@ -373,6 +376,22 @@ Every Gate answers with one JSON object on stdout — `{"verdict":"pass"}`, or
 `fail-retryable` / `fail-blocking` with a `report`. Which sequence a Gate belongs
 in, and what mason appends to its argv, is in
 [`@bluewombat/runtime`](../../host/runtime/README.md).
+
+What no Gate can see, by construction:
+
+- `sensitive-path` compares the workspace with `HEAD`, so a Builder that commits
+  its work makes it blind. `workspace-changed` covers that by refusing a workspace
+  with nothing uncommitted; keep both. On the recheck after align the work is
+  committed and `sensitive-path` always passes: use `base-diff --deny GLOB`
+  where the recheck or the Feature must answer.
+- `workspace-unchanged` on `assembly.validate` runs after the Project's own
+  commands: one that writes outside `.gitignore` (coverage, `.tsbuildinfo`, a build
+  directory) reads as the review writing. Allow those paths with `--allow GLOB`.
+- `parent-clean` on a Parent with no `.git` takes the workspace's oldest file as
+  its baseline time: a heuristic (copy mode, issue #48).
+- `workspace-changed` asks whether something changed, not whether the change
+  answers the report: a producer that ignores its report and changes something
+  else passes.
 
 ```yaml
 builder:

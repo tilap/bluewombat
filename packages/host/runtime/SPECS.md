@@ -202,6 +202,19 @@ than waited for; the Transformer then answers `interrupted`. `mason run` exits
 130 on an interrupt, wherever it landed; else 1 when the last run was refused,
 0 otherwise.
 
+Children are reaped by the `exit` hook of `mason run`
+(`scripts/templates/process-tree.ts`): a SIGKILL runs no hook, so an agent at
+work and what it started run on until they end by themselves. A kill reads the
+descendants from `ps` and signals each one as well as its group; a process
+started between that read and the kill, or one that daemonised before it,
+escapes. Only an outside reaper (a cgroup, a job object) would close both.
+
+The WorkLedger is the only memory. A wiped ledger re-admits every open issue
+that still carries the admission labels; with `stateLabels` set, the GitHub
+listener skips an issue already labelled `done` or `cancelled` (unless it also
+carries the resume signal), which keeps merged work from being rebuilt. A
+tracker with no state of its own has no such guard.
+
 Each pass appends JSON lines to `<ledgerRoot>/events.jsonl` (listen, probed,
 Transformer progress, admitted, reported, queued, idle, a heartbeat while
 `submitted`, one `held` while a unit waits on a bail that has not expired).
@@ -234,7 +247,7 @@ the Ticket that was driven. The work line copy is refreshed onto the Feature's
 line before a Ticket starts: starting on a copy that was not fast-forwarded
 would build on a version that no longer exists.
 
-## 8. init, setup, doctor, watch, status, log, incident, cancel and release
+## 8. init, setup, doctor, watch, status, dash, log, incident, cancel and release
 
 `init` writes a config that already runs: the Builder is a stub that says what to replace
 (example Cursor CLI and Claude Code Builders live in `@bluewombat/slots/builders/`),
@@ -380,6 +393,34 @@ running. The file can grow without rotation. A followed line that records a
 stop includes the child's last words (`detail`, `reason`, a non-zero exit, a
 Gate report that did not pass). `run` prints that same note under the phase
 label.
+
+`dash` is a third view of the same two files, meant to be left open. It opens the
+ledger and the journal and nothing else, like `watch`, and at a terminal it takes the
+alternate screen and redraws it every `--interval-ms` (default 2000, at least 200)
+until SIGINT, which gives the screen back; on a pipe, or with `--once`, it prints one
+frame with no escape codes. It says which copy of Host answers (the version, and
+`npm package` when the code sits under a `node_modules`, else `local copy <dir>` — a
+linked checkout), and whether the worker is there: the lock file names a pid that is
+still alive (`running`, since the `host-started` line of that pid, with the version it
+announced; a different version from the command's is flagged), or it does not (`stopped`;
+`died without saying so` when the last `host-started` has no `host-stopped` after it).
+Then three lists. ACTIVE: Features and Tickets being worked on or waiting for someone —
+escalated and invalid first, then running, integrating, merging, submitted. UPCOMING:
+`received` Tickets and `waiting` Features, with the keys each still waits on. PAST:
+`done` and `cancelled`, newest first. Each state has an icon and a colour, and each row
+carries the last journal line that names its key and its age. The ledger holds no
+finish time, so PAST's order and the ages come from the last 512 KiB of the journal; a
+row older than that has no age and sorts last. Rows are cut to the terminal's width and
+each list to its share of its height, with `… +N more` for the rest. Pure rendering
+(`dash-view.ts`) is apart from the gathering (`dash-model.ts`).
+
+At a terminal `t` flips the list for a tree (`--tree` opens on it), `r` redraws, `q` or Ctrl-C
+leaves; stdin is put in raw mode for that, which is why Ctrl-C arrives as a key. The tree
+holds what is not over: a row hangs under the first thing it waits on (`blocked_by`), or
+under its Feature when it waits on nothing, so what a stop holds back is under it. A row
+that waits on several things appears once, under the first, and names the others with
+`⛓`. Done and cancelled are only counted. A dependency cycle in the tracker is cut, not
+looped.
 
 `log` reads that same journal and exits. It does not follow, and it does not
 open a manager or Host. Quiet lines (`idle`, a listen that delivered nothing)

@@ -11,8 +11,11 @@ covers:
 
 How bluewombat proves that a Feature does what was asked. The rules are in
 [PRODUCT.md](./PRODUCT.md); the choices and what they replaced are in
-[DECISIONS.md](./DECISIONS.md); what is unproved is in
-[RESERVATIONS.md](./RESERVATIONS.md) (C37, F35, U22, I17). This note gives the picture and the history.
+[DECISIONS.md](./DECISIONS.md). This note gives the picture and the history.
+
+A Project with the check must exclude `feature-tests/results/` in its `.gitignore`:
+`sensitive-path`, which freezes the feature tests during the Feature's fix, would
+read the run's JUnit file as a change to the tests.
 
 ## What there is
 
