@@ -23,11 +23,13 @@ export async function createChild(input: {
   backend: IsolationBackend;
   /** Passed to the strategy; may name a branch or other label. */
   id?: string;
+  /** Continue the work an earlier isolation under this id handed on. */
+  resume?: boolean;
   deadlineMs: number;
   now: () => number;
   shouldInterrupt: () => boolean;
 }): Promise<CreateChildResult> {
-  const { parent, child, backend, id, deadlineMs, now, shouldInterrupt } = input;
+  const { parent, child, backend, id, resume, deadlineMs, now, shouldInterrupt } = input;
   let created = false;
 
   const shouldStop = (): IsolationStop | undefined => {
@@ -56,6 +58,7 @@ export async function createChild(input: {
       parent,
       child,
       ...(id === undefined ? {} : { id }),
+      ...(resume === true ? { resume: true } : {}),
       timeoutMs: remainingMs(deadlineMs, now()),
       shouldInterrupt,
       shouldStop,

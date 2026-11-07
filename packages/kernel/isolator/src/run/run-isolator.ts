@@ -96,6 +96,7 @@ async function runIsolation(input: {
     child: invocation.child,
     backend,
     ...(invocation.id === undefined ? {} : { id: invocation.id }),
+    ...(invocation.resume === true ? { resume: true } : {}),
     deadlineMs,
     now,
     shouldInterrupt,

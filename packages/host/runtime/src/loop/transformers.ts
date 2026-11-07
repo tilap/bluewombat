@@ -330,6 +330,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
           child: input.child,
           durationMs: input.durationMs,
           ...(input.context === undefined ? {} : { context: input.context }),
+          ...(input.resume === true ? { resume: true } : {}),
         },
         backend: slots.isolation,
         write,

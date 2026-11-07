@@ -326,4 +326,55 @@ describe("branchNameOf", () => {
     // Nothing changes for an id that fits.
     assert.equal(branchNameOf("jira:APP-123"), "issue/jira-app-123");
   });
+
+  describe("isolating again a space that already published", () => {
+    function publishedBranch(): { parent: string; root: string; child: string } {
+      const { parent, root } = gitParent({ "a.txt": "base" });
+      const child = join(root, "child");
+      execFileSync("git", ["worktree", "add", "-b", branchNameOf("feat-1"), child], {
+        cwd: parent,
+      });
+      writeFileSync(join(child, "published.txt"), "work");
+      execFileSync("git", ["add", "."], { cwd: child });
+      execFileSync("git", ["commit", "-m", "work"], { cwd: child });
+      rmSync(child, { recursive: true, force: true });
+      return { parent, root, child };
+    }
+
+    it("starts over from the Parent without resume", async () => {
+      const { parent, child } = publishedBranch();
+      const result = await runIsolator({
+        backend: strategy.isolation,
+        invocation: { id: "feat-1", parent, child, durationMs: 30_000 },
+        write: () => {},
+      });
+      assert.equal(result.outcome, "isolated");
+      assert.equal(existsSync(join(child, "published.txt")), false);
+    });
+
+    it("continues the published branch with resume", async () => {
+      const { parent, child } = publishedBranch();
+      writeFileSync(join(parent, "a.txt"), "parent edit");
+      const result = await runIsolator({
+        backend: strategy.isolation,
+        invocation: { id: "feat-1", parent, child, durationMs: 30_000, resume: true },
+        write: () => {},
+      });
+      assert.equal(result.outcome, "isolated");
+      assert.equal(readFileSync(join(child, "published.txt"), "utf8"), "work");
+      assert.equal(readFileSync(join(child, "a.txt"), "utf8"), "base");
+    });
+
+    it("makes the branch from the Parent when resume finds none", async () => {
+      const { parent, root } = gitParent({ "a.txt": "base" });
+      const child = join(root, "child");
+      const result = await runIsolator({
+        backend: strategy.isolation,
+        invocation: { id: "feat-2", parent, child, durationMs: 30_000, resume: true },
+        write: () => {},
+      });
+      assert.equal(result.outcome, "isolated");
+      assert.equal(readFileSync(join(child, "a.txt"), "utf8"), "base");
+    });
+  });
 });

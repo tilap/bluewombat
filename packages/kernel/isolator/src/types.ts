@@ -24,6 +24,11 @@ export type Invocation = {
    * untouched, for whoever reads the film and has to group by ticket.
    */
   context?: string;
+  /**
+   * The space was isolated before and its work was handed on since: a strategy
+   * continues that work instead of starting over from the Parent.
+   */
+  resume?: boolean;
   onStatusArgv?: string[];
 };
 

@@ -5,6 +5,7 @@ import type { Invocation, ParseResult } from "../types.js";
 const ISOLATOR_FLAGS = new Set([
   "--id",
   "--context",
+  "--resume",
   "--parent",
   "--child",
   "--duration-ms",
@@ -119,6 +120,7 @@ function withPartial(
 export function parseArgs(argv: string[]): ParseResult {
   let id: string | undefined;
   let context: string | undefined;
+  let resume = false;
   let parent: string | undefined;
   let child: string | undefined;
   let durationMs: number | undefined;
@@ -149,6 +151,12 @@ export function parseArgs(argv: string[]): ParseResult {
       }
       context = taken.value;
       i = taken.next;
+      continue;
+    }
+
+    if (token === "--resume") {
+      resume = true;
+      i += 1;
       continue;
     }
 
@@ -278,6 +286,9 @@ export function parseArgs(argv: string[]): ParseResult {
   };
   if (context !== undefined) {
     invocation.context = context;
+  }
+  if (resume) {
+    invocation.resume = true;
   }
   if (onStatusArgv !== undefined) {
     invocation.onStatusArgv = onStatusArgv;

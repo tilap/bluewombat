@@ -516,6 +516,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         parent: workLineStable,
         child: workspace,
         durationMs,
+        ...(got.aggregate.submission === undefined ? {} : { resume: true }),
       });
     });
     if (cut === undefined) {
