@@ -58,6 +58,8 @@ export function runSlot(input: {
   cwd?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   timeoutMs: number;
+  /** The clock the suspension watcher reads; tests move it. */
+  now?: (() => number) | undefined;
 }): Promise<SlotRun> {
   return new Promise((resolve) => {
     let settled = false;
@@ -65,7 +67,7 @@ export function runSlot(input: {
     let stdout = "";
     let stderr = "";
     let timer: NodeJS.Timeout | undefined;
-    const asleep = watchSuspension();
+    const asleep = watchSuspension(input.now);
 
     const finish = (status: number | null): void => {
       if (settled) {
@@ -129,19 +131,30 @@ export function runSlot(input: {
       finish(status);
     });
 
-    timer = setTimeout(
-      () => {
-        const lost = asleep.suspendedMs();
-        failure ??= new Error(
-          `killed after ${input.timeoutMs}ms, its own ceiling${
-            lost === 0
-              ? ""
-              : `. The clock ran ${minutes(lost)} of that while this process was not running (the machine asleep or paused): the slot had about ${minutes(Math.max(0, input.timeoutMs - lost))} of working time, not the whole ceiling`
-          }`,
-        );
-        killAndCut(child);
-      },
-      Math.max(1, input.timeoutMs),
-    );
+    // The ceiling is working time: each time it fires, it is pushed back by
+    // the time the process was suspended since the last look.
+    let granted = 0;
+    const arm = (ms: number): void => {
+      timer = setTimeout(
+        () => {
+          const extension = asleep.suspendedMs() - granted;
+          if (extension > 0) {
+            granted += extension;
+            arm(extension);
+            return;
+          }
+          failure ??= new Error(
+            `killed after ${input.timeoutMs}ms, its own ceiling${
+              granted === 0
+                ? ""
+                : `, not counting ${minutes(granted)} while this process was not running (the machine asleep or paused)`
+            }`,
+          );
+          killAndCut(child);
+        },
+        Math.max(1, ms),
+      );
+    };
+    arm(input.timeoutMs);
   });
 }
