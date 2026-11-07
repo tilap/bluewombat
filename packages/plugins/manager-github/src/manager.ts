@@ -250,7 +250,11 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
         },
         interruptFlag: options.interruptFlag,
       });
-      return { outcome: listened.outcome, deliveries };
+      const result: ListenResult = { outcome: listened.outcome, deliveries };
+      if (listened.detail !== undefined) {
+        result.detail = listened.detail;
+      }
+      return result;
     },
 
     async adapt(payload): Promise<AdaptResult> {

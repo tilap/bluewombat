@@ -128,7 +128,7 @@ isolated yet, and starting it would keep the operator's own config.
 | `--deny-shell NAME`                | With `--agent-home`, also refuse this command to the vendor (`gh`, `vercel`…). `ssh` and `scp` always are. Repeatable           |
 | `--plugin-dir DIR`                 | A plugin folder of the operator's (a Mason home's `ai-plugins/core/*`). Repeatable, loaded first                                |
 | `--app-deck-profile PATH`          | The app's deck profile for this role, as a path in the checkout: `[<app dir>/].ai/profiles/<name>`. Cursor only; Claude refuses |
-| `--plugins-out DIR`                | Where the profile is built, one folder per profile. Required with `--app-deck-profile`; never the workspace                     |
+| `--plugins-out DIR`                | Where the profile is built, one folder per workspace and profile. Required with `--app-deck-profile`; never the workspace      |
 | `--deck-bin PATH`                  | The deck CLI. Default: the `@pinkpuma/deck` this package depends on                                                             |
 | `--id` / `--attempt` / `--context` | How a transcript is filed. Forwarded by the role                                                                                |
 
@@ -139,7 +139,7 @@ An agent starts with plugin folders, each passed to the vendor as
 project's [deck](https://github.com/tilap/pinkpuma-deck) profile resolves to.
 
 `--app-deck-profile .ai/profiles/builder` runs `deck materialize -C <app dir> --profile builder --out
-<plugins-out>/builder --json` before the vendor starts. The working directory
+<plugins-out>/<workspace>/builder --json` before the vendor starts. The working directory
 is the checkout the agent works on, so a role gets what the project committed
 at that commit — the base `ai-plugin.json` and `.ai/profiles/builder/`, as their
 locks pin them — never what the operator has installed. deck refuses a request
@@ -163,9 +163,12 @@ author did. `cursor-agent` ran a Claude-format one (`${CLAUDE_PLUGIN_ROOT}`,
 `PostToolUse` on edits) on a real run; a hook that runs is part of the agent's
 time and of what it reads back.
 
-deck's cache (`~/.cache/pinkpuma-deck`, or `DECK_CACHE`) has no lock, and
-`--plugins-out` holds one folder per profile: both rely on a Mason run starting
-one agent at a time, which it does.
+deck's cache (`~/.cache/pinkpuma-deck`, or `DECK_CACHE`) has no lock, so agents that
+start together (`ticket.maxParallel` above 1) materialize one after the other: the
+wrapper holds a lock in `--plugins-out` while deck runs, and takes it over when its
+holder is gone. Each workspace has its own folder there, so a running agent's plugins
+are never rewritten by another's start. The folder of a workspace that no longer exists
+is removed the next time an agent starts.
 
 `claude.mjs` takes `--plugin-dir` but refuses `--app-deck-profile`: not isolated, Claude
 also loads the operator's plugins and the project's `.claude/settings.json`, so
@@ -417,7 +420,11 @@ it first: every Gate after it then judges work that exists. It passes at
 producer to send back.
 
 `parent-clean` fail-blocks if Isolator's Parent working files changed
-(`--parent DIR`, or the other git worktrees of this Child).
+(`--parent DIR`, plus the main worktree of this Child's repository). Only files written
+after the Child was created count, so an edit that was already there is not a leak. The
+other linked worktrees are sibling Children (parallel tickets, escalated leftovers) and are
+ignored; `--siblings` watches them too, for a serial run. Not covered: an Agent writing
+into a sibling worktree.
 
 `sensitive-path` fail-retries if the workspace changed a path matching a glob.
 `*` is one segment, `**` any depth. It looks at what a fold can carry out of
@@ -591,7 +598,20 @@ in the workspace, and the Gate runs it, compares and judges.
 
 A scenario is a manifest id, and every test carries its id in its name (`S2 pays by card`). The
 comparison is exact: an id with no test, a test with no manifest id, and a test the runner
-skipped are failures. There is no retry. The verdict:
+skipped are failures. There is no retry.
+
+The report must therefore hold **only** the Feature's scenarios. A name filter is enough only for a
+runner that leaves the filtered-out tests out of its report. A runner that lists them as `skipped`
+(Vitest with `-t` does) puts tests with no manifest id in the report, and the Gate refuses the run
+(`tests that carry no id of the manifest`): restrict the files the command loads as well, for
+example to the files that hold the Feature's tests by a naming convention.
+
+```yaml
+# Vitest: only the *.feature.test.ts files are loaded, then only the manifest's scenarios run
+- pnpm exec vitest run .feature.test.ts -t "{ids}" --reporter=junit --outputFile={junit}
+```
+
+`{ids}` and `{junit}` are both required in `--run`; `mason doctor` warns when one is missing. The verdict:
 
 | Verdict | When |
 | --- | --- |

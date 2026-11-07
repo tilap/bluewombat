@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { listOption, textOption } from "@bluewombat/slot-kit";
@@ -13,15 +22,18 @@ import { listOption, textOption } from "@bluewombat/slot-kit";
 //                         checkout: `[<app dir>/].ai/profiles/<name>`. The base
 //                         and that profile, as the app's locks pin them
 //   --plugins-out DIR     where the profile is materialized, one folder per
-//                         profile. Required with --app-deck-profile: never the
+//                         workspace and profile (<DIR>/<workspace>/<profile>).
+//                         Required with --app-deck-profile: never the
 //                         workspace, whose tree the Gates read
 //   --deck-bin PATH       the deck CLI. Default: the @pinkpuma/deck this
 //                         package depends on
 //
 // The profile is read from the working directory — the checkout the agent
 // works on — so a role gets what the project committed at that commit, not
-// what the operator has installed. Agents of one Mason run one at a time,
-// which is why one folder per profile is enough.
+// what the operator has installed. Agents of one Mason may run side by side
+// (ticket.maxParallel above 1): each workspace has its own folder, so one
+// agent's plugins are never rewritten under another, and the runs of deck
+// that fill them take turns, because deck's cache has no lock of its own.
 
 const PROFILE_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 
@@ -111,19 +123,34 @@ export function loadPlugins(options, cwd) {
   if (!deck.ok) {
     return deck;
   }
+  const outRoot = resolve(cwd, out);
   const args = [
     deck.path,
     "materialize",
     "-C",
     appDir,
     "--out",
-    resolve(cwd, out, profile),
+    join(outRoot, workspaceSegment(cwd), profile),
     "--json",
     ...(hasProfile ? ["--profile", profile] : []),
   ];
   // No timeout: this runs inside the agent wrapper's own process group, so
   // the slot's deadline ends deck with it.
-  const run = spawnSync(process.execPath, args, { cwd, encoding: "utf8" });
+  /** @type {import("node:child_process").SpawnSyncReturns<string>} */
+  let run;
+  try {
+    run = takingTurns(outRoot, () => {
+      retireStaleFolders(outRoot);
+      markWorkspace(outRoot, cwd);
+      return spawnSync(process.execPath, args, { cwd, encoding: "utf8" });
+    });
+  } catch (error) {
+    const said = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      reason: `deck materialize could not start for profile ${profile}: ${said}`,
+    };
+  }
   if (run.error !== undefined || run.status !== 0) {
     const said = (run.stderr || run.error?.message || `exit ${run.status}`).trim();
     return {
@@ -144,6 +171,127 @@ export function loadPlugins(options, cwd) {
     prompt: profilePrompt(result.prompt),
     notes: hasProfile ? [] : [`The app has no deck profile ${given}: base plugins only.`],
   };
+}
+
+const WORKSPACE_MARK = ".workspace";
+const LOCK_NAME = ".materialize.lock";
+const LOCK_WAIT_MS = 10 * 60 * 1000;
+const LOCK_CREATION_GRACE_MS = 10 * 1000;
+
+/**
+ * The folder under `--plugins-out` that belongs to one workspace: the same
+ * name every time the same directory asks, a different one for each directory.
+ *
+ * @param {string} cwd
+ * @returns {string}
+ */
+export function workspaceSegment(cwd) {
+  return createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 12);
+}
+
+/**
+ * Record whose folder this is, so that it can be dropped once the workspace is gone.
+ *
+ * @param {string} outRoot
+ * @param {string} cwd
+ */
+function markWorkspace(outRoot, cwd) {
+  const folder = join(outRoot, workspaceSegment(cwd));
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, WORKSPACE_MARK), `${resolve(cwd)}\n`);
+}
+
+/**
+ * Drop the folders of workspaces that no longer exist (a ticket that landed
+ * clears its own). Only a folder that carries the mark is touched.
+ *
+ * @param {string} outRoot
+ */
+function retireStaleFolders(outRoot) {
+  let names;
+  try {
+    names = readdirSync(outRoot);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const folder = join(outRoot, name);
+    let owner;
+    try {
+      owner = readFileSync(join(folder, WORKSPACE_MARK), "utf8").trim();
+    } catch {
+      continue;
+    }
+    if (owner.length > 0 && !existsSync(owner)) {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }
+}
+
+/**
+ * Run `work` while holding the lock of `outRoot`: two agents starting together
+ * materialize one after the other, since deck's cache has no lock. A lock whose
+ * holder is gone is taken over.
+ *
+ * @template T
+ * @param {string} outRoot
+ * @param {() => T} work
+ * @returns {T}
+ */
+function takingTurns(outRoot, work) {
+  mkdirSync(outRoot, { recursive: true });
+  const lock = join(outRoot, LOCK_NAME);
+  const giveUpAt = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") {
+        throw error;
+      }
+    }
+    if (holderGone(lock)) {
+      rmSync(lock, { recursive: true, force: true });
+      continue;
+    }
+    if (Date.now() > giveUpAt) {
+      throw new Error(`another agent held ${lock} for more than ${LOCK_WAIT_MS / 60000} minutes`);
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+  }
+  try {
+    writeFileSync(join(lock, "pid"), String(process.pid));
+    return work();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Whether the process that took `lock` is gone. A lock with no pid yet was
+ * just made: it is given a few seconds to say whose it is.
+ *
+ * @param {string} lock
+ * @returns {boolean}
+ */
+function holderGone(lock) {
+  let pid;
+  try {
+    pid = Number(readFileSync(join(lock, "pid"), "utf8"));
+  } catch {
+    try {
+      return Date.now() - statSync(lock).mtimeMs > LOCK_CREATION_GRACE_MS;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return /** @type {NodeJS.ErrnoException} */ (error).code === "ESRCH";
+  }
 }
 
 /**

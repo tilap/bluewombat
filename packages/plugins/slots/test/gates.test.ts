@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -121,6 +121,41 @@ describe("parent-clean", () => {
     const result = verdictOf(run(parentClean, child));
     assert.equal(result.verdict, "fail-blocking");
     assert.match(result.report, /leaked\.txt/);
+  });
+
+  it("ignores a dirty sibling worktree unless --siblings is given", () => {
+    const root = sandbox();
+    const parent = join(root, "parent");
+    const sibling = join(root, "sibling");
+    const child = join(root, "child");
+    mkdirSync(parent);
+    gitInit(parent);
+    writeFileSync(join(parent, "seed.txt"), "ok\n");
+    gitCommit(parent, "seed");
+    execFileSync("git", ["-C", parent, "worktree", "add", "--detach", sibling]);
+    execFileSync("git", ["-C", parent, "worktree", "add", "--detach", child]);
+    writeFileSync(join(sibling, "wip.txt"), "another ticket\n");
+    assert.equal(verdictOf(run(parentClean, child)).verdict, "pass");
+    const strict = verdictOf(run(parentClean, child, ["--siblings"]));
+    assert.equal(strict.verdict, "fail-blocking");
+    assert.match(strict.report, /wip\.txt/);
+  });
+
+  it("does not count a main worktree edit that predates the Child", () => {
+    const root = sandbox();
+    const parent = join(root, "parent");
+    const child = join(root, "child");
+    mkdirSync(parent);
+    gitInit(parent);
+    writeFileSync(join(parent, "seed.txt"), "ok\n");
+    gitCommit(parent, "seed");
+    writeFileSync(join(parent, "seed.txt"), "edited by a human\n");
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(join(parent, "seed.txt"), past, past);
+    execFileSync("git", ["-C", parent, "worktree", "add", "--detach", child]);
+    assert.equal(verdictOf(run(parentClean, child)).verdict, "pass");
+    writeFileSync(join(parent, "leaked.txt"), "out\n");
+    assert.equal(verdictOf(run(parentClean, child)).verdict, "fail-blocking");
   });
 
   it("ignores a worktree git still lists after its directory went away", () => {

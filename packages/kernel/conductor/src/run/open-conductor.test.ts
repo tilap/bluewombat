@@ -1741,6 +1741,77 @@ describe("openConductor corrective loops", () => {
     assert.equal(ran.filter((id) => id === "fake:42:recheck").length, 2);
   });
 
+  it("still repairs an align conflict when the rounds spent were realigns", async () => {
+    // The line moved on under the Submission once (a realign, no fault of the work), then the
+    // next align conflicts. With a budget of 2 that conflict is still owed its one repair.
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    let aligns = 0;
+    const fixed: (string | undefined)[] = [];
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        if (input.id.endsWith(":fix")) {
+          fixed.push(input.report);
+        }
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+      async integrate(input) {
+        if (input.id.endsWith(":align")) {
+          aligns += 1;
+          return aligns === 2 ? { outcome: "conflict" } : { outcome: "integrated" };
+        }
+        return { outcome: "integrated" };
+      },
+    });
+    const acted: string[] = [];
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith(acted, ["conflict", "folded"]),
+      workLineTarget: "dev",
+      fixDeclared: true,
+      maxRefusals: 2,
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    assert.equal(outcome, "done");
+    assert.equal(fixed.length, 1);
+    assert.match(fixed[0] ?? "", /conflicts/);
+  });
+
+  it("stops for a person when the conflict repairs themselves use the budget", async () => {
+    const { stable, root } = tempPair();
+    const ledger = openWorkLedger({ persist: openMemoryPersist() });
+    await ledger.admit(ticket());
+    let fixes = 0;
+    const { transformers } = recordingTransformers({
+      async implement(input) {
+        if (input.id.endsWith(":fix")) {
+          fixes += 1;
+        }
+        return { outcome: "validated", traces: [{ ended: "validated" }] };
+      },
+      async integrate(input) {
+        return input.id.endsWith(":align") ? { outcome: "conflict" } : { outcome: "integrated" };
+      },
+    });
+    const conductor = openConductor({
+      ledger,
+      transformers,
+      workLineStable: stable,
+      workspaceRoot: root,
+      authority: authorityWith([]),
+      workLineTarget: "dev",
+      fixDeclared: true,
+      maxRefusals: 2,
+    });
+    const outcome = await runUntil(conductor, (o) => o === "done" || o === "escalated");
+    assert.equal(outcome, "escalated");
+    assert.equal(fixes, 1, "a conflict that stays after its repair is for a person");
+  });
+
   it("stops for a person when nothing can fix a failed recheck", async () => {
     const { stable, root } = tempPair();
     const ledger = openWorkLedger({ persist: openMemoryPersist() });

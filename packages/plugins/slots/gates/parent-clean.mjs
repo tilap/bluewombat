@@ -5,11 +5,17 @@ import { join, relative, resolve } from "node:path";
 import { emitVerdict, GATE_FLAGS, ownArgv } from "@bluewombat/slot-kit";
 
 // Parent working files must not change during the Attempt.
-// --parent DIR (repeatable). Other git worktrees of this Child are included.
+// --parent DIR (repeatable): always watched.
+// The main worktree of this Child's repository is watched too. Its other linked
+// worktrees are sibling Children (parallel tickets, escalated leftovers): they are
+// legitimately dirty, so they are ignored unless --siblings is given.
+// A watched git tree only counts files modified after this Child was created, so
+// work that was already there (a human's uncommitted edit) is not a leak.
 
 const cwd = resolve(process.cwd());
 const tokens = ownArgv(process.argv, GATE_FLAGS);
 const named = [];
+let withSiblings = false;
 
 for (let i = 0; i < tokens.length; i++) {
   const token = tokens[i];
@@ -23,12 +29,19 @@ for (let i = 0; i < tokens.length; i++) {
     i += 1;
     continue;
   }
-  emitVerdict("fail-blocking", `parent-clean does not take "${token}". Use --parent <dir>.`);
+  if (token === "--siblings") {
+    withSiblings = true;
+    continue;
+  }
+  emitVerdict(
+    "fail-blocking",
+    `parent-clean does not take "${token}". Use --parent <dir> or --siblings.`,
+  );
   process.exit(0);
 }
 
 const parents = [...named];
-for (const worktree of otherWorktrees(cwd)) {
+for (const worktree of otherWorktrees(cwd, withSiblings)) {
   if (!parents.includes(worktree)) {
     parents.push(worktree);
   }
@@ -67,15 +80,22 @@ if (leaked.length > 0) {
 
 emitVerdict("pass");
 
-/** Other worktrees of this repository, minus the ones git has marked prunable. */
-/** @param {string} workspace @returns {string[]} */
-function otherWorktrees(workspace) {
+/**
+ * The main worktree of this repository (git lists it first), plus the other linked
+ * worktrees when `siblings` is set. Worktrees git has marked prunable are left out.
+ */
+/** @param {string} workspace @param {boolean} siblings @returns {string[]} */
+function otherWorktrees(workspace, siblings) {
   const result = git(workspace, ["worktree", "list", "--porcelain"]);
   if (result.status !== 0) {
     return [];
   }
   const trees = [];
-  for (const record of result.stdout.split("\n\n")) {
+  const records = result.stdout.split("\n\n");
+  for (const [index, record] of records.entries()) {
+    if (index > 0 && !siblings) {
+      break;
+    }
     const lines = record.split("\n");
     const entry = lines.find((line) => line.startsWith("worktree "));
     if (entry === undefined || lines.some((line) => line.startsWith("prunable"))) {
@@ -100,10 +120,12 @@ function leaksIn(parent, workspace) {
     if (status.status !== 0) {
       return [`${parent}: git status failed`];
     }
+    const referenceMs = referenceTime(workspace);
     const lines = status.stdout
       .split("\n")
       .map((line) => line.trimEnd())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((line) => !untouchedSince(parent, line, referenceMs));
     return lines.map((line) => `${relative(workspace, parent) || parent}: ${line}`);
   }
   const referenceMs = referenceTime(workspace);
@@ -115,6 +137,22 @@ function leaksIn(parent, workspace) {
     }
   });
   return dirty;
+}
+
+/**
+ * A status line whose file still exists and was last written before the Child was
+ * created is older than the Attempt. A deletion has no date and always counts.
+ * @param {string} parent
+ * @param {string} line
+ * @param {number} referenceMs
+ */
+function untouchedSince(parent, line, referenceMs) {
+  const path = line.slice(3).split(" -> ").at(-1) ?? "";
+  try {
+    return statSync(join(parent, path.replace(/^"|"$/g, ""))).mtimeMs <= referenceMs;
+  } catch {
+    return false;
+  }
 }
 
 /** @param {string} workspace */

@@ -441,4 +441,62 @@ describe("runDoctor", () => {
     assert.equal(code, 0);
     assert.match(output, /warn {2}ticket fix.*escalate/);
   });
+  describe("the feature-tests Gate", () => {
+    const featureTestsGate = join(here, "../../fixtures/feature-tests.mjs");
+
+    function withRun(run: string[]): string {
+      return sandbox({
+        featureTracker: {
+          package: "@bluewombat/manager-fake",
+          options: { source: "./source", target: "./threads" },
+        },
+        ticketTracker: {
+          package: "@bluewombat/manager-fake",
+          options: { source: "./source", target: "./threads" },
+        },
+        workLine: { stable: "./stable", branch: "main", isolation: "@bluewombat/isolation-copy" },
+        authority: { enabled: true, publish: [node, noop], refresh: [node, noop] },
+        ticket: {
+          validate: { agent: false },
+          fix: { cmd: [node, builder], timeoutMs: 600_000 },
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
+        feature: {
+          fix: { cmd: [node, builder], timeoutMs: 600_000 },
+          validate: {
+            agent: false,
+            gates: {
+              gates: [
+                {
+                  id: "feature-tests",
+                  argv: [node, featureTestsGate, ...run],
+                  timeoutMs: 10_000,
+                },
+              ],
+            },
+          },
+          gates: { gates: [{ id: "check", argv: [node, gate], timeoutMs: 10_000 }] },
+        },
+      });
+    }
+
+    it("says nothing when --run carries {ids} and {junit}", async () => {
+      const { output } = await doctorIn(
+        withRun(["--run", 'pnpm test -t "{ids}" --reporter=junit --outputFile={junit}']),
+      );
+      assert.doesNotMatch(output, /warn {2}Feature validate gate feature-tests/);
+      assert.doesNotMatch(output, /FAIL {2}Feature validate gate feature-tests/);
+    });
+
+    it("warns when --run has no {ids} or no {junit}", async () => {
+      const { output } = await doctorIn(withRun(["--run", "pnpm test"]));
+      assert.match(output, /warn {2}Feature validate gate feature-tests.*no "\{ids\}"/);
+      assert.match(output, /warn {2}Feature validate gate feature-tests.*no "\{junit\}"/);
+    });
+
+    it("fails when --run is missing", async () => {
+      const { output } = await doctorIn(withRun([]));
+      assert.match(output, /FAIL {2}Feature validate gate feature-tests.*--run/);
+    });
+  });
 });
