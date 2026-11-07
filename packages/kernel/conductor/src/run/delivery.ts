@@ -54,6 +54,8 @@ export type DeliveryRead = {
   sentBack?: { report: string; refusedBy?: string | undefined } | undefined;
   /** Corrective rounds spent: refusals, parked refusals and realigns together. */
   spent: number;
+  /** How many of those rounds were realigns: the line moved on, and nothing was wrong with the work. */
+  realigned?: number | undefined;
   /** The Submission the work is offered under, once there is one. */
   submission?: { reference: string } | undefined;
 };
@@ -143,9 +145,20 @@ export function openDelivery(options: DeliveryOptions): Delivery {
     unit: DeliveryUnit,
     store: DeliveryStore,
     read: DeliveryRead,
-    why: { report: string; refusedBy?: string | undefined; blocking?: boolean },
+    why: {
+      report: string;
+      refusedBy?: string | undefined;
+      blocking?: boolean;
+      /**
+       * The line moving on is not a fault of the work, so the rounds it cost do not count against
+       * a repair of the conflict it caused: a ticket whose line moved twice would otherwise be
+       * stopped before the one repair that settles the conflict. Each repair is still a round.
+       */
+      ignoreRealigns?: boolean;
+    },
   ): Promise<ProjectRunResult> {
-    const canRepair = options.fixDeclared && why.blocking !== true && read.spent + 1 < maxRefusals;
+    const spent = read.spent - (why.ignoreRealigns === true ? (read.realigned ?? 0) : 0);
+    const canRepair = options.fixDeclared && why.blocking !== true && spent + 1 < maxRefusals;
     if (!canRepair) {
       return await store.freeze({
         kind: "assembly",
@@ -279,6 +292,7 @@ export function openDelivery(options: DeliveryOptions): Delivery {
           `changed since this ${unit.noun} started, and adapt the ${unit.noun}'s changes so they sit on top ` +
           "of it. Keep what the line changed.",
         refusedBy: "align",
+        ignoreRealigns: true,
       });
     }
     if (aligned.outcome !== "integrated") {

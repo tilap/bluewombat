@@ -342,6 +342,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
         return {
           sentBack: report === undefined ? undefined : { report, refusedBy },
           spent: spentOf(aggregate),
+          realigned: aggregate.submission?.realigns ?? 0,
           submission:
             aggregate.submission === undefined
               ? undefined
