@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SupervisorConfig } from "./config.js";
-import { type Decision, parseDecision } from "./decision.js";
-import { type Exec, fill, succeeded, tail } from "./exec.js";
+import { type Decision, lastJson, parseDecision } from "./decision.js";
+import { type Exec, type ExecResult, fill, succeeded, tail } from "./exec.js";
 import {
   arbiterPrompt,
   type Brief,
@@ -52,9 +52,19 @@ export async function runAgent(input: AgentRunInput): Promise<{ ok: boolean; tex
     ),
     { cwd: input.cwd, timeoutMs: spec.timeoutMs },
   );
-  const text = succeeded(result) ? result.stdout : tail(result);
+  const ok = succeeded(result) || answeredBeforeCeiling(result);
+  const text = ok ? result.stdout : tail(result);
   writeFileSync(join(input.dir, `${input.role}.out.md`), text);
-  return { ok: succeeded(result), text };
+  return { ok, text };
+}
+
+/**
+ * Every role ends its answer with a JSON block. An agent cut at its ceiling
+ * after writing one finished its work: the answer is kept, not counted as lost.
+ */
+function answeredBeforeCeiling(result: ExecResult): boolean {
+  const value = result.atCeiling === true ? lastJson(result.stdout) : undefined;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
