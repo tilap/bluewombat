@@ -143,10 +143,12 @@ const transcript = transcriptFor(process.argv, options, {
   prompt,
   plugins,
 });
+transcript.start();
 const run = await runAgent({
   file: bin,
   args,
   cwd,
+  onOutput: transcript.tap,
   ...(isolation.env === undefined ? {} : { env: isolation.env }),
 });
 const extras = extrasFromCursor(run.stdout, outputFormat, cwd);

@@ -346,6 +346,10 @@ values). Files are
 filed under the Ticket the Task belongs to, named for the Subtask and the
 Attempt. It belongs on the **agent** command, after `--`.
 
+The file is made before the agent starts and grows with its output, then replaced
+by the finished page. An Attempt killed at its ceiling or by an interrupt leaves
+the file as it was: the prompt, the output so far, and `exit: not returned`.
+
 ```yaml
 builder:
   producer:

@@ -58,6 +58,8 @@ export type AgentInvocation = {
    * inherits this one. The wrapper's own environment is never changed.
    */
   env?: NodeJS.ProcessEnv | undefined;
+  /** Called with each chunk as it arrives, before the run is over. */
+  onOutput?: ((stream: "stdout" | "stderr", chunk: string) => void) | undefined;
 };
 
 /**
@@ -69,7 +71,7 @@ export type AgentInvocation = {
  * `--output-format` has to be parsed from, and `stderr` alone, which is where
  * an agent says what it did.
  */
-export function runAgent({ file, args, cwd, env }: AgentInvocation): Promise<AgentRun> {
+export function runAgent({ file, args, cwd, env, onOutput }: AgentInvocation): Promise<AgentRun> {
   return new Promise((resolve) => {
     const startedAt = new Date();
     // process-tree:layer — started in this process's own group, never a group of
@@ -116,11 +118,13 @@ export function runAgent({ file, args, cwd, env }: AgentInvocation): Promise<Age
       stdout += chunk;
       output += chunk;
       process.stderr.write(chunk);
+      onOutput?.("stdout", chunk);
     });
     child.stderr?.on("data", (chunk: string) => {
       stderr += chunk;
       output += chunk;
       process.stderr.write(chunk);
+      onOutput?.("stderr", chunk);
     });
 
     child.on("error", (error) => {

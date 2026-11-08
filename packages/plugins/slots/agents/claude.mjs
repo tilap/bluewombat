@@ -116,7 +116,8 @@ const transcript = transcriptFor(process.argv, options, {
   prompt,
   plugins,
 });
-const run = await runAgent({ file: bin, args, cwd });
+transcript.start();
+const run = await runAgent({ file: bin, args, cwd, onOutput: transcript.tap });
 const extras = extrasFromClaude(run.stdout, outputFormat, cwd);
 transcript.write(run, extras);
 answer(run, bin, extras);
