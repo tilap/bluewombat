@@ -7,6 +7,8 @@ export type ExecResult = {
   stderr: string;
   /** Milliseconds the clock ran while the supervisor did not (machine asleep, paused). */
   suspendedMs?: number;
+  /** The ceiling ended it; what it wrote before is in `stdout`. */
+  atCeiling?: boolean;
   /** Why it did not run to its end, when it did not. */
   error?: string;
 };
@@ -32,6 +34,7 @@ export const exec: Exec = async (cmd, options) => {
     code: run.status,
     stdout: run.stdout,
     stderr: run.stderr,
+    ...(run.atCeiling ? { atCeiling: true } : {}),
     ...(run.suspendedMs > 0 ? { suspendedMs: run.suspendedMs } : {}),
     ...(run.error === undefined ? {} : { error: run.error.message }),
   };

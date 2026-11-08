@@ -41,6 +41,7 @@ describe("runSlot", () => {
     assert.equal(run.error, undefined);
     assert.equal(run.status, 0);
     assert.equal(run.suspendedMs, 0);
+    assert.equal(run.atCeiling, false);
     assert.equal(run.stdout.trim(), "{}");
     assert.equal(run.stderr.trim(), "note");
   });
@@ -54,6 +55,7 @@ describe("runSlot", () => {
       timeoutMs: 3_000,
     });
     assert.match(run.error?.message ?? "", /killed after 3000ms/);
+    assert.equal(run.atCeiling, true);
     assert.ok(Date.now() - started < 15_000, "the outcome must not wait for the grandchild");
     assert.ok(await waitDead(Number(readFileSync(pidFile, "utf8")), 5_000));
   });
@@ -72,6 +74,16 @@ describe("runSlot", () => {
     assert.equal(run.error, undefined);
     assert.equal(run.stdout.trim(), "done");
     assert.ok(run.suspendedMs >= 50_000, `counted ${run.suspendedMs}`);
+  });
+
+  it("keeps what a slot wrote before its ceiling", async () => {
+    const run = await runSlot({
+      command: process.execPath,
+      args: ["-e", "console.log('answer'); setTimeout(() => {}, 60000)"],
+      timeoutMs: 1_500,
+    });
+    assert.equal(run.atCeiling, true);
+    assert.equal(run.stdout.trim(), "answer");
   });
 
   it("says why a slot could not start", async () => {

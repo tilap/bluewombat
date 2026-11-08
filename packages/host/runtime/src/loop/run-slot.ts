@@ -37,6 +37,8 @@ function minutes(ms: number): string {
 export type SlotRun = {
   /** Set when the slot could not run, ran past its ceiling, or wrote too much. */
   error?: Error;
+  /** True when the ceiling is what ended it: whatever it wrote before is still in `stdout`. */
+  atCeiling: boolean;
   /** Milliseconds the clock ran while this process did not (machine asleep, paused). 0 when none. */
   suspendedMs: number;
   status: number | null;
@@ -67,6 +69,7 @@ export function runSlot(input: {
     let stdout = "";
     let stderr = "";
     let timer: NodeJS.Timeout | undefined;
+    let atCeiling = false;
     const asleep = watchSuspension(input.now);
 
     const finish = (status: number | null): void => {
@@ -80,6 +83,7 @@ export function runSlot(input: {
       }
       resolve({
         ...(failure === undefined ? {} : { error: failure }),
+        atCeiling,
         suspendedMs: asleep.suspendedMs(),
         status,
         stdout,
@@ -143,6 +147,7 @@ export function runSlot(input: {
             arm(extension);
             return;
           }
+          atCeiling = failure === undefined;
           failure ??= new Error(
             `killed after ${input.timeoutMs}ms, its own ceiling${
               granted === 0
