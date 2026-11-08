@@ -92,6 +92,8 @@ A document says what exists. What *will* exist is an issue.
   rule, an architecture choice with no settled answer, anything irreversible):
   stop and ask one question with a recommendation. Nothing is left as a
   remark in a reply, a comment or a document.
+- **Work postponed on purpose stays open**, labelled `later`; `now` and `next`
+  mark what is under way and what comes after. A closed issue is done or refused.
 - **A choice you made is a decision.** Record it in `docs/DECISIONS.md` with
   what you turned down. The owner replaces the row if they disagree.
 - Code, comments, and documentation in English
