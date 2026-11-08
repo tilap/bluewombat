@@ -190,4 +190,45 @@ describe("openTranscript", () => {
   it("names the parts a slot may ask for", () => {
     assert.deepEqual([...TRANSCRIPT_PARTS], ["prompt", "stdout", "stderr", "timing"]);
   });
+
+  describe("as the agent runs", () => {
+    it("files the turn before the agent returns, with what it has written so far", () => {
+      const dir = sandbox();
+      const transcript = openTranscript({ dir, id: "s1", prompt: "the question", args: ["-p"] });
+      transcript.start();
+      transcript.tap("stdout", "half an ans");
+      transcript.tap("stderr", "narration ");
+      const { text } = wrote(dir);
+      assert.match(text, /# s1 · attempt 1/);
+      assert.match(text, /exit: not returned/);
+      assert.match(text, /the question/);
+      assert.match(text, /half an ansnarration $/);
+    });
+
+    it("is replaced by the finished page, leaving one file", () => {
+      const dir = sandbox();
+      const transcript = openTranscript({ dir, id: "s1" });
+      transcript.start();
+      transcript.tap("stdout", "half");
+      transcript.write(ran());
+      const { text } = wrote(dir);
+      assert.match(text, /- exit: 0/);
+      assert.doesNotMatch(text, /not returned/);
+    });
+
+    it("keeps out of the file the parts that were not asked for", () => {
+      const dir = sandbox();
+      const transcript = openTranscript({ dir, parts: ["timing"], prompt: "secret prompt" });
+      transcript.start();
+      transcript.tap("stdout", "secret output");
+      const { text } = wrote(dir);
+      assert.doesNotMatch(text, /secret/);
+    });
+
+    it("writes nothing without a directory", () => {
+      const transcript = openTranscript({});
+      transcript.start();
+      transcript.tap("stdout", "x");
+    });
+  });
 });

@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AgentExtras, AgentPlugin, AgentRun, AgentTools, AgentUsage } from "./agent.js";
 
 /**
@@ -40,29 +40,92 @@ export type TranscriptSpec = {
   plugins?: readonly AgentPlugin[] | undefined;
 };
 
-export type Transcript = { write: (run: AgentRun, extras?: AgentExtras) => void };
+export type Transcript = {
+  /**
+   * File the turn before the agent runs: what was asked, and room for what comes.
+   * An agent killed at its ceiling never reaches `write`; this file is what remains.
+   */
+  start: () => void;
+  /** Add what the agent just wrote to the file `start` made. */
+  tap: (stream: "stdout" | "stderr", chunk: string) => void;
+  /** The finished turn; replaces the file `start` made. */
+  write: (run: AgentRun, extras?: AgentExtras) => void;
+};
 
 export function openTranscript(spec: TranscriptSpec): Transcript {
   if (spec.dir === undefined) {
-    return { write() {} };
+    return { start() {}, tap() {}, write() {} };
   }
   const dirName = spec.dir;
   const parts = new Set<string>(spec.parts ?? TRANSCRIPT_PARTS);
+  const pathAt = (at: Date): string => {
+    const dir = join(dirName, slug(spec.context ?? "no-context"));
+    const stamp = at.toISOString().replace(/[-:]|\.\d+/g, "");
+    return join(dir, `${slug(spec.id ?? "task")}-attempt-${spec.attempt ?? 1}-${stamp}.md`);
+  };
+  let live: string | undefined;
+  // A transcript is a record of the run, not part of it. Losing one is worth a
+  // word on stderr and nothing more.
+  const guarded = (action: () => void): void => {
+    try {
+      action();
+    } catch (error) {
+      process.stderr.write(`Could not write the transcript: ${messageOf(error)}\n`);
+    }
+  };
   return {
-    write(run, extras) {
-      try {
-        const dir = join(dirName, slug(spec.context ?? "no-context"));
-        mkdirSync(dir, { recursive: true });
-        const stamp = (run.startedAt ?? new Date()).toISOString().replace(/[-:]|\.\d+/g, "");
-        const name = `${slug(spec.id ?? "task")}-attempt-${spec.attempt ?? 1}-${stamp}.md`;
-        writeFileSync(join(dir, name), page(spec, run, parts, extras));
-      } catch (error) {
-        // A transcript is a record of the run, not part of it. Losing one is
-        // worth a word on stderr and nothing more.
-        process.stderr.write(`Could not write the transcript: ${messageOf(error)}\n`);
+    start() {
+      guarded(() => {
+        const path = pathAt(new Date());
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, openingPage(spec, parts));
+        live = path;
+      });
+    },
+    tap(stream, chunk) {
+      if (live === undefined || !parts.has(stream)) {
+        return;
       }
+      guarded(() => appendFileSync(live as string, chunk));
+    },
+    write(run, extras) {
+      guarded(() => {
+        const path = pathAt(run.startedAt ?? new Date());
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, page(spec, run, parts, extras));
+        if (live !== undefined && live !== path) {
+          rmSync(live, { force: true });
+        }
+        live = undefined;
+      });
     },
   };
+}
+
+/** What `start` files: the facts known before the run, and where its output will follow. */
+function openingPage(spec: TranscriptSpec, parts: ReadonlySet<string>): string {
+  const lines = [`# ${spec.id ?? "task"} · attempt ${spec.attempt ?? 1}`, ""];
+  const facts: [string, string | undefined][] = [
+    ["context", spec.context],
+    ["slot", spec.slot],
+    ["agent", spec.bin],
+    ["plugins", pluginsLabel(spec.plugins)],
+    ["exit", "not returned: still running, or killed before it could say"],
+  ];
+  for (const [name, value] of facts) {
+    if (value !== undefined && value !== "") {
+      lines.push(`- ${name}: ${value}`);
+    }
+  }
+  if (parts.has("prompt")) {
+    const shown = (spec.args ?? []).map((arg) => (arg === spec.prompt ? "<prompt>" : arg));
+    lines.push("", "## Invocation", "", block(shown.join(" ")));
+    lines.push("", "## Prompt", "", block(spec.prompt ?? ""));
+  }
+  if (parts.has("stdout") || parts.has("stderr")) {
+    lines.push("", "## Output so far (stdout and stderr, in arrival order)", "", "");
+  }
+  return lines.join("\n");
 }
 
 function page(
