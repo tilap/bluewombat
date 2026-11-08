@@ -57,7 +57,7 @@ first and the caller's flags appended, and it must not trip over the second set.
 | agent CLIs | `findExecutable`, `runAgent`, `readResult`, `serializeRun`, `extrasOf`, `finishRun`, `failureOf` — `serializeRun` always writes `skills` / `usage` / `tools` (`null` = unknown), and `plugins` (`AgentPlugin`) when the wrapper loaded any |
 | prompts    | `renderPrompt`, `readTemplate`, `PROMPT_RULES` — fill is generic; each role owns its names                                                                             |
 | roles      | `parseRole`, `loadPrompt`, `loadRules`, `fillPrompt`, `spawnFilled`, `transcriptArgs`, `ROLE_OPTIONS` — a role fills its template and hands it to the agent after `--` |
-| transcript | `openTranscript`, `transcriptFor`, `TRANSCRIPT_PARTS`, `skillsLabel`, `usageLabel`, `toolsFacts`, `pluginsLabel` — optional extras on `write`                                          |
+| transcript | `openTranscript` (`start`, `tap`, `write`), `transcriptFor`, `TRANSCRIPT_PARTS`, `skillsLabel`, `usageLabel`, `toolsFacts`, `pluginsLabel` — optional extras on `write`                                          |
 | paths      | `pathMatchesGlob`                                                                                                                                                      |
 
 Each `emit*` takes an optional `write`, which is how they are tested without a
@@ -101,6 +101,6 @@ src/
   finish.ts      how a finished agent run classifies
   prompt.ts      generic fill, rules, agent prompt (already rendered)
   role.ts        parse a role, fill its template, spawn the agent after `--`
-  transcript.ts  one file per turn, when a Project asks for one
+  transcript.ts  one file per turn, when a Project asks for one; made at the start, grown with the output, replaced at the end
   glob.ts        path globs
 ```

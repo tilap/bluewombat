@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -107,6 +108,54 @@ process.stdout.write(${JSON.stringify(body)});
       cacheWrite: 0,
       costUsd: null,
     });
+  });
+
+  it("leaves a transcript of an agent killed while it ran", async () => {
+    const cwd = sandbox();
+    const fakeVendor = join(cwd, "vendor.mjs");
+    writeFileSync(
+      fakeVendor,
+      `#!/usr/bin/env node
+process.stdout.write("first words of the answer\\n");
+setTimeout(() => {}, 60000);
+`,
+      { mode: 0o755 },
+    );
+    const dir = join(cwd, "transcripts");
+    const child = spawn(
+      node,
+      [
+        cursor,
+        "--bin",
+        fakeVendor,
+        "--prompt",
+        "the question",
+        "--transcript-dir",
+        dir,
+        "--id",
+        "t1",
+        "--context",
+        "ctx",
+      ],
+      { cwd, stdio: "ignore" },
+    );
+    const file = join(dir, "ctx");
+    const until = Date.now() + 15_000;
+    let page = "";
+    while (Date.now() < until && !page.includes("first words")) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      try {
+        const [name] = readdirSync(file);
+        page = name === undefined ? "" : readFileSync(join(file, name), "utf8");
+      } catch {
+        page = "";
+      }
+    }
+    child.kill("SIGKILL");
+    assert.match(page, /# t1 · attempt 1/);
+    assert.match(page, /the question/);
+    assert.match(page, /first words of the answer/);
+    assert.match(page, /exit: not returned/);
   });
 
   it("delivers a large serialized run after process.exit", () => {
