@@ -26,6 +26,7 @@ import {
   handleResume as resumeTicketByKey,
 } from "./deliveries.js";
 import { driveUntilBlocked } from "./drive.js";
+import { passReportsOf } from "./journal.js";
 import { pushReport } from "./report.js";
 
 /** Where a Ticket is while it still counts against its Feature. */
@@ -967,6 +968,8 @@ async function closeFeature(
     await escalateFeature(input, feature, published.reason);
     return;
   }
+  // What the Feature's Gates said when they passed it goes with the Submission.
+  const checks = passReportsOf(input.options.ledgerRoot, key);
   const submitted = await input.authority.submit({
     key,
     project,
@@ -976,6 +979,7 @@ async function closeFeature(
     workspace: input.workLine.stable,
     ...(feature.intention.title === undefined ? {} : { title: feature.intention.title }),
     intention: feature.intention.intention,
+    ...(checks.length === 0 ? {} : { checks }),
   });
   if (submitted.outcome === "unavailable") {
     return;
