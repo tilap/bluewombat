@@ -6,6 +6,7 @@ import { type Exec, type ExecResult, fill, succeeded, tail } from "./exec.js";
 import {
   arbiterPrompt,
   type Brief,
+  formPrompt,
   remedyPrompt,
   rootcausePrompt,
   skepticPrompt,
@@ -73,7 +74,8 @@ function answeredBeforeCeiling(result: ExecResult): boolean {
  * The members run together and apart: none sees another's answer, so they
  * cannot settle on the first idea. The arbiter sees all three and the code.
  * A member that fails does not stop the others; fewer than two answers is no
- * council. An arbiter that answers badly is asked once more, told why.
+ * council. An arbiter whose answer is refused for its shape has it corrected by a small
+ * agent from its own text; one that fails is asked again as before.
  */
 export async function deliberate(input: {
   config: SupervisorConfig;
@@ -107,7 +109,7 @@ export async function deliberate(input: {
     };
   }
   const targets = input.config.targets.map((target) => target.name);
-  let prompt = arbiterPrompt(input.brief, reports);
+  const prompt = arbiterPrompt(input.brief, reports);
   let reason = "";
   for (let round = 0; round < 2; round++) {
     const arbiter = await runAgent({ ...base, role: "arbiter", prompt });
@@ -120,7 +122,18 @@ export async function deliberate(input: {
       return { ok: true, decision: parsed.decision, reports };
     }
     reason = `the arbiter's answer was refused: ${parsed.reason}`;
-    prompt = `${arbiterPrompt(input.brief, reports)}\n\n## Your previous answer was refused\n${parsed.reason}\nAnswer again, in the required form.`;
+    const corrected = await runAgent({
+      ...base,
+      role: "reformatter",
+      prompt: formPrompt(arbiter.text, parsed.reason),
+      addDirs: [],
+    });
+    const again = corrected.ok ? parseDecision(corrected.text, targets) : undefined;
+    if (again?.ok) {
+      return { ok: true, decision: again.decision, reports };
+    }
+    reason = `the arbiter's answer was refused: ${again === undefined ? parsed.reason : again.reason}`;
+    break;
   }
   return { ok: false, reason, reports };
 }

@@ -64,7 +64,15 @@ export type SupervisorConfig = {
   targets: FixTarget[];
 };
 
-export const ROLES = ["rootcause", "remedy", "skeptic", "arbiter", "fixer", "reviewer"] as const;
+export const ROLES = [
+  "rootcause",
+  "remedy",
+  "skeptic",
+  "arbiter",
+  "reformatter",
+  "fixer",
+  "reviewer",
+] as const;
 export type Role = (typeof ROLES)[number];
 
 export type LoadedConfig = { ok: true; config: SupervisorConfig } | { ok: false; reason: string };
@@ -123,6 +131,7 @@ function build(o: Record<string, unknown>, configDir: string, home: string): Sup
     remedy: claude("plan", "opus"),
     skeptic: claude("plan", "opus"),
     arbiter: claude("plan", "opus"),
+    reformatter: claude("plan", "haiku"),
     fixer: claude("bypassPermissions", "opus"),
     reviewer: claude("plan", "opus"),
   };
