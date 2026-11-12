@@ -136,6 +136,12 @@ describe("buildDossier", () => {
     assert.ok(dossier.timeline.every((row) => row.gate_id !== "old"));
   });
 
+  it("counts no resumes for a subject whose ledger record has none", () => {
+    const subject = { ...feature(), resumes: undefined } as unknown as FeatureAggregate;
+    const dossier = buildDossier({ subject, tickets: [], journal: [], now });
+    assert.equal(dossier.history.resumes, 0);
+  });
+
   it("says what it could not find instead of leaving it out", () => {
     const dossier = buildDossier({ subject: feature(), tickets: [], journal: [], now });
     assert.ok(dossier.gaps.some((gap) => /No journal/.test(gap)));
