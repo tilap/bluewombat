@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { HostInvocation, ReviewSpec } from "../config/types.js";
 import { hasAgent } from "../config/types.js";
 
@@ -8,8 +9,8 @@ import { hasAgent } from "../config/types.js";
  *
  * Versions, then what the configuration switched on, said in words and numbers.
  * A command's arguments are not copied: one can carry a key. The raw
- * configuration is included only when asked, with the values of keys that look
- * like secrets blanked.
+ * configuration is included only when asked, parsed and blanked by path (see
+ * `redact`).
  */
 export type SystemFacts = {
   bluewombat: { host: string; node: string; platform: string };
@@ -186,8 +187,19 @@ function packagesOf(configDir: string): SystemFacts["packages"] {
   return found;
 }
 
-const SECRET_KEY =
-  /^(\s*(?:-\s+)?[\w.-]*(?:token|secret|password|passwd|api[-_]?key|credential|private[-_]?key)[\w.-]*\s*:)\s*\S.*$/i;
+const SECRET_NAME = /token|secret|password|passwd|api[-_]?key|credential|private[-_]?key/i;
+const BLANK = "<redacted>";
+
+/** What a secret looks like when nothing around it says so. */
+const SECRET_SHAPES: [RegExp, string][] = [
+  [/\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}/g, BLANK],
+  [/\bsk-[A-Za-z0-9_-]{20,}/g, BLANK],
+  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, BLANK],
+  [/\bAKIA[0-9A-Z]{16}\b/g, BLANK],
+  [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, BLANK],
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, BLANK],
+  [/(\w+:\/\/)[^\s/:@]+:[^\s/@]+@/g, `$1${BLANK}@`],
+];
 
 function readConfig(path: string): string | undefined {
   try {
@@ -197,10 +209,62 @@ function readConfig(path: string): string | undefined {
   }
 }
 
-/** Blank the value of any `key: value` line whose key looks like a secret. */
-export function redact(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => line.replace(SECRET_KEY, "$1 <redacted>"))
-    .join("\n");
+/**
+ * The configuration with no secret in it, or nothing when it cannot be read as YAML.
+ *
+ * It is parsed and blanked by path, not line by line: a key that looks like a
+ * secret hides its whole value (a scalar, a list, a map, a multi-line block);
+ * in a command's argument list the value after a secret-looking flag, or after
+ * its `=`, is blanked; anywhere else a string is blanked where it has the shape
+ * of a token, a private key or a URL's credentials. Comments are dropped: they
+ * can hold what the values do not.
+ */
+export function redact(text: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text);
+  } catch {
+    return undefined;
+  }
+  return stringifyYaml(blank(parsed));
+}
+
+function blank(value: unknown): unknown {
+  if (typeof value === "string") {
+    return SECRET_SHAPES.reduce((kept, [shape, to]) => kept.replace(shape, to), value);
+  }
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    let after: boolean = false;
+    for (const item of value) {
+      const flag = typeof item === "string" && item.startsWith("-") ? item : undefined;
+      if (after && flag === undefined) {
+        out.push(BLANK);
+        after = false;
+        continue;
+      }
+      after = false;
+      if (flag === undefined) {
+        out.push(blank(item));
+        continue;
+      }
+      const equals = flag.indexOf("=");
+      if (equals >= 0 && SECRET_NAME.test(flag.slice(0, equals))) {
+        out.push(`${flag.slice(0, equals)}=${BLANK}`);
+        continue;
+      }
+      after = equals < 0 && SECRET_NAME.test(flag);
+      out.push(blank(item));
+    }
+    return out;
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_NAME.test(key) && inner !== null ? BLANK : blank(inner),
+      ]),
+    );
+  }
+  return value;
 }

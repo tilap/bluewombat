@@ -64,7 +64,7 @@ describe("systemOf", () => {
   it("includes the config file only when asked, with secret-looking values blanked", () => {
     const dir = mkdtempSync(join(tmpdir(), "incident-system-"));
     const path = join(dir, "mason.config.yaml");
-    writeFileSync(path, "repo: a/b\ntoken: abc123\nauth:\n  apiKey: k-1\n  - secretName: s\n");
+    writeFileSync(path, "repo: a/b\ntoken: abc123\nauth:\n  apiKey: k-1\n  secretName: s\n");
     const facts = systemOf({
       invocation: invocation(dir),
       configPath: path,
@@ -78,7 +78,86 @@ describe("systemOf", () => {
 });
 
 describe("redact", () => {
-  it("leaves a line that holds no secret-looking key alone", () => {
-    assert.equal(redact("timeoutMs: 5\nname: x"), "timeoutMs: 5\nname: x");
+  it("leaves a config that holds no secret as it is", () => {
+    assert.equal(redact("timeoutMs: 5\nname: x\n"), "timeoutMs: 5\nname: x\n");
+  });
+
+  it("blanks by path: a secret-looking key hides its whole value, at any depth", () => {
+    const out = redact(
+      [
+        "agents:",
+        "  basic:",
+        "    apiKey: k-1",
+        "    credentials:",
+        "      user: u",
+        "      pass: p",
+        "    env:",
+        "      GITHUB_TOKEN: t-1",
+        "    tokens: [a-1, a-2]",
+        "    note: kept",
+        "",
+      ].join("\n"),
+    );
+    assert.doesNotMatch(out ?? "", /k-1|t-1|a-1|a-2|user|pass/);
+    assert.match(out ?? "", /note: kept/);
+  });
+
+  it("blanks the value that follows a secret flag in a command, and the one after `=`", () => {
+    const out = redact(
+      [
+        "gate:",
+        "  argv: [node, gate.mjs, --token, s-1, --api-key=s-2, --retries, '3', --verbose]",
+        "",
+      ].join("\n"),
+    );
+    assert.doesNotMatch(out ?? "", /s-1|s-2/);
+    assert.match(out ?? "", /--retries/);
+    assert.match(out ?? "", /'3'|"3"|- "?3"?/);
+    assert.match(out ?? "", /--verbose/);
+  });
+
+  it("blanks a secret that stands on its own, by its shape, wherever it is", () => {
+    const github = `ghp_${"a".repeat(36)}`;
+    const out = redact(
+      [
+        "list:",
+        `  - ${github}`,
+        "  - sk-abcdefghijklmnopqrstuvwx",
+        "  - https://user:hunter2@example.com/repo.git",
+        "  - plain",
+        "",
+      ].join("\n"),
+    );
+    assert.doesNotMatch(out ?? "", /ghp_|sk-abc|hunter2/);
+    assert.match(out ?? "", /plain/);
+    assert.match(out ?? "", /example\.com\/repo\.git/);
+  });
+
+  it("blanks a multi-line scalar, under a secret key or holding a private key", () => {
+    const out = redact(
+      [
+        "secretFile: |",
+        "  line one",
+        "  line two",
+        "script: |",
+        "  echo hi",
+        "  -----BEGIN RSA PRIVATE KEY-----",
+        "  MIIEvQIBADANBgkq",
+        "  -----END RSA PRIVATE KEY-----",
+        "  echo bye",
+        "",
+      ].join("\n"),
+    );
+    assert.doesNotMatch(out ?? "", /line one|MIIEvQ/);
+    assert.match(out ?? "", /echo hi/);
+    assert.match(out ?? "", /echo bye/);
+  });
+
+  it("drops comments, which can hold a secret", () => {
+    assert.doesNotMatch(redact("a: 1 # token ghp_x\n# password: p\n") ?? "", /ghp_|password/);
+  });
+
+  it("gives nothing when the text is not YAML", () => {
+    assert.equal(redact("a: [unclosed\n"), undefined);
   });
 });
