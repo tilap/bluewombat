@@ -168,6 +168,9 @@ export async function foldPullRequest(
     if (context.keepBranch !== true) {
       await deleteBranch(pull.data.head.ref, context, call.signal);
     }
+    // GitHub honours `Closes #N` only for a merge into the default branch: a
+    // Ticket folded into a Feature line is closed here, once the work is in.
+    await closeIssueOnLine(pull.data, context, call.signal);
     const reference = merged.data.sha;
     return typeof reference === "string" ? { outcome: "folded", reference } : { outcome: "folded" };
   } catch (error) {
@@ -180,6 +183,31 @@ export async function foldPullRequest(
       : { outcome: "unavailable" };
   } finally {
     call.release();
+  }
+}
+
+async function closeIssueOnLine(
+  pull: { body?: string | null; base?: { ref?: string; repo?: { default_branch?: string } } },
+  context: SubmissionContext,
+  signal: AbortSignal,
+): Promise<void> {
+  const line = pull.base?.ref;
+  const main = pull.base?.repo?.default_branch;
+  const issue = /^Closes #(\d+)$/m.exec(pull.body ?? "")?.[1];
+  if (line === undefined || main === undefined || line === main || issue === undefined) {
+    return;
+  }
+  try {
+    await context.github.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      issue_number: Number.parseInt(issue, 10),
+      state: "closed",
+      state_reason: "completed",
+      request: { signal },
+    });
+  } catch {
+    // The fold happened whatever this call says: an issue left open is clutter, not a failure.
   }
 }
 
