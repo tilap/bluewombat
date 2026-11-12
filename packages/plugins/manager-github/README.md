@@ -133,12 +133,12 @@ takes an accepted one in.
 | `submit`  | Opens a pull request from the published branch onto the line it is offered to (a Feature's line, or `branch`). An open one on the same branch is reused, never duplicated                                   |
 | `settled` | Whether the pull request is still open, was merged (by anyone), or was closed unmerged. A human's merge is read here                                                                                         |
 | `behind`  | Whether the line holds commits the pull request does not (`compare` of the line's tip against the pull request's head, `behind_by`). Asked right before a `fold`. A failed read is `unavailable`, never `current` |
-| `fold`    | Squash-merges it: the commit's title is the pull request's; its body is what the Project's Describer said (carried on the pull request), else `Closes #N` alone. Then deletes the branch unless `keepBranch` |
+| `fold`    | Squash-merges it: the commit's title is the pull request's; its body is what the Project's Describer said (carried on the pull request), else `Closes #N` alone. Then closes the issue itself when the pull request's base is not the default branch (a Ticket folded into a Feature's line), and deletes the branch unless `keepBranch` |
 | `withdraw`| Closes the pull request of an abandoned Ticket without merging it, and deletes its branch unless `keepBranch`. Best effort; a pull request already closed or merged is left alone |
 
 The pull request is titled after the issue (trailing full stop dropped, `(#N)`
 appended) and its body is the issue's intention and
-`Closes #N` — so GitHub closes the issue when the pull request is merged. GitHub honours `Closes` only for a merge into the default branch, so a Ticket folded into a Feature's line stays open on GitHub (issue #64).
+`Closes #N` — so GitHub closes the issue when the pull request is merged. GitHub honours `Closes` only for a merge into the default branch, so `fold` closes the issue itself (best effort, reason `completed`) for a Ticket folded into a Feature's line.
 A Feature's pull request also carries a `## Checks` list: what each Gate of the Feature said when it passed it (for `feature-tests`, the scenarios that ran and passed), as Host read it from the journal. Nothing in it is generated.
 
 `verdict` counts the grace for a commit with no check from the **commit**, not
