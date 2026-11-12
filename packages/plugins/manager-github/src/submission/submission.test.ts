@@ -8,6 +8,7 @@ import {
   foldPullRequest,
   submitPullRequest,
   titleOf,
+  withdrawPullRequest,
 } from "./submission.js";
 
 const KEY = "github:tilap/mason#7";
@@ -15,7 +16,10 @@ const REPO = { owner: "tilap", name: "mason" };
 
 type Call = { method: string; path: string; body: Record<string, unknown> };
 
-function githubOf(openPulls: { number: number; head: { sha: string } }[]): {
+function githubOf(
+  openPulls: { number: number; head: { sha: string } }[],
+  pullState = "open",
+): {
   context: Parameters<typeof submitPullRequest>[1];
   calls: Call[];
 } {
@@ -37,8 +41,12 @@ function githubOf(openPulls: { number: number; head: { sha: string } }[]): {
         number: 12,
         title: "Add slugify (#7)",
         body: "What it does.\n\nCloses #7\n\n<!-- commit-message\nAdd slugify (#7)\n\nWhat it does.\n-->",
+        state: pullState,
         head: { ref: "issue/7" },
       });
+    }
+    if (method === "PATCH" && path === "/repos/tilap/mason/pulls/12") {
+      return json(200, { number: 12, state: "closed" });
     }
     if (method === "PUT" && path === "/repos/tilap/mason/pulls/12/merge") {
       return json(200, { merged: true, sha: "9aeff612f47153162c4b73b90cae5ec767230b3d" });
@@ -257,6 +265,59 @@ describe("submitPullRequest / foldPullRequest", () => {
       calls.some((call) => call.method === "PUT"),
       true,
     );
+  });
+});
+
+describe("withdrawPullRequest", () => {
+  const PR = "https://github.com/tilap/mason/pull/12";
+
+  it("closes the pull request unmerged and deletes its branch", async () => {
+    const { context, calls } = githubOf([]);
+    await withdrawPullRequest(PR, context);
+    const closed = calls.find((call) => call.method === "PATCH");
+    assert.equal(closed?.path, "/repos/tilap/mason/pulls/12");
+    assert.equal(closed?.body.state, "closed");
+    assert.equal(
+      calls.some((call) => call.method === "PUT"),
+      false,
+      "nothing is merged",
+    );
+    const deleted = calls.find((call) => call.method === "DELETE");
+    assert.equal(deleted?.path, "/repos/tilap/mason/git/refs/heads/issue/7");
+  });
+
+  it("keeps the branch when asked", async () => {
+    const { context, calls } = githubOf([]);
+    await withdrawPullRequest(PR, { ...context, keepBranch: true });
+    assert.equal(
+      calls.some((call) => call.method === "PATCH"),
+      true,
+    );
+    assert.equal(
+      calls.some((call) => call.method === "DELETE"),
+      false,
+    );
+  });
+
+  it("leaves a pull request that is already closed or merged alone", async () => {
+    const { context, calls } = githubOf([], "closed");
+    await withdrawPullRequest(PR, context);
+    assert.equal(
+      calls.some((call) => call.method !== "GET"),
+      false,
+    );
+  });
+
+  it("does not fail when GitHub refuses", async () => {
+    const { context } = githubOf([]);
+    const original = context.github;
+    const failing = {
+      ...original,
+      request: (async () => {
+        throw Object.assign(new Error("Forbidden"), { status: 403 });
+      }) as unknown as typeof original.request,
+    } as typeof original;
+    await withdrawPullRequest(PR, { ...context, github: failing });
   });
 });
 
