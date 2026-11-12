@@ -189,7 +189,9 @@ worker gone, a disk running low. The last two it answers directly. For the first
 *skeptic*: how the obvious answer fails). An *arbiter* reads the three and the code and decides: a
 cause with evidence, the moves that put the run back in motion, and the changes to make so it does not
 return. A decision it is not sure of (`confidence: low`) is not acted on: it is asked again with that
-on record. A stop only a person can settle is not resumed, but the changes that keep it from
+on record. An arbiter answer refused for its shape is not rerun: a small agent (`agents.reformatter`,
+Haiku by default) rewrites the answer's own text into the required form, without the reports or the code.
+A stop only a person can settle is not resumed, but the changes that keep it from
 returning are still made.
 
 Every member reads the target's *rules* first (`targets.<name>.rules`, default `AGENTS.md`, which routes to

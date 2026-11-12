@@ -152,6 +152,31 @@ Answer in prose, then end with one \`\`\`json block:
  "mustBeTrue":["conditions the arbiter should require"],"unverified":["…"]}`;
 }
 
+/** The shape of the arbiter's answer, as `parseDecision` reads it. */
+const DECISION_FORM = `{"summary":"one line","cause":"…","evidence":["file:line or command → output"],
+ "confidence":"high|medium|low","unblockAfterFixes":false,
+ "unblock":[{"do":"resume|restart|cancel|start-worker|restart-worker|cleanup-disk","key":"exact key","reason":"…"}],
+ "fixes":[{"target":"…","title":"…","instruction":"result, constraints, proof","conformity":"rule or decision → why it conforms","revises":""}],
+ "needsHuman":""}`;
+
+/**
+ * The cheap second ask of an arbiter whose answer was refused for its shape:
+ * the first answer and the reason, no reports, no code to reread.
+ */
+export function formPrompt(answer: string, reason: string): string {
+  return `You correct the form of an answer. You add no finding, read no code, and change no fact.
+
+The answer below was refused: ${reason}
+
+Rewrite it so that it ends with exactly one \`\`\`json block of this form, drawing every value from the
+answer itself:
+${DECISION_FORM}
+
+## The answer
+
+${answer}`;
+}
+
 export function arbiterPrompt(brief: Brief, reports: Record<string, string>): string {
   const body = Object.entries(reports)
     .map(([role, text]) => `### ${role}\n\n${text}`)
@@ -201,11 +226,7 @@ ${context(brief)}
 ${body}
 
 Answer with a short explanation, then end with exactly one \`\`\`json block:
-{"summary":"one line","cause":"…","evidence":["file:line or command → output"],
- "confidence":"high|medium|low","unblockAfterFixes":false,
- "unblock":[{"do":"resume|restart|cancel|start-worker|restart-worker|cleanup-disk","key":"exact key","reason":"…"}],
- "fixes":[{"target":"…","title":"…","instruction":"result, constraints, proof","conformity":"rule or decision → why it conforms","revises":""}],
- "needsHuman":""}`;
+${DECISION_FORM}`;
 }
 
 export function fixerPrompt(input: {
