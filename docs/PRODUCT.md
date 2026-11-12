@@ -14,8 +14,8 @@ covers: []
 bluewombat is an autonomous project-execution system. A human states a need as a
 **Feature** in an external FeatureTracker, and the work to do for it as
 **Tickets** in an external TicketTracker. When the Feature is ready, the system
-takes its Tickets one at a time, each in an isolated workspace, validates each
-through a Project-defined sequence of Gates, and lands it on the Feature's own
+takes its Tickets (one at a time by default, up to `ticket.maxParallel`), each in an
+isolated workspace, validates each through a Project-defined sequence of Gates, and lands it on the Feature's own
 line (a branch). When every Ticket has landed, the Feature's line is submitted
 to the Authority, which folds it into the Project's final line, with a human or
 without one.
@@ -63,7 +63,8 @@ falsifiable — if code violates it, that is a bug, not a design choice.
   that may open, the one with the highest priority goes first, then the oldest.
 - A Ticket starts only when every Ticket that blocks it is `done`. Among the
   Tickets that may start, the highest priority goes first, then the oldest.
-  Tickets of an open Feature run one at a time.
+  Up to `ticket.maxParallel` Tickets of an open Feature run at a time (default 1); a place
+  that frees is filled at once by the next Ticket that may start.
 - One open Feature has one **line**: a branch cut from the Project's final line
   when the Feature opens. Each Ticket lands on that line, never on the final
   line.

@@ -629,13 +629,16 @@ const DRIVEN: ReadonlySet<TicketState> = new Set([
 /**
  * Work the Tickets of an open Feature, up to `limit` at a time.
  *
- * Each place is a worker: it drives a Ticket the Project already holds, else
- * takes the next one that may start, and goes on to another when its own is
- * done or is only waiting for the outside. A Ticket waiting on a check holds a
- * place but not a worker, so the others do not wait with it. With a limit of 1
- * this is one Ticket after the other.
+ * A Ticket the Project already holds is driven first, then the next one that
+ * may start. Whenever a drive ends or a place is free, the places are filled
+ * again, so a Ticket that was blocked at the start is taken as soon as what
+ * blocked it is done and not at the next pass. A Ticket waiting on a check
+ * holds a place but is not driven, so the others do not wait with it. Nothing
+ * new is taken once a run is refused, and the call returns when nothing is
+ * driven and nothing can start. With a limit of 1 this is one Ticket after the
+ * other.
  */
-async function driveTickets(
+export async function driveTickets(
   input: HostDeliveryInput,
   feature: FeatureAggregate,
   project: string,
@@ -649,22 +652,37 @@ async function driveTickets(
     .filter((summary) => DRIVEN.has(summary.state))
     .map((summary) => summary.key);
   let last: ProjectRunResult | undefined;
+  let refused = false;
+  const places = Math.max(1, limit);
+  const inFlight = new Set<Promise<void>>();
 
-  const worker = async (): Promise<void> => {
-    while (!interrupted()) {
+  const drive = async (key: string): Promise<void> => {
+    const run = await driveUntilBlocked(input, project, key, true);
+    last = run;
+    // A refusal is about the run, not the Ticket: the next one would meet it too.
+    if (run.outcome === "refused") {
+      refused = true;
+    }
+  };
+  // Starts drives until the places are full or nothing can start.
+  const fill = async (): Promise<void> => {
+    while (!interrupted() && !refused && inFlight.size < places) {
       const key = queue.shift() ?? (await input.conductor.claimNext(project))?.key;
       if (key === undefined) {
         return;
       }
-      const run = await driveUntilBlocked(input, project, key, true);
-      last = run;
-      // A refusal is about the run, not the Ticket: the next one would meet it too.
-      if (run.outcome === "refused") {
-        return;
-      }
+      const started: Promise<void> = drive(key).finally(() => {
+        inFlight.delete(started);
+      });
+      inFlight.add(started);
     }
   };
-  await Promise.all(Array.from({ length: Math.max(1, limit) }, worker));
+
+  await fill();
+  while (inFlight.size > 0) {
+    await Promise.race(inFlight);
+    await fill();
+  }
 
   if (last === undefined && (await input.ledger.activeTickets(project)).length === 0) {
     const waiting = (await ticketsOf(input, feature)).some((s) => s.state === "received");
