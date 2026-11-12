@@ -386,6 +386,18 @@ describe("host with an Authority", () => {
     const paths = sandbox();
     const stub = stubManager({ deliveries: [{ cursor: "1", payload: featurePayload() }] });
     const journal = memoryJournal();
+    // What the Feature's Gates said when they passed it, kept in the film of an earlier run.
+    mkdirSync(paths.ledgerRoot, { recursive: true });
+    writeFileSync(
+      join(paths.ledgerRoot, "events.jsonl"),
+      `${JSON.stringify({
+        event: "gate-finished",
+        key: FEATURE,
+        gate_id: "feature-tests",
+        verdict: "pass",
+        report: "feature-tests: 1 scenario(s) of the feature ran and passed: S1.",
+      })}\n`,
+    );
     const host = await openHost(optionsFor(paths, stub), { journal });
 
     const first = await host.runOnce();
@@ -419,6 +431,10 @@ describe("host with an Authority", () => {
     assert.equal(done.ok && done.aggregate.state, "done");
     assert.equal(stub.submissions.length, 2);
     assert.equal(stub.submissions[1]?.target, TARGET);
+    assert.deepEqual(stub.submissions[1]?.checks, [
+      "feature-tests: 1 scenario(s) of the feature ran and passed: S1.",
+    ]);
+    assert.equal(stub.submissions[0]?.checks, undefined, "a Ticket carries no Feature proof");
     const line = await host.ledger.getFeature(FEATURE);
     assert.equal(line.ok && line.aggregate.state, "submitted");
     assert.equal(line.ok && line.aggregate.submission?.reference, LINE_PR);

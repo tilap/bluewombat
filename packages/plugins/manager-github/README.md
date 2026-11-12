@@ -138,7 +138,7 @@ takes an accepted one in.
 The pull request is titled after the issue (trailing full stop dropped, `(#N)`
 appended) and its body is the issue's intention and
 `Closes #N` — so GitHub closes the issue when the pull request is merged. GitHub honours `Closes` only for a merge into the default branch, so a Ticket folded into a Feature's line stays open on GitHub (issue #64).
-Nothing in it is generated.
+A Feature's pull request also carries a `## Checks` list: what each Gate of the Feature said when it passed it (for `feature-tests`, the scenarios that ran and passed), as Host read it from the journal. Nothing in it is generated.
 
 `verdict` counts the grace for a commit with no check from the **commit**, not
 from the pull request: one that was sent back and published again is old while

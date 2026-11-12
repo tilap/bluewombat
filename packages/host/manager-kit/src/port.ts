@@ -173,6 +173,12 @@ export type SubmissionRequest = {
    * the intention, as the human wrote them.
    */
   description?: { subject: string; body?: string };
+  /**
+   * What the Gates said when they passed the work, one line each: the proof
+   * that goes with the Submission, for whoever reads it. Absent when no Gate
+   * had anything to say.
+   */
+  checks?: string[];
 };
 
 export type SubmissionResult =

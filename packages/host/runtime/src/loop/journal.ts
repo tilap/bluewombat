@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Film of a run, next to `cursor` under the ledger root. Not truth. */
@@ -130,4 +130,28 @@ export function parseJournalChunk(
     }
   }
   return { lines, remainder: nextRemainder };
+}
+
+/**
+ * What each Gate said when it passed for this unit, its latest word per Gate:
+ * a Gate whose latest verdict is a refusal, or that said nothing, is left out.
+ * Read from the file, so a restart between the judgement and the Submission
+ * loses nothing.
+ */
+export function passReportsOf(ledgerRoot: string, key: string): string[] {
+  const path = journalPath(ledgerRoot);
+  if (!existsSync(path)) {
+    return [];
+  }
+  const body = readFileSync(path, "utf8");
+  const latest = new Map<string, string>();
+  for (const line of parseJournalChunk(body.endsWith("\n") ? body : `${body}\n`, "").lines) {
+    if (line.event !== "gate-finished" || line.key !== key || typeof line.gate_id !== "string") {
+      continue;
+    }
+    const said =
+      line.verdict === "pass" && typeof line.report === "string" ? line.report.trim() : "";
+    latest.set(line.gate_id, said);
+  }
+  return [...latest.values()].filter((said) => said.length > 0);
 }

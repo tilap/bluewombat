@@ -92,6 +92,19 @@ describe("titleOf", () => {
 });
 
 describe("bodyOf", () => {
+  it("lists what the checks said under the description, before the fold's message", () => {
+    const body = bodyOf({
+      key: KEY,
+      title: "Add slugify",
+      intention: "A slug helper.",
+      checks: ["feature-tests: 2 scenario(s) of the feature ran and passed: S1, S2."],
+    });
+    assert.match(
+      body,
+      /^A slug helper\.\n\n## Checks\n\n- feature-tests: 2 scenario\(s\) of the feature ran and passed: S1, S2\.\n\nCloses #7\n\n<!-- commit-message/,
+    );
+  });
+
   it("says what was asked and closes the issue", () => {
     const body = bodyOf({
       key: KEY,
