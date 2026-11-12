@@ -32,6 +32,7 @@ import {
   foldPullRequest,
   type SubmissionContext,
   submitPullRequest,
+  withdrawPullRequest,
 } from "./submission/submission.js";
 import { listTickets } from "./tickets/list-tickets.js";
 import { writtenFingerprint } from "./written-fingerprint.js";
@@ -345,6 +346,10 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
 
     async fold(input: { reference: string }): Promise<FoldResult> {
       return await foldPullRequest(input.reference, submissionContext());
+    },
+
+    async withdraw(input: { reference: string }): Promise<void> {
+      await withdrawPullRequest(input.reference, submissionContext());
     },
 
     async settled(input: { reference: string }): Promise<SettledResult> {

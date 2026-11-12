@@ -183,6 +183,48 @@ export async function foldPullRequest(
   }
 }
 
+/**
+ * A Ticket abandoned with a Submission: the pull request is closed unmerged and
+ * its branch deleted, unless `keepBranch`. Best effort, like the fold's branch
+ * delete: the cancel stands whatever this says, and a pull request left open
+ * is clutter, not a failure.
+ */
+export async function withdrawPullRequest(
+  reference: string,
+  context: SubmissionContext,
+): Promise<void> {
+  const number = numberFromReference(reference);
+  if (number === undefined) {
+    return;
+  }
+  const call = callSignal(context.deadlineMs, context.now, context.shouldInterrupt);
+  try {
+    const pull = await context.github.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      pull_number: number,
+      request: { signal: call.signal },
+    });
+    if (pull.data.state !== "open") {
+      return;
+    }
+    await context.github.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      pull_number: number,
+      state: "closed",
+      request: { signal: call.signal },
+    });
+    if (context.keepBranch !== true) {
+      await deleteBranch(pull.data.head.ref, context, call.signal);
+    }
+  } catch {
+    // Unreachable or already settled: nothing more to withdraw.
+  } finally {
+    call.release();
+  }
+}
+
 async function deleteBranch(
   ref: string,
   context: SubmissionContext,

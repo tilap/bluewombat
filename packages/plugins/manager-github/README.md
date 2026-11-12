@@ -134,6 +134,7 @@ takes an accepted one in.
 | `settled` | Whether the pull request is still open, was merged (by anyone), or was closed unmerged. A human's merge is read here                                                                                         |
 | `behind`  | Whether the line holds commits the pull request does not (`compare` of the line's tip against the pull request's head, `behind_by`). Asked right before a `fold`. A failed read is `unavailable`, never `current` |
 | `fold`    | Squash-merges it: the commit's title is the pull request's; its body is what the Project's Describer said (carried on the pull request), else `Closes #N` alone. Then deletes the branch unless `keepBranch` |
+| `withdraw`| Closes the pull request of an abandoned Ticket without merging it, and deletes its branch unless `keepBranch`. Best effort; a pull request already closed or merged is left alone |
 
 The pull request is titled after the issue (trailing full stop dropped, `(#N)`
 appended) and its body is the issue's intention and

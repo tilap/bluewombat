@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import { openFilesystemPersist } from "@bluewombat/persist-fs";
 import { openWorkLedger, type WorkLedger } from "@bluewombat/work-ledger";
 import type { HostDeliveryInput } from "./context.js";
-import { handleResume } from "./deliveries.js";
+import { handleCancel, handleResume } from "./deliveries.js";
 
 // A resume is a human's decision, not a claim: it must not take a place the Project does not have.
 
@@ -93,5 +93,48 @@ describe("handleResume", () => {
 
     assert.equal(await stateOf(ledger, "fake:1"), "integrating");
     assert.equal(await stateOf(ledger, "fake:2"), "integrating");
+  });
+});
+
+describe("handleCancel", () => {
+  function cancelInput(aggregate: Record<string, unknown>, withdrawn: string[], reports: string[]) {
+    return {
+      ledger: { get: async () => ({ ok: true, aggregate }) },
+      conductor: { cancel: async () => ({ ok: true }) },
+      tickets: {
+        report: async (report: { event: string }) => {
+          reports.push(report.event);
+          return true;
+        },
+        withdraw: async (input: { reference: string }) => {
+          withdrawn.push(input.reference);
+        },
+      },
+      journal: { append: () => undefined },
+      reported: [],
+      said: new Set<string>(),
+    } as unknown as HostDeliveryInput;
+  }
+
+  it("withdraws the Submission of an abandoned Ticket, then says it was cancelled", async () => {
+    const withdrawn: string[] = [];
+    const reports: string[] = [];
+    const input = cancelInput(
+      { state: "submitted", submission: { reference: "pr-1" } },
+      withdrawn,
+      reports,
+    );
+    await handleCancel({ key: "fake:1", project: PROJECT }, input);
+    assert.deepEqual(withdrawn, ["pr-1"]);
+    assert.deepEqual(reports, ["cancelled"]);
+  });
+
+  it("withdraws nothing from a Ticket that has no Submission", async () => {
+    const withdrawn: string[] = [];
+    const reports: string[] = [];
+    const input = cancelInput({ state: "running" }, withdrawn, reports);
+    await handleCancel({ key: "fake:1", project: PROJECT }, input);
+    assert.deepEqual(withdrawn, []);
+    assert.deepEqual(reports, ["cancelled"]);
   });
 });
