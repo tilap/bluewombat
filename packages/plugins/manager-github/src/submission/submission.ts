@@ -211,6 +211,48 @@ async function closeIssueOnLine(
   }
 }
 
+/**
+ * A Ticket abandoned with a Submission: the pull request is closed unmerged and
+ * its branch deleted, unless `keepBranch`. Best effort, like the fold's branch
+ * delete: the cancel stands whatever this says, and a pull request left open
+ * is clutter, not a failure.
+ */
+export async function withdrawPullRequest(
+  reference: string,
+  context: SubmissionContext,
+): Promise<void> {
+  const number = numberFromReference(reference);
+  if (number === undefined) {
+    return;
+  }
+  const call = callSignal(context.deadlineMs, context.now, context.shouldInterrupt);
+  try {
+    const pull = await context.github.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      pull_number: number,
+      request: { signal: call.signal },
+    });
+    if (pull.data.state !== "open") {
+      return;
+    }
+    await context.github.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+      owner: context.repo.owner,
+      repo: context.repo.name,
+      pull_number: number,
+      state: "closed",
+      request: { signal: call.signal },
+    });
+    if (context.keepBranch !== true) {
+      await deleteBranch(pull.data.head.ref, context, call.signal);
+    }
+  } catch {
+    // Unreachable or already settled: nothing more to withdraw.
+  } finally {
+    call.release();
+  }
+}
+
 async function deleteBranch(
   ref: string,
   context: SubmissionContext,
@@ -273,7 +315,7 @@ export function titleOf(input: Pick<SubmissionRequest, "key" | "title">): string
  * the issue when this is merged.
  */
 export function bodyOf(
-  input: Pick<SubmissionRequest, "key" | "title" | "intention" | "description">,
+  input: Pick<SubmissionRequest, "key" | "title" | "intention" | "description" | "checks">,
 ): string {
   const sections: string[] = [];
   // What the reader sees first: the Project's words when a Describer gave
@@ -283,6 +325,10 @@ export function bodyOf(
   const description = slotBody.length > 0 ? slotBody : intention;
   if (description.length > 0) {
     sections.push(description);
+  }
+  // What the Gates said when they passed it: the proof, where a reviewer reads.
+  if (input.checks !== undefined && input.checks.length > 0) {
+    sections.push(["## Checks", "", ...input.checks.map((check) => `- ${check}`)].join("\n"));
   }
   const issue = issueNumberFromExternalId(input.key);
   sections.push(issue === undefined ? `Key: \`${input.key}\`` : `Closes #${issue}`);

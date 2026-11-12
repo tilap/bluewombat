@@ -8,6 +8,7 @@ import {
   journalPath,
   openJournalFile,
   parseJournalChunk,
+  passReportsOf,
   stampJournal,
 } from "./journal.js";
 
@@ -126,5 +127,31 @@ describe("coalesceQuiet", () => {
     const journal = coalesceQuiet(base, 60_000, () => 0);
     journal.append({ event: "admitted" });
     assert.deepEqual(base.lines, [{ event: "admitted" }]);
+  });
+});
+
+describe("passReportsOf", () => {
+  const pass = (key: string, gate: string, report: string, attempt = 1) => ({
+    event: "gate-finished",
+    key,
+    gate_id: gate,
+    verdict: "pass",
+    report,
+    attempt,
+  });
+
+  it("keeps what each Gate said when it passed, the latest word per Gate", () => {
+    const root = mkdtempSync(join(tmpdir(), "journal-"));
+    const journal = openJournalFile(root);
+    journal.append(pass("f:1", "feature-tests", "1 scenario ran: S1."));
+    journal.append(pass("f:1", "lint", ""));
+    journal.append({ ...pass("f:1", "feature-tests", "x"), verdict: "fail-retryable" });
+    journal.append(pass("f:1", "feature-tests", "2 scenarios ran: S1, S2.", 2));
+    journal.append(pass("f:2", "feature-tests", "another Feature"));
+    assert.deepEqual(passReportsOf(root, "f:1"), ["2 scenarios ran: S1, S2."]);
+  });
+
+  it("says nothing when there is no journal", () => {
+    assert.deepEqual(passReportsOf(mkdtempSync(join(tmpdir(), "journal-")), "f:1"), []);
   });
 });

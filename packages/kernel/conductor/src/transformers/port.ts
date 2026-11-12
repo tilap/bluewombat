@@ -157,6 +157,8 @@ export type SubmitInput = {
    * work is published under the name the isolation strategy gives `ref`.
    */
   branch?: string;
+  /** What the Gates said when they passed the work. Passed on as it is to the Authority. */
+  checks?: string[];
 };
 
 export type SubmitResult =

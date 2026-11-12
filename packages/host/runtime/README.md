@@ -157,7 +157,7 @@ run knows of it:
 mason incident                  # what waits for a person
 mason incident 106              # one stop: the key, or the tracker's number
 mason incident 106 --out ./inc  # incident.md and incident.json, to hand on
-mason incident 106 --with-config  # also the config file, secret-looking values blanked
+mason incident 106 --with-config  # also the config file, parsed as YAML and blanked by path and by shape
 ```
 
 The page says what the run was made of (versions, what the configuration switched

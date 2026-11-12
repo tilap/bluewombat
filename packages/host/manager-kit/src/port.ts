@@ -173,6 +173,12 @@ export type SubmissionRequest = {
    * the intention, as the human wrote them.
    */
   description?: { subject: string; body?: string };
+  /**
+   * What the Gates said when they passed the work, one line each: the proof
+   * that goes with the Submission, for whoever reads it. Absent when no Gate
+   * had anything to say.
+   */
+  checks?: string[];
 };
 
 export type SubmissionResult =
@@ -288,6 +294,8 @@ export type TicketTrackerPort = {
   behind?(input: { reference: string }): Promise<BehindResult>;
   /** Have the Authority fold a Submission the Gates accepted into the line it was offered to. */
   fold?(input: { reference: string }): Promise<FoldResult>;
+  /** Take back a Submission whose Ticket was abandoned: close it, and drop the branch it came from. */
+  withdraw?(input: { reference: string }): Promise<void>;
   /** Where a Submission stands, for the ones a human folds. */
   settled?(input: { reference: string }): Promise<SettledResult>;
 };

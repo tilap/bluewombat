@@ -243,7 +243,7 @@ export function buildDossier(input: DossierInput): Dossier {
       intention: head(subject.intention.intention, 12),
     },
     stop,
-    history: { escalations, resumes: subject.resumes },
+    history: { escalations, resumes: subject.resumes ?? 0 },
     budgets: budgetsOf(subject),
     timeline: round.map(timelineRow).filter((row): row is TimelineRow => row !== undefined),
     artifacts: { streams: [], transcripts: [] },

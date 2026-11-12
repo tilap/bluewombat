@@ -219,7 +219,7 @@ tracker's; the meaning is fixed:
 | `resumed`             | `resume` taken into account                                             | where it resumes (`running` / `integrating`)                                                                  |
 | `submitted`           | the assembled Ticket, or the Feature's line, is in front of the Authority | where it can be seen — the Submission reference                                                            |
 | `done`                | folded into its line                                                   | the Submission reference and the line's own name for the fold (a commit) when there was an Authority; nothing to open otherwise — never a path on the operator's machine |
-| `cancelled`           | abandon accepted                                                       | the state at that moment; the kept directory when work was partial                                            |
+| `cancelled`           | abandon accepted (a Submission the Ticket held is withdrawn: its pull request closed, its branch deleted) | the state at that moment; the kept directory when work was partial                                            |
 | `reject_late`         | abandon or edit in `merging` / `done`                                  | "too late", the integration reference when `done`                                                             |
 
 These events are the whole human surface: nobody should need to open the
