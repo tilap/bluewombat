@@ -63,6 +63,7 @@ function sandbox(supervisor: Record<string, unknown> = {}): string {
         remedy: agent,
         skeptic: agent,
         arbiter: agent,
+        reformatter: agent,
         fixer: agent,
         reviewer: agent,
       },
@@ -233,13 +234,14 @@ describe("mason supervise", () => {
     assert.equal(resumes(world.calls).length, 1);
   });
 
-  it("retries a council whose arbiter answered badly, then reports it", async () => {
+  it("corrects the form of an arbiter that answered badly once, then reports it", async () => {
     const cwd = sandbox();
     await escalate(cwd);
     const world = fakeWorld("I am not sure what to say.");
     const { output } = await supervise(cwd, world.exec);
     assert.match(output, /council failed/);
-    assert.equal(world.calls.filter((c) => c[1]?.includes("# Your role: arbiter")).length, 2);
+    assert.equal(world.calls.filter((c) => c[1]?.includes("# Your role: arbiter")).length, 1);
+    assert.equal(world.calls.filter((c) => c[1]?.includes("You correct the form")).length, 1);
     assert.deepEqual(resumes(world.calls), []);
   });
 
