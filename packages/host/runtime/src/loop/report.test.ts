@@ -179,7 +179,7 @@ describe("reporting after a pass", () => {
       { outcome: "done", key: KEY },
       aggregateOf({
         state: "done",
-        submission: { reference: "pr-1", submitted_at: 1, refusals: 0 },
+        submission: { id: "pr-1", reference: "pr-1", submitted_at: 1, refusals: 0 },
         integration_reference: "9aeff61",
       }),
     );
@@ -249,7 +249,7 @@ describe("reporting after a pass", () => {
       state: "integrating",
       parked_refusal: { report: "TS2322", refused_by: "typecheck" },
       parked_refusals: 1,
-      submission: { reference: "pr-1", submitted_at: 1, refusals: 0, realigns: 1 },
+      submission: { id: "pr-1", reference: "pr-1", submitted_at: 1, refusals: 0, realigns: 1 },
     });
     await reportAfterRun(input, { outcome: "paused", key: KEY }, aggregate);
     assert.match(
@@ -276,7 +276,7 @@ describe("reporting after a pass", () => {
         {
           ...stopped,
           parked_refusals: 1,
-          submission: { reference: "pr-1", submitted_at: 1, refusals: 0, realigns: 2 },
+          submission: { id: "pr-1", reference: "pr-1", submitted_at: 1, refusals: 0, realigns: 2 },
         },
         4,
       ),
@@ -288,7 +288,13 @@ describe("reporting after a pass", () => {
     const { input, reports } = harness();
     const aggregate = aggregateOf({
       state: "integrating",
-      submission: { reference: "ref-1", submitted_at: 1, refusals: 1, last_report: "stale" },
+      submission: {
+        id: "ref-1",
+        reference: "ref-1",
+        submitted_at: 1,
+        refusals: 1,
+        last_report: "stale",
+      },
       parked_refusal: { report: "fresh" },
       parked_refusals: 1,
     });
@@ -331,7 +337,13 @@ describe("reporting after a pass", () => {
         aggregate: aggregateOf({
           attempts_used: 2,
           escalation: { kind: "submitted", born_in_merging: false },
-          submission: { reference: "pr-1", submitted_at: 1, refusals: 2, last_report: "CI red" },
+          submission: {
+            id: "pr-1",
+            reference: "pr-1",
+            submitted_at: 1,
+            refusals: 2,
+            last_report: "CI red",
+          },
         }),
         stage: "submitting",
         fields: { trace: "CI red" },
@@ -422,7 +434,13 @@ describe("reporting after a pass", () => {
       aggregateOf({
         attempts_used: 3,
         escalation: { kind: "submitted", born_in_merging: false, report: "reviewer: no" },
-        submission: { reference: "pr-1", submitted_at: 1, refusals: 1, last_report: "older" },
+        submission: {
+          id: "pr-1",
+          reference: "pr-1",
+          submitted_at: 1,
+          refusals: 1,
+          last_report: "older",
+        },
       }),
     );
     assert.equal(reports[0]?.eventId, `${KEY}:escalated:0:submitted`);
@@ -457,7 +475,7 @@ describe("reporting after a pass", () => {
     const spent = await reasonFor(
       {
         escalation: { kind: "submitted", born_in_merging: false, report: "ci-green: red" },
-        submission: { reference: "pr-1", submitted_at: 1, refusals: 1 },
+        submission: { id: "pr-1", reference: "pr-1", submitted_at: 1, refusals: 1 },
       },
       2,
     );
@@ -467,7 +485,7 @@ describe("reporting after a pass", () => {
     const early = await reasonFor(
       {
         escalation: { kind: "submitted", born_in_merging: false, report: "ci-green: no checks" },
-        submission: { reference: "pr-1", submitted_at: 1, refusals: 0 },
+        submission: { id: "pr-1", reference: "pr-1", submitted_at: 1, refusals: 0 },
       },
       3,
     );
@@ -527,7 +545,7 @@ describe("journalTicket", () => {
       "paused",
       aggregateOf({
         state: "submitted",
-        submission: { reference: "pr-1", submitted_at: 1, refusals: 1 },
+        submission: { id: "pr-1", reference: "pr-1", submitted_at: 1, refusals: 1 },
       }),
     );
     journalTicket(input.journal, "done", aggregateOf({ state: "done" }));
@@ -546,7 +564,7 @@ describe("journalTicket", () => {
     const said = new Set<string>();
     const waiting = aggregateOf({
       state: "submitted",
-      submission: { reference: "pr-1", submitted_at: 1, refusals: 0 },
+      submission: { id: "pr-1", reference: "pr-1", submitted_at: 1, refusals: 0 },
     });
     journalTicket(journal, "paused", waiting, said);
     journalTicket(journal, "paused", waiting, said);
@@ -559,7 +577,13 @@ describe("journalTicket", () => {
 
     const refused = aggregateOf({
       state: "submitted",
-      submission: { reference: "pr-1", submitted_at: 1, refusals: 1, last_report: "lint" },
+      submission: {
+        id: "pr-1",
+        reference: "pr-1",
+        submitted_at: 1,
+        refusals: 1,
+        last_report: "lint",
+      },
     });
     journalTicket(journal, "paused", refused, said);
     assert.equal(

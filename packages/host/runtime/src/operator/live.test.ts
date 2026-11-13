@@ -88,6 +88,7 @@ describe("runLive", () => {
     await ledger.markSubmitted({
       key: "github:acme/app#42",
       reference: "https://example.test/pr/7",
+      id: "7",
     });
     const lines: string[] = [];
     const code = await runLive({
