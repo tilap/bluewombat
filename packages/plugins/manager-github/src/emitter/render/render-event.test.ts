@@ -309,6 +309,16 @@ describe("renderEvent", () => {
     assert.doesNotMatch(rendered.section, /under review/);
   });
 
+  it("places a tickets escalation before any assembly", () => {
+    const rendered = renderEvent(
+      invocation({
+        event: "escalated",
+        fields: { reason: "Every Ticket was abandoned, so nothing was made.", stage: "tickets" },
+      }),
+    );
+    assert.match(rendered.section, /This happened while its Tickets were being made\./);
+  });
+
   it("cuts long free text, marks the cut, and lists what it cut", () => {
     const rendered = renderEvent(
       invocation({

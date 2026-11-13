@@ -20,7 +20,7 @@ export type EventName =
   | "cancelled"
   | "reject_late";
 
-export type Stage = "unit" | "integrating" | "submitting" | "merging";
+export type Stage = "unit" | "tickets" | "integrating" | "submitting" | "merging";
 
 export type ResumePoint = "running" | "integrating";
 

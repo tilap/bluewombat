@@ -30,7 +30,7 @@ export type EventFields = {
   /** One sentence a reader gets first, under the heading and before any field. */
   summary?: string;
   reason?: string;
-  stage?: "unit" | "integrating" | "submitting" | "merging";
+  stage?: "unit" | "tickets" | "integrating" | "submitting" | "merging";
   trace?: string;
   counters?: Record<string, string>;
   priority?: number;

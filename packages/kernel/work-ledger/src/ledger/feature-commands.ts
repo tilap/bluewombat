@@ -2,6 +2,7 @@ import type { PersistencePort } from "../persist/port.js";
 import type {
   Aggregate,
   FeatureAggregate,
+  FeatureEscalationKind,
   FeatureIntention,
   FeatureState,
   FeatureSummary,
@@ -52,7 +53,7 @@ export type FeatureCommands = {
     key: string;
     report?: string;
     /** Where the line stopped, when the caller knows. */
-    kind?: "assembly" | "submitted";
+    kind?: FeatureEscalationKind;
     /** What refused it, when the refusal came with a name. */
     refusedBy?: string;
   }): Promise<CommandResult>;
