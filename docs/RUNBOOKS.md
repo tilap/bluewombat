@@ -103,7 +103,7 @@ are issue #56.
 
 The human surface is the TicketTracker, not the WorkLedger.
 
-1. **Assess** — Emitter event `escalated`: motif, stage (unit / integrating / submitting / merging), Trace if an Attempt exists, bound counters. The whole ticket is frozen.
+1. **Assess** — Emitter event `escalated`: motif, stage (unit / tickets / integrating / submitting / merging), Trace if an Attempt exists, bound counters. The whole ticket is frozen.
 2. **Communicate** — stay in the TicketTracker. An untreated escalation stays `escalated` and should receive `escalation_reminder` events.
 3. **Stabilise**
    | Lever                                | How                                                                                | Effect                                                                          |

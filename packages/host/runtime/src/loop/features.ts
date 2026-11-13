@@ -13,6 +13,7 @@ import {
 import type {
   FeatureAdmission,
   FeatureAggregate,
+  FeatureEscalationKind,
   TicketAdmission,
   TicketState,
   TicketSummary,
@@ -614,6 +615,7 @@ async function advanceOpenFeature(
       input,
       feature,
       "No Ticket can start: each waits on a Ticket that is not done.",
+      { kind: "tickets" },
     );
   }
   return run;
@@ -718,20 +720,24 @@ async function reportLanded(
   }
 }
 
+const STAGE_OF = {
+  tickets: "tickets",
+  assembly: "integrating",
+  submitted: "submitting",
+} as const;
+
 async function escalateFeature(
   input: HostDeliveryInput,
   feature: FeatureAggregate,
   report: string,
-  /** Where the line stopped and who refused it, when the caller knows. */
-  origin:
-    | { kind: "assembly" | "submitted"; refusedBy?: string | undefined }
-    | undefined = undefined,
+  /** Where the Feature stopped, and who refused it when something named itself. */
+  origin: { kind: FeatureEscalationKind; refusedBy?: string | undefined },
 ): Promise<void> {
   const escalated = await input.ledger.escalateFeature({
     key: feature.intention.key,
     report,
-    ...(origin === undefined ? {} : { kind: origin.kind }),
-    ...(origin?.refusedBy === undefined ? {} : { refusedBy: origin.refusedBy }),
+    kind: origin.kind,
+    ...(origin.refusedBy === undefined ? {} : { refusedBy: origin.refusedBy }),
   });
   if (!escalated.ok) {
     return;
@@ -746,8 +752,8 @@ async function escalateFeature(
       key: feature.intention.key,
       project: feature.intention.project,
       eventId: `${feature.intention.key}:escalated:${round}`,
-      // The assembled line refused by a check is not a Submission refused: say which it was.
-      fields: { reason: report, stage: origin?.kind === "assembly" ? "integrating" : "submitting" },
+      // Each stop says where it happened: Tickets, the assembled line, or the offer.
+      fields: { reason: report, stage: STAGE_OF[origin.kind] },
     },
     TO,
   );
@@ -860,7 +866,9 @@ async function closeFeature(
   const key = feature.intention.key;
   const project = feature.intention.project;
   if (!tickets.some((summary) => summary.state === "done")) {
-    await escalateFeature(input, feature, "Every Ticket was abandoned, so nothing was made.");
+    await escalateFeature(input, feature, "Every Ticket was abandoned, so nothing was made.", {
+      kind: "tickets",
+    });
     return;
   }
   if (
@@ -872,6 +880,7 @@ async function closeFeature(
       input,
       feature,
       "This Feature is not marked skip-feature-test and holds no feature-test Ticket: it was cancelled while the Feature skipped the check, and the mark was taken off since. Mark the Feature skip-feature-test again to leave the check out.",
+      { kind: "tickets" },
     );
     return;
   }
@@ -950,7 +959,9 @@ async function closeFeature(
     return;
   }
   if (folded.outcome !== "integrated") {
-    await escalateFeature(input, feature, "The Feature's work could not be folded into its line.");
+    await escalateFeature(input, feature, "The Feature's work could not be folded into its line.", {
+      kind: "assembly",
+    });
     return;
   }
   const published = await publish({
@@ -963,7 +974,7 @@ async function closeFeature(
     env: input.workLine.env,
   });
   if (!published.ok) {
-    await escalateFeature(input, feature, published.reason);
+    await escalateFeature(input, feature, published.reason, { kind: "submitted" });
     return;
   }
   // What the Feature's Gates said when they passed it goes with the Submission.
@@ -983,7 +994,7 @@ async function closeFeature(
     return;
   }
   if (submitted.outcome === "refused") {
-    await escalateFeature(input, feature, submitted.reason);
+    await escalateFeature(input, feature, submitted.reason, { kind: "submitted" });
     return;
   }
   await input.ledger.markFeatureSubmitted({
@@ -1076,6 +1087,7 @@ async function settleFeature(input: HostDeliveryInput, feature: FeatureAggregate
         input,
         feature,
         `The Submission ${submission.reference} was closed without being folded.`,
+        { kind: "submitted" },
       );
     }
     return;

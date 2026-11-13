@@ -470,12 +470,13 @@ words with a fence longer than any backtick run in them.
 
 An escalation records, beside its words, who refused it (`refused_by`: a Gate's
 id or a role, when the refusal came with a name) and when (`at`, the ledger's
-clock); a Feature's also records where its line stopped (`kind`: `assembly` for
-the assembled line refused by a check, `submitted` for its offer). All are
-optional: a record written before them stays readable, and the page then takes
-the refuser from the last non-passing Gate whose words the ledger repeats. The
-tracker is told the stage of a Feature's stop from that `kind` (`integrating`
-for an assembled line, `submitting` otherwise).
+clock); a Feature's also records where its line stopped (`kind`: `tickets` when its
+Tickets could not make the work, `assembly` for the assembled line refused by a
+check or not foldable, `submitted` for its offer and what followed). Every stop
+of a Feature names one. The refuser and `at` are optional: a record without
+them stays readable, and the page then takes the refuser from the last
+non-passing Gate whose words the ledger repeats. The tracker is told the stage
+of a Feature's stop from that `kind` (`tickets`, `integrating`, `submitting`).
 
 `restart <feature-key>` resumes an escalated Feature with a fresh workspace: the
 Feature's work is removed (the same `rm` as a cancel) and the ledger's `resumeFeature` is taken,

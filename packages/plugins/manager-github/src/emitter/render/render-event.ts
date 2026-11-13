@@ -225,6 +225,7 @@ Work continues from ${fields.resume_point ?? ""}.${reason}
 
 const STAGE_PHRASE: Record<Stage, string> = {
   unit: "while the work was being made",
+  tickets: "while its Tickets were being made",
   integrating: "while assembling the work",
   // A refused offer stops here too, before any Submission exists to review.
   submitting: "while submitting the work",

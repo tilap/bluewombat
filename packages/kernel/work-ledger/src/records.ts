@@ -74,6 +74,9 @@ export type BailRecord = {
   expires_at: number;
 };
 
+/** Where a Feature stopped: its Tickets, the assembly of its line, or the offer of it. */
+export type FeatureEscalationKind = "tickets" | "assembly" | "submitted";
+
 export type EscalationRecord = {
   kind: EscalationKind;
   born_in_merging: boolean;
@@ -233,7 +236,7 @@ export type FeatureAggregate = {
   escalation?: {
     report?: string;
     /** Where the line stopped: the assembled work, or its offer to the Authority. */
-    kind?: "assembly" | "submitted";
+    kind?: FeatureEscalationKind;
     /** What refused it, when the refusal came with a name. Opaque. */
     refused_by?: string;
     /** When it stopped, in the ledger's clock. */

@@ -1406,6 +1406,27 @@ describe("one Host pass", () => {
     assert.equal(feature.ok && feature.aggregate.state, "open");
   });
 
+  it("escalates a Feature whose every Ticket was abandoned at the tickets stage", async () => {
+    const paths = sandbox();
+    let answer: ProbeResult = "present";
+    const stub = stubManager({
+      deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }]) }],
+      probe: async (key) => (key === TICKET ? answer : "present"),
+    });
+    const host = await openHost(optionsFor(paths, stub, { builder: blockingBuilder() }));
+    await host.runOnce();
+
+    answer = "gone";
+    await host.runOnce();
+    const feature = await host.ledger.getFeature(FEATURE);
+    assert.equal(feature.ok && feature.aggregate.state, "escalated");
+    assert.equal(feature.ok && feature.aggregate.escalation?.kind, "tickets");
+    assert.equal(
+      stub.reports.find((r) => r.event === "escalated" && r.key === FEATURE)?.fields.stage,
+      "tickets",
+    );
+  });
+
   it("an unavailable probe leaves an escalation in place", async () => {
     const paths = sandbox();
     const stub = stubManager({
