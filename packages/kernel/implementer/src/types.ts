@@ -52,7 +52,7 @@ export type GateTraceEntry = {
 };
 
 export type Trace = {
-  task_id: string;
+  id: string;
   attempt: number;
   builder: {
     input: BuilderInput;
@@ -78,7 +78,7 @@ export type ChildSink = {
 /** Which child is about to speak, for whoever decides whether to film it. */
 export type ChildAbout = {
   /** The Task, from `--id`. */
-  task_id: string;
+  id: string;
   /** The larger piece of work it serves, from `--context`, when there is one. */
   key?: string;
   attempt: number;

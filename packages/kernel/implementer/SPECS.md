@@ -341,7 +341,7 @@ What an Attempt leaves so the result can be understood without replaying.
 
 | Field     | Content                                                                                                                                             |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task_id` | From `--id`.                                                                                                                                        |
+| `id` | From `--id`.                                                                                                                                        |
 | `attempt` | Number, from 1.                                                                                                                                     |
 | `builder` | Input (intention, previous `--report` if any) and result (completed / failed / timed out / interrupted / refused, plus detail). |
 | `gates`   | One entry per Gate **that ran**, in order: `id`, verdict, report. Gates not reached are absent.                                                     |
@@ -365,7 +365,7 @@ lines rebuild the Trace.
 | `attempt-finished` | Attempt `ended` is known    |
 | `run-finished`     | Run outcome is known        |
 
-Each line carries `task_id`, `attempt` when an Attempt exists, and enough
+Each line carries `id`, `attempt` when an Attempt exists, and enough
 to rebuild the Trace without reading the workspace. When `--context` was given,
 every line — `status` included — also carries it as `key`: a Task id names the
 unit of work and not the ticket it serves, and a reader holding `s1` alone

@@ -40,7 +40,7 @@ export type TicketRow = {
 export type TimelineRow = {
   at: string;
   event: string;
-  task_id?: string;
+  id?: string;
   attempt?: number;
   gate_id?: string;
   verdict?: string;
@@ -49,7 +49,7 @@ export type TimelineRow = {
 
 export type StreamRow = {
   path: string;
-  task_id?: string;
+  id?: string;
   gate_id?: string;
   attempt?: number;
   bytes?: number;
@@ -101,10 +101,10 @@ export type Dossier = {
     /** What refused it: a Gate's id or a role, as the ledger or the journal named it. */
     refused_by?: string;
     at?: string;
-    task_id?: string;
+    id?: string;
     attempt?: number;
     gate?: { id: string; verdict: string; report: string; at: string };
-    agent?: { task_id: string; attempt?: number; failure: string; at: string };
+    agent?: { id: string; attempt?: number; failure: string; at: string };
     /** Where each field above came from, so a reader knows what to trust. */
     sources: string[];
   };
@@ -216,7 +216,7 @@ export function buildDossier(input: DossierInput): Dossier {
     stop.at = at;
   }
   if (stopLine !== undefined) {
-    setText(stop, "task_id", stopLine.task_id);
+    setText(stop, "id", stopLine.id);
     setNumber(stop, "attempt", stopLine.attempt);
   }
   if (gate !== undefined) {
@@ -295,10 +295,7 @@ function linesOf(journal: JournalLine[], key: string): JournalLine[] {
     if (line.key === key) {
       return true;
     }
-    return (
-      typeof line.task_id === "string" &&
-      (line.task_id === key || line.task_id.startsWith(`${key}:`))
-    );
+    return typeof line.id === "string" && (line.id === key || line.id.startsWith(`${key}:`));
   });
 }
 
@@ -311,7 +308,7 @@ function lastIndex<T>(items: T[], test: (item: T) => boolean): number {
   return -1;
 }
 
-type GateLine = { gate_id: string; verdict: string; report: string; at: string; task_id?: string };
+type GateLine = { gate_id: string; verdict: string; report: string; at: string; id?: string };
 
 /** The last check that did not pass, before the stop. */
 function failedGate(round: JournalLine[]): GateLine | undefined {
@@ -333,8 +330,8 @@ function failedGate(round: JournalLine[]): GateLine | undefined {
     report: typeof line.report === "string" ? line.report : "",
     at: typeof line.at === "string" ? line.at : "",
   };
-  if (typeof line.task_id === "string") {
-    found.task_id = line.task_id;
+  if (typeof line.id === "string") {
+    found.id = line.id;
   }
   return found;
 }
@@ -346,11 +343,11 @@ function failedAgent(round: JournalLine[]): Dossier["stop"]["agent"] | undefined
     (line) => line.event === "builder-finished" && failureOf(line) !== undefined,
   );
   const line = index < 0 ? undefined : round[index];
-  if (line === undefined || typeof line.task_id !== "string") {
+  if (line === undefined || typeof line.id !== "string") {
     return undefined;
   }
   const agent: NonNullable<Dossier["stop"]["agent"]> = {
-    task_id: line.task_id,
+    id: line.id,
     failure: failureOf(line) ?? "",
     at: typeof line.at === "string" ? line.at : "",
   };
@@ -484,7 +481,7 @@ function timelineRow(line: JournalLine): TimelineRow | undefined {
     return undefined;
   }
   const row: TimelineRow = { at: line.at, event };
-  setText(row, "task_id", line.task_id);
+  setText(row, "id", line.id);
   setNumber(row, "attempt", line.attempt);
   setText(row, "gate_id", line.gate_id);
   setText(row, "verdict", line.verdict);
@@ -563,16 +560,11 @@ function collectStreams(
     const absolute = streamsDir === undefined ? path : join(streamsDir, path);
     const exists = streamsDir !== undefined && existsSync(absolute);
     const row: StreamRow = { path: absolute, exists };
-    setText(row, "task_id", line.task_id);
+    setText(row, "id", line.id);
     setText(row, "gate_id", line.gate_id);
     setNumber(row, "attempt", line.attempt);
     setNumber(row, "bytes", closed.get(path)?.bytes);
-    if (
-      exists &&
-      gate !== undefined &&
-      line.gate_id === gate.gate_id &&
-      line.task_id === gate.task_id
-    ) {
+    if (exists && gate !== undefined && line.gate_id === gate.gate_id && line.id === gate.id) {
       const text = streamText(absolute);
       if (text !== undefined) {
         row.excerpt = tail(text, EXCERPT_LIMIT);
@@ -751,12 +743,10 @@ export function renderDossier(dossier: Dossier): string {
     out.push(`- gate: ${stop.gate.id} → ${stop.gate.verdict} (${stop.gate.at})`);
   }
   if (stop.agent !== undefined) {
-    out.push(`- agent: ${stop.agent.task_id} ended on ${stop.agent.failure}`);
+    out.push(`- agent: ${stop.agent.id} ended on ${stop.agent.failure}`);
   }
-  if (stop.task_id !== undefined) {
-    out.push(
-      `- task: ${stop.task_id}${stop.attempt === undefined ? "" : `, attempt ${stop.attempt}`}`,
-    );
+  if (stop.id !== undefined) {
+    out.push(`- task: ${stop.id}${stop.attempt === undefined ? "" : `, attempt ${stop.attempt}`}`);
   }
   if (stop.at !== undefined) {
     out.push(`- at: ${stop.at}`);
@@ -832,7 +822,7 @@ export function renderDossier(dossier: Dossier): string {
     out.push("## Timeline of the last round");
     out.push("");
     for (const row of dossier.timeline) {
-      const who = row.gate_id ?? row.task_id ?? "";
+      const who = row.gate_id ?? row.id ?? "";
       const verdict = row.verdict === undefined ? "" : ` ${row.verdict}`;
       const detail = row.detail === undefined ? "" : `  ${row.detail.replace(/\s+/g, " ")}`;
       out.push(`- ${row.at.slice(11, 23)} ${row.event} ${who}${verdict}${detail}`.trimEnd());

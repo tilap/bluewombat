@@ -143,7 +143,7 @@ async function runLoop(input: {
 
     write({
       event: "attempt-started",
-      task_id: invocation.id,
+      id: invocation.id,
       attempt,
     });
 
@@ -179,7 +179,7 @@ async function runLoop(input: {
     if (invocation.builderArgv !== undefined) {
       write({
         event: "builder-finished",
-        task_id: invocation.id,
+        id: invocation.id,
         attempt,
         result: builderRun.result,
       });
@@ -236,7 +236,7 @@ async function runLoop(input: {
         gateEntries.push(gateRun.entry);
         write({
           event: "gate-finished",
-          task_id: invocation.id,
+          id: invocation.id,
           attempt,
           gate_id: gate.id,
           verdict: gateRun.entry.verdict,
@@ -266,7 +266,7 @@ async function runLoop(input: {
     }
 
     const trace: Trace = {
-      task_id: invocation.id,
+      id: invocation.id,
       attempt,
       builder: {
         input: builderInput,
@@ -279,7 +279,7 @@ async function runLoop(input: {
 
     write({
       event: "attempt-finished",
-      task_id: invocation.id,
+      id: invocation.id,
       attempt,
       ended,
       trace,
@@ -338,7 +338,7 @@ async function finishRun(input: {
   });
   write({
     event: "run-finished",
-    task_id: invocation.id,
+    id: invocation.id,
     outcome,
     traces,
   });
@@ -366,14 +366,14 @@ export function invalidInvocationResult(
   const status = makeStatus({ phase: "invalid" });
   write({
     event: "status",
-    task_id: invocationId ?? "",
+    id: invocationId ?? "",
     phase: status.phase,
     label: status.label,
     reason,
   });
   write({
     event: "run-finished",
-    task_id: invocationId ?? "",
+    id: invocationId ?? "",
     outcome: "invalid-invocation",
     reason,
     traces: [],

@@ -1670,7 +1670,7 @@ describe("the feature-test acceptance check", () => {
     // The feature-test Ticket was judged by its own Gates, and the other Ticket by the shared ones.
     const judgedBy = (task: string) =>
       journal.lines
-        .filter((l) => l.event === "gate-finished" && l.task_id === task)
+        .filter((l) => l.event === "gate-finished" && l.id === task)
         .map((l) => l.gate_id);
     assert.deepEqual(judgedBy("stub:43"), ["feature-tests-form"]);
     assert.deepEqual(judgedBy("stub:42"), ["check"]);

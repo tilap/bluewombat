@@ -68,7 +68,7 @@ describe("what a child says, as it says it", () => {
     assert.equal(sink.opened.length, 1);
     const [child] = sink.opened;
     assert.equal(child?.about.kind, "builder");
-    assert.equal(child?.about.task_id, "task-1");
+    assert.equal(child?.about.id, "task-1");
     assert.equal(child?.about.attempt, 1);
     const said = (stream: string): string =>
       (child?.chunks ?? [])

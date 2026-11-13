@@ -166,12 +166,23 @@ describe("host", () => {
 
     // Every line about a Task says which ticket it served.
     const orphans = lines.filter(
-      (line) =>
-        (line.task_id !== undefined || line.id !== undefined) &&
-        line.key === undefined &&
-        line.event !== "host-started",
+      (line) => line.id !== undefined && line.key === undefined && line.event !== "host-started",
     );
     assert.deepEqual(orphans, [], "a line about a Task that cannot be joined to its ticket");
+    // A Task is named `id` on every line, and the id is the key or `<key>:<step>`.
+    assert.deepEqual(
+      lines.filter((line) => "task_id" in line),
+      [],
+      "a line names its Task other than by id",
+    );
+    const misnamed = lines.filter(
+      (line) =>
+        typeof line.id === "string" &&
+        typeof line.key === "string" &&
+        line.id !== line.key &&
+        !line.id.startsWith(`${line.key}:`),
+    );
+    assert.deepEqual(misnamed, [], "an id that is neither the key nor <key>:<step>");
     for (const event of ["status", "attempt-started", "gate-finished", "isolation-started"]) {
       const found = lines.find((line) => line.event === event);
       assert.equal(found?.key, KEY, `${event} names the ticket`);

@@ -31,7 +31,7 @@ export function keyedWriter(write: ProgressWriter, key: string | undefined): Pro
 export function emitStatusEvent(write: ProgressWriter, taskId: string, status: Status): void {
   const line: Record<string, unknown> = {
     event: "status",
-    task_id: taskId,
+    id: taskId,
     phase: status.phase,
     label: status.label,
   };

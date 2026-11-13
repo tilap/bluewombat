@@ -9,7 +9,7 @@ function trace(
   gates: Trace["gates"] = [],
 ): Trace {
   return {
-    task_id: "t",
+    id: "t",
     attempt,
     builder: {
       input: { intention: "i" },

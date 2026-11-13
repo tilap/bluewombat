@@ -92,7 +92,7 @@ export function openStreams(spec: StreamsSpec): Streams {
         spec.journal.append({
           event: "stream-opened",
           ...(subject.key === undefined ? {} : { key: subject.key }),
-          task_id: subject.id,
+          id: subject.id,
           ...(subject.attempt === undefined ? {} : { attempt: subject.attempt }),
           ...(subject.gateId === undefined ? {} : { gate_id: subject.gateId }),
           path: relative(spec.dir, path),
@@ -102,7 +102,7 @@ export function openStreams(spec: StreamsSpec): Streams {
           spec.journal.append({
             event: "stream-closed",
             ...(subject.key === undefined ? {} : { key: subject.key }),
-            task_id: subject.id,
+            id: subject.id,
             ...(subject.attempt === undefined ? {} : { attempt: subject.attempt }),
             ...(subject.gateId === undefined ? {} : { gate_id: subject.gateId }),
             path: relative(spec.dir, path),

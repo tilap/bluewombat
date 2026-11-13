@@ -83,7 +83,7 @@ async function escalate(cwd: string): Promise<void> {
   journal.append({
     event: "gate-finished",
     key: "fake:o/r#42",
-    task_id: "fake:o/r#42",
+    id: "fake:o/r#42",
     attempt: 1,
     gate_id: "check",
     verdict: "fail-blocking",
@@ -92,7 +92,7 @@ async function escalate(cwd: string): Promise<void> {
   journal.append({
     event: "status",
     key: "fake:o/r#42",
-    task_id: "fake:o/r#42",
+    id: "fake:o/r#42",
     phase: "escalated",
     attempt: 1,
   });

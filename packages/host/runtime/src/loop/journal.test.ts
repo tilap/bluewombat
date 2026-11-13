@@ -60,10 +60,10 @@ describe("stampJournal", () => {
     const base = memory();
     const journal = stampJournal(base, { run_id: "run-1" });
     journal.append({ event: "host-started" });
-    journal.append({ event: "status", task_id: "s1" });
+    journal.append({ event: "status", id: "s1" });
     assert.deepEqual(base.lines, [
       { run_id: "run-1", event: "host-started" },
-      { run_id: "run-1", event: "status", task_id: "s1" },
+      { run_id: "run-1", event: "status", id: "s1" },
     ]);
   });
 
