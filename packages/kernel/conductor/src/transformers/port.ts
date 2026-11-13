@@ -165,7 +165,8 @@ export type SubmitInput = {
 };
 
 export type SubmitResult =
-  | { outcome: "submitted"; reference: string }
+  /** `id`: the Submission's identity at the Authority, what later questions use. `reference`: for display. */
+  | { outcome: "submitted"; reference: string; id: string }
   | { outcome: "refused"; reason: string }
   | { outcome: "unavailable" };
 
@@ -194,6 +195,6 @@ export type AuthorityPort = {
    * Asked just before a fold. Absent, the fold goes ahead unchecked, as it did
    * before the question existed.
    */
-  behind?(input: { reference: string }): Promise<AuthorityBehindResult>;
-  fold(input: { reference: string }): Promise<AuthorityFoldResult>;
+  behind?(input: { id: string }): Promise<AuthorityBehindResult>;
+  fold(input: { id: string }): Promise<AuthorityFoldResult>;
 };

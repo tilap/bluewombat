@@ -54,7 +54,7 @@ first) `merge_when_ready` (its line may be folded without a human) and `skip_fea
 | `probe`     | no       | Whether the Ticket this key named is still on the tracker                                                     |
 | `openLine`  | no       | Cut a line from another: the branch a Feature's Tickets land on. Asking again for a line that exists succeeds |
 | `dropLine`  | no       | Drop a line nobody will fold                                                                                  |
-| `submit`    | no       | Offer an assembled Ticket, or a Feature's line, to the Authority. Returns an opaque reference                 |
+| `submit`    | no       | Offer an assembled Ticket, or a Feature's line, to the Authority. Returns an opaque `id` (what `behind`, `fold`, `withdraw` and `settled` are asked with) and a `reference` to show a person                 |
 | `fold`      | no       | Have the Authority take an accepted Submission into the line it was offered to                                |
 | `settled`   | no       | Where a Submission stands (`open` / `folded` / `closed` / `unavailable`), for the ones a human folds          |
 

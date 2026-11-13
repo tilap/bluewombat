@@ -106,8 +106,8 @@ describe("handleCancel", () => {
           reports.push(report.event);
           return true;
         },
-        withdraw: async (input: { reference: string }) => {
-          withdrawn.push(input.reference);
+        withdraw: async (input: { id: string }) => {
+          withdrawn.push(input.id);
         },
       },
       journal: { append: () => undefined },
@@ -120,12 +120,12 @@ describe("handleCancel", () => {
     const withdrawn: string[] = [];
     const reports: string[] = [];
     const input = cancelInput(
-      { state: "submitted", submission: { reference: "pr-1" } },
+      { state: "submitted", submission: { id: "7", reference: "https://example.test/pr/1" } },
       withdrawn,
       reports,
     );
     await handleCancel({ key: "fake:1", project: PROJECT }, input);
-    assert.deepEqual(withdrawn, ["pr-1"]);
+    assert.deepEqual(withdrawn, ["7"]);
     assert.deepEqual(reports, ["cancelled"]);
   });
 

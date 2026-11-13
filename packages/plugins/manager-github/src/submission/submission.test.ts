@@ -192,6 +192,7 @@ describe("submitPullRequest / foldPullRequest", () => {
     assert.deepEqual(result, {
       outcome: "submitted",
       reference: "https://github.com/tilap/mason/pull/12",
+      id: "12",
     });
     const opened = calls.find((call) => call.method === "POST");
     assert.equal(opened?.body.title, "Add slugify (#7)");
@@ -212,6 +213,7 @@ describe("submitPullRequest / foldPullRequest", () => {
     assert.deepEqual(result, {
       outcome: "submitted",
       reference: "https://github.com/tilap/mason/pull/12",
+      id: "12",
     });
     assert.equal(
       calls.some((call) => call.method === "POST"),
@@ -221,7 +223,7 @@ describe("submitPullRequest / foldPullRequest", () => {
 
   it("folds by squash, names the commit, and deletes the branch it came from", async () => {
     const { context, calls } = githubOf([]);
-    const result = await foldPullRequest("https://github.com/tilap/mason/pull/12", context);
+    const result = await foldPullRequest("12", context);
     assert.deepEqual(result, {
       outcome: "folded",
       reference: "9aeff612f47153162c4b73b90cae5ec767230b3d",
@@ -243,7 +245,7 @@ describe("submitPullRequest / foldPullRequest", () => {
       ref: "feature/tilap-mason-3",
       repo: { default_branch: "main" },
     });
-    const result = await foldPullRequest("https://github.com/tilap/mason/pull/12", context);
+    const result = await foldPullRequest("12", context);
     assert.equal(result.outcome, "folded");
     const closed = calls.find((call) => call.method === "PATCH");
     assert.equal(closed?.path, "/repos/tilap/mason/issues/7");
@@ -255,7 +257,7 @@ describe("submitPullRequest / foldPullRequest", () => {
 
   it("leaves closing to `Closes #N` when the fold lands on the default branch", async () => {
     const { context, calls } = githubOf([], { ref: "main", repo: { default_branch: "main" } });
-    await foldPullRequest("https://github.com/tilap/mason/pull/12", context);
+    await foldPullRequest("12", context);
     assert.equal(
       calls.some((call) => call.method === "PATCH"),
       false,
@@ -274,7 +276,7 @@ describe("submitPullRequest / foldPullRequest", () => {
         return await original.request(route as never, params as never);
       }) as unknown as typeof original.request,
     } as typeof original;
-    const result = await foldPullRequest("https://github.com/tilap/mason/pull/12", {
+    const result = await foldPullRequest("12", {
       ...context,
       github: failing,
     });
@@ -283,7 +285,7 @@ describe("submitPullRequest / foldPullRequest", () => {
 
   it("keeps the branch when asked, and still folds when the delete fails", async () => {
     const kept = githubOf([]);
-    await foldPullRequest("https://github.com/tilap/mason/pull/12", {
+    await foldPullRequest("12", {
       ...kept.context,
       keepBranch: true,
     });
@@ -304,7 +306,7 @@ describe("submitPullRequest / foldPullRequest", () => {
         return await original.request(route as never, params as never);
       }) as unknown as typeof original.request,
     } as typeof original;
-    const result = await foldPullRequest("https://github.com/tilap/mason/pull/12", {
+    const result = await foldPullRequest("12", {
       ...context,
       github: failing,
     });
@@ -317,7 +319,7 @@ describe("submitPullRequest / foldPullRequest", () => {
 });
 
 describe("withdrawPullRequest", () => {
-  const PR = "https://github.com/tilap/mason/pull/12";
+  const PR = "12";
 
   it("closes the pull request unmerged and deletes its branch", async () => {
     const { context, calls } = githubOf([]);
@@ -412,7 +414,7 @@ describe("behindPullRequest", () => {
     };
   }
 
-  const PULL = "https://github.com/tilap/mason/pull/12";
+  const PULL = "12";
 
   it("is current when the line holds nothing the pull request lacks", async () => {
     const { context, calls } = lineOf({ status: 200, body: { behind_by: 0, ahead_by: 3 } });
@@ -436,7 +438,7 @@ describe("behindPullRequest", () => {
     assert.deepEqual(await behindPullRequest(PULL, odd.context), { outcome: "unavailable" });
   });
 
-  it("is unavailable for a reference that is not a pull request", async () => {
+  it("is unavailable for an id that is not a pull request number, an address included", async () => {
     const { context, calls } = lineOf({ status: 200, body: { behind_by: 0 } });
     assert.deepEqual(await behindPullRequest("not a pull request", context), {
       outcome: "unavailable",

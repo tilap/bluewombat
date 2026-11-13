@@ -16,8 +16,9 @@ import type { Repository } from "../repo.js";
  * this file: the `ci-green` Gate reads the checks and answers, like any other
  * Gate. An Authority acts; it does not judge.
  *
- * The reference travels as the pull request's address: it identifies the
- * Submission here, and it is the one thing worth showing a human reading the
+ * A Submission has two names. Its `id` is the pull request's number: what this
+ * file is asked about it with, never read out of an address. Its `reference` is
+ * the pull request's address, the one thing worth showing a human reading the
  * issue — a path on the machine that ran is of no use to them.
  */
 
@@ -35,13 +36,8 @@ export function referenceOf(repo: Repository, number: number): string {
   return `https://github.com/${repo.owner}/${repo.name}/pull/${number}`;
 }
 
-export function numberFromReference(reference: string): number | undefined {
-  const matched = /\/pull\/(\d+)\s*$/.exec(reference.trim());
-  if (matched?.[1] === undefined) {
-    return undefined;
-  }
-  const parsed = Number.parseInt(matched[1], 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+export function numberFromId(id: string): number | undefined {
+  return /^[1-9]\d*$/.test(id) ? Number.parseInt(id, 10) : undefined;
 }
 
 export async function submitPullRequest(
@@ -55,7 +51,11 @@ export async function submitPullRequest(
   if (existing.kind === "found") {
     // Republished to the same place: the Authority is judging the same
     // Submission with new content, so there is nothing to open.
-    return { outcome: "submitted", reference: referenceOf(context.repo, existing.number) };
+    return {
+      outcome: "submitted",
+      reference: referenceOf(context.repo, existing.number),
+      id: String(existing.number),
+    };
   }
 
   const call = callSignal(context.deadlineMs, context.now, context.shouldInterrupt);
@@ -69,7 +69,11 @@ export async function submitPullRequest(
       body: bodyOf(input),
       request: { signal: call.signal },
     });
-    return { outcome: "submitted", reference: referenceOf(context.repo, response.data.number) };
+    return {
+      outcome: "submitted",
+      reference: referenceOf(context.repo, response.data.number),
+      id: String(response.data.number),
+    };
   } catch (error) {
     const failure = readFailure(error);
     return failure.permanent
@@ -90,10 +94,10 @@ export async function submitPullRequest(
  * branch name with a slash does not travel well in a compare address.
  */
 export async function behindPullRequest(
-  reference: string,
+  id: string,
   context: SubmissionContext,
 ): Promise<BehindResult> {
-  const number = numberFromReference(reference);
+  const number = numberFromId(id);
   if (number === undefined) {
     return { outcome: "unavailable" };
   }
@@ -131,11 +135,8 @@ export async function behindPullRequest(
   }
 }
 
-export async function foldPullRequest(
-  reference: string,
-  context: SubmissionContext,
-): Promise<FoldResult> {
-  const number = numberFromReference(reference);
+export async function foldPullRequest(id: string, context: SubmissionContext): Promise<FoldResult> {
+  const number = numberFromId(id);
   if (number === undefined) {
     return { outcome: "unavailable" };
   }
@@ -217,11 +218,8 @@ async function closeIssueOnLine(
  * delete: the cancel stands whatever this says, and a pull request left open
  * is clutter, not a failure.
  */
-export async function withdrawPullRequest(
-  reference: string,
-  context: SubmissionContext,
-): Promise<void> {
-  const number = numberFromReference(reference);
+export async function withdrawPullRequest(id: string, context: SubmissionContext): Promise<void> {
+  const number = numberFromId(id);
   if (number === undefined) {
     return;
   }

@@ -249,16 +249,17 @@ function stubManager(over: Partial<Stub> = {}): Stub {
               answer ?? {
                 outcome: "submitted",
                 reference: isLine ? LINE_PR : TICKET_PR,
+                id: isLine ? LINE_PR : TICKET_PR,
               }
             );
           };
           tickets.fold = async (input) => {
-            stub.folds.push(input.reference);
+            stub.folds.push(input.id);
             return stub.foldAnswer;
           };
           tickets.settled = async () => stub.settledAnswers.shift() ?? "open";
           tickets.behind = async (input) =>
-            stub.behind[input.reference]?.shift() ?? { outcome: "current" };
+            stub.behind[input.id]?.shift() ?? { outcome: "current" };
         }
         return { ok: true, manager: { features, tickets } };
       },

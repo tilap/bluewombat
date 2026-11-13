@@ -340,20 +340,20 @@ export function createGithubManager(options: GithubManagerOptions): Manager {
       return await submitPullRequest(input, submissionContext());
     },
 
-    async behind(input: { reference: string }): Promise<BehindResult> {
-      return await behindPullRequest(input.reference, submissionContext());
+    async behind(input: { id: string }): Promise<BehindResult> {
+      return await behindPullRequest(input.id, submissionContext());
     },
 
-    async fold(input: { reference: string }): Promise<FoldResult> {
-      return await foldPullRequest(input.reference, submissionContext());
+    async fold(input: { id: string }): Promise<FoldResult> {
+      return await foldPullRequest(input.id, submissionContext());
     },
 
-    async withdraw(input: { reference: string }): Promise<void> {
-      await withdrawPullRequest(input.reference, submissionContext());
+    async withdraw(input: { id: string }): Promise<void> {
+      await withdrawPullRequest(input.id, submissionContext());
     },
 
-    async settled(input: { reference: string }): Promise<SettledResult> {
-      return await settledPullRequest(input.reference, submissionContext());
+    async settled(input: { id: string }): Promise<SettledResult> {
+      return await settledPullRequest(input.id, submissionContext());
     },
   };
 

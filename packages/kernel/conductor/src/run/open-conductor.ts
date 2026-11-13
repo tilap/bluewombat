@@ -344,9 +344,7 @@ export function openConductor(options: OpenConductorOptions): Conductor {
           spent: spentOf(aggregate),
           realigned: aggregate.submission?.realigns ?? 0,
           submission:
-            aggregate.submission === undefined
-              ? undefined
-              : { reference: aggregate.submission.reference },
+            aggregate.submission === undefined ? undefined : { id: aggregate.submission.id },
         };
       },
       freeze: async (input) => await freeze(key, input),
@@ -716,7 +714,11 @@ export function openConductor(options: OpenConductorOptions): Conductor {
     if (submitted.outcome === "refused") {
       return await freeze(key, { kind: "submitted", report: submitted.reason });
     }
-    const marked = await ledger.markSubmitted({ key, reference: submitted.reference });
+    const marked = await ledger.markSubmitted({
+      key,
+      reference: submitted.reference,
+      id: submitted.id,
+    });
     const failure = fromLedger(marked);
     if (failure !== undefined) {
       return failure;

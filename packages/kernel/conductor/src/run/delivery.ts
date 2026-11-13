@@ -57,7 +57,7 @@ export type DeliveryRead = {
   /** How many of those rounds were realigns: the line moved on, and nothing was wrong with the work. */
   realigned?: number | undefined;
   /** The Submission the work is offered under, once there is one. */
-  submission?: { reference: string } | undefined;
+  submission?: { id: string } | undefined;
 };
 
 /**
@@ -417,7 +417,7 @@ export function openDelivery(options: DeliveryOptions): Delivery {
     // since — a person pushed to it, or later a ticket folded into it — a fold
     // would produce something nobody judged. Go back to be aligned with the
     // line again, then judged again, instead of folding.
-    const moved = await authority.behind?.({ reference: submission.reference });
+    const moved = await authority.behind?.({ id: submission.id });
     if (moved?.outcome === "unavailable") {
       return { outcome: "paused", key: unit.key };
     }
@@ -433,7 +433,7 @@ export function openDelivery(options: DeliveryOptions): Delivery {
       );
     }
 
-    const folded = await authority.fold({ reference: submission.reference });
+    const folded = await authority.fold({ id: submission.id });
     if (folded.outcome === "unavailable") {
       return { outcome: "paused", key: unit.key };
     }
