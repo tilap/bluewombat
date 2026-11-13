@@ -250,7 +250,7 @@ One TicketStandard, one Project. Pause flag is off.
       judges it by `ticket.build.gates`, no other list). `validated` →
       `clearParkedRefusal`. `escalated` → sent back with the Gate's report and name.
 
-   **Sent back** (align conflict, failed recheck, `ticket.validate` refusal): with
+   **Sent back** (align conflict, failed recheck, `ticket.validate` refusal; an align conflict's report to the fix names the paths in conflict): with
    `fixDeclared`, a retryable cause and budget left → `recordParkedRefusal`,
    return `paused`; the next pass produces the fix, then aligns, rechecks and
    validates again. Otherwise (blocking, budget spent, no fix declared) →

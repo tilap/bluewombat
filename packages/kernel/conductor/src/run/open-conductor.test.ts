@@ -1683,7 +1683,9 @@ describe("openConductor corrective loops", () => {
       async integrate(input) {
         if (input.id.endsWith(":align")) {
           aligns += 1;
-          return aligns === 1 ? { outcome: "conflict" } : { outcome: "integrated" };
+          return aligns === 1
+            ? { outcome: "conflict", report: "overlapping changes in: src/a.ts, src/b.ts." }
+            : { outcome: "integrated" };
         }
         return { outcome: "integrated" };
       },
@@ -1703,6 +1705,7 @@ describe("openConductor corrective loops", () => {
     assert.equal(aligns, 2);
     assert.equal(reports.length, 1);
     assert.match(reports[0] ?? "", /conflicts/);
+    assert.match(reports[0] ?? "", /src\/a\.ts, src\/b\.ts/);
   });
 
   it("turns a fold the Authority refuses into a new alignment", async () => {

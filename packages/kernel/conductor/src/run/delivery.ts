@@ -290,7 +290,8 @@ export function openDelivery(options: DeliveryOptions): Delivery {
           `Merging the line "${line}" into this ${unit.noun} ` +
           `conflicts: the ${unit.noun} and the line changed the same places. Look at what the line ` +
           `changed since this ${unit.noun} started, and adapt the ${unit.noun}'s changes so they sit on top ` +
-          "of it. Keep what the line changed.",
+          "of it. Keep what the line changed." +
+          (aligned.report === undefined ? "" : ` ${aligned.report}`),
         refusedBy: "align",
         ignoreRealigns: true,
       });
