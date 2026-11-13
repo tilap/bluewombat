@@ -363,7 +363,9 @@ describe("the Authority against a real remote", () => {
     // this branch, so there is nothing to lease against and git refuses on
     // "stale info". A full clone has that ref and the bug never shows.
     assert.deepEqual(again, { outcome: "submitted", reference: "ref-1", id: "ref-1" });
-    assert.match(git(remote, ["log", "--oneline", "issue/fake-42"]), /repair\.txt/);
+    // One commit on the line, carrying the repaired tree.
+    assert.equal(git(remote, ["show", "issue/fake-42:repair.txt"]), "fixed\n");
+    assert.equal(git(remote, ["rev-list", "--count", `${TARGET}..issue/fake-42`]).trim(), "2");
     assert.equal(seen.length, 2);
   });
 
@@ -398,12 +400,12 @@ describe("the Authority against a real remote", () => {
     const seen: SubmissionRequest[] = [];
     const french = { LC_ALL: "fr_FR.UTF-8", LANG: "fr_FR.UTF-8", LANGUAGE: "fr" };
 
-    // No branch by the Child's name: git refuses the refspec.
+    // No branch by the Child's name: git cannot read its tree.
     const result = await authorityOn(copy, seen, undefined, french).submit(offer());
 
     assert.ok(result.outcome === "refused", JSON.stringify(result));
-    assert.match(result.reason, /does not match any/);
-    assert.doesNotMatch(result.reason, /ne correspond|erreur/);
+    assert.match(result.reason, /unknown revision|ambiguous argument/);
+    assert.doesNotMatch(result.reason, /inconnue|erreur|arborescence/);
   });
 
   it("refuses a work line that is not a git repository", async () => {

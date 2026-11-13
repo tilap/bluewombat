@@ -644,10 +644,15 @@ The slot that puts an assembled ticket where the Authority can read it. It runs
 **in the work line**, and mason appends `--id`, `--ref` — the name Isolator gave
 the ticket — and `--target`, the work line it is offered to.
 
-`git.mjs` pushes that name to the work line's own remote. A plain push, no force
-of any kind: Integrator only ever adds history, so republishing after a refusal
-is a fast-forward. A rejection means the name moved under us, which is the one
-case worth refusing rather than overwriting.
+`git.mjs` pushes the Ticket's result to the work line's own remote under that
+name: one commit, made from the branch's tree on top of the work line's tip
+(`--target`), not the branch's history. The workspace is snapshotted at every
+integration, so a blob an install added and a repair removed would otherwise
+travel with it and make a pack the remote refuses. The work line remembers what
+it published (`refs/published/<ref>`) and a resubmission continues it, so the
+push stays a fast-forward; the same tree on the same line publishes nothing new.
+A plain push, no force of any kind: a rejection means the name moved under us,
+which is the one case worth refusing rather than overwriting.
 
 It takes no option, and the remote is `origin`. After the Authority folds, Host
 reads the work line back from `origin` on its own, with no way to learn what this
