@@ -47,7 +47,7 @@ export async function runGate(input: {
       : {
           openSink: () =>
             input.onChild?.({
-              task_id: invocation.id,
+              id: invocation.id,
               ...(invocation.context === undefined ? {} : { key: invocation.context }),
               attempt,
               kind: "gate",

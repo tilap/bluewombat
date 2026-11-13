@@ -123,7 +123,7 @@ describe("streams", () => {
 
     const opened = journal.lines.find((line) => line.event === "stream-opened");
     assert.equal(opened?.key, "fake:42");
-    assert.equal(opened?.task_id, "s1");
+    assert.equal(opened?.id, "s1");
     assert.equal(opened?.attempt, 1);
     // Relative to the stream directory: the absolute path is this machine's.
     assert.equal(String(opened?.path).startsWith("fake-42/"), true);
@@ -199,7 +199,7 @@ describe("streams", () => {
 
     const closed = journal.lines.find((line) => line.event === "stream-closed");
     assert.equal(closed?.key, "fake:42");
-    assert.equal(closed?.task_id, "s1");
+    assert.equal(closed?.id, "s1");
     assert.equal(closed?.chunks, 2);
     assert.equal(closed?.bytes, "thinking\n".length + "still thinking\n".length);
     assert.equal(typeof closed?.ms, "number");

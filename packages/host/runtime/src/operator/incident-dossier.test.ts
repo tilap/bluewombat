@@ -56,7 +56,7 @@ const stop = (key: string, at: string) => [
   {
     event: "gate-finished",
     key,
-    task_id: `${key}:validate`,
+    id: `${key}:validate`,
     attempt: 1,
     gate_id: "lint",
     verdict: "pass",
@@ -66,7 +66,7 @@ const stop = (key: string, at: string) => [
   {
     event: "stream-opened",
     key,
-    task_id: `${key}:validate`,
+    id: `${key}:validate`,
     attempt: 1,
     gate_id: "feature-test",
     path: "s/feature-test.ndjson",
@@ -75,14 +75,14 @@ const stop = (key: string, at: string) => [
   {
     event: "gate-finished",
     key,
-    task_id: `${key}:validate`,
+    id: `${key}:validate`,
     attempt: 1,
     gate_id: "feature-test",
     verdict: "fail-blocking",
     report: "too many scenarios",
     at,
   },
-  { event: "status", key, task_id: `${key}:validate`, phase: "escalated", attempt: 1, at },
+  { event: "status", key, id: `${key}:validate`, phase: "escalated", attempt: 1, at },
 ];
 
 describe("buildDossier", () => {
@@ -106,7 +106,7 @@ describe("buildDossier", () => {
     assert.equal(dossier.stop.layer, "feature");
     assert.equal(dossier.stop.refused_by, "feature-test");
     assert.equal(dossier.stop.gate?.verdict, "fail-blocking");
-    assert.equal(dossier.stop.task_id, "gh:a/b#1:validate");
+    assert.equal(dossier.stop.id, "gh:a/b#1:validate");
     assert.equal(dossier.stop.at, "2026-10-25T09:03:33.314Z");
     assert.deepEqual(dossier.stop.sources, ["ledger", "journal"]);
     assert.equal(dossier.tickets?.[0]?.reference, "https://x/pull/2");
@@ -176,7 +176,7 @@ describe("buildDossier", () => {
         {
           event: "builder-finished",
           key,
-          task_id: key,
+          id: key,
           attempt: 1,
           result: { kind: "failed", reason: "exit 1" },
           at: "2026-10-25T09:00:00.000Z",
@@ -184,7 +184,7 @@ describe("buildDossier", () => {
         {
           event: "status",
           key,
-          task_id: key,
+          id: key,
           phase: "escalated",
           attempt: 1,
           at: "2026-10-25T09:00:01.000Z",

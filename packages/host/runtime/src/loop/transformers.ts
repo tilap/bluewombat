@@ -90,7 +90,7 @@ function progressTrace(trace: Trace | undefined): (line: Record<string, unknown>
   }
   return (line) => {
     if (typeof line.label === "string") {
-      const id = typeof line.id === "string" ? line.id : String(line.task_id ?? "");
+      const id = typeof line.id === "string" ? line.id : "";
       const label = id.length > 0 ? line.label.replace(`:${id}`, "") : line.label;
       trace(id.length > 0 ? `  ${id}  ${label}` : `  ${label}`);
     }
@@ -346,7 +346,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
         // A Gate that was not run is not one that passed: the film and the trace say so.
         write({
           event: "gate-skipped",
-          task_id: input.id,
+          id: input.id,
           gate_id: gate.id,
           why: gate.why,
           label: `${gate.id} not run: the Feature carries ${gate.why}`,
@@ -384,7 +384,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
               onChild: (about) =>
                 streams.open({
                   key: about.key,
-                  id: about.task_id,
+                  id: about.id,
                   attempt: about.attempt,
                   gateId: about.gate_id,
                 }),
