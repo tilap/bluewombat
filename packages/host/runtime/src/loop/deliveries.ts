@@ -86,9 +86,9 @@ export async function handleCancel(
     return;
   }
   // The Submission is the work's offer to the Authority: abandoned, it is taken back.
-  const submitted = before.aggregate.submission?.reference;
+  const submitted = before.aggregate.submission?.id;
   if (submitted !== undefined) {
-    await input.tickets.withdraw?.({ reference: submitted });
+    await input.tickets.withdraw?.({ id: submitted });
   }
   await pushReport(input, {
     event: "cancelled",

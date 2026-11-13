@@ -809,9 +809,7 @@ function featureStore(input: HostDeliveryInput, feature: FeatureAggregate): Deli
           (aggregate.submission?.realigns ?? 0),
         realigned: aggregate.submission?.realigns ?? 0,
         submission:
-          aggregate.submission === undefined
-            ? undefined
-            : { reference: aggregate.submission.reference },
+          aggregate.submission === undefined ? undefined : { id: aggregate.submission.id },
       };
     },
     async freeze(frozen) {
@@ -887,7 +885,7 @@ async function closeFeature(
     return;
   }
   if (input.authority === undefined || feature.line === undefined) {
-    await input.ledger.markFeatureSubmitted({ key, reference: "local" });
+    await input.ledger.markFeatureSubmitted({ key, reference: "local", id: "local" });
     await input.ledger.markFeatureDone(key);
     await reportDone(input, feature, undefined, undefined);
     return;
@@ -999,7 +997,11 @@ async function closeFeature(
     await escalateFeature(input, feature, submitted.reason, { kind: "submitted" });
     return;
   }
-  await input.ledger.markFeatureSubmitted({ key, reference: submitted.reference });
+  await input.ledger.markFeatureSubmitted({
+    key,
+    reference: submitted.reference,
+    id: submitted.id,
+  });
   await clean();
   await pushReport(
     input,
@@ -1076,8 +1078,7 @@ async function settleFeature(input: HostDeliveryInput, feature: FeatureAggregate
   }
   const key = feature.intention.key;
   if (!feature.intention.merge_when_ready) {
-    const settled =
-      (await input.tickets.settled?.({ reference: submission.reference })) ?? "unavailable";
+    const settled = (await input.tickets.settled?.({ id: submission.id })) ?? "unavailable";
     if (settled === "folded") {
       await input.ledger.markFeatureDone(key);
       await reportDone(input, feature, submission.reference, undefined);

@@ -57,7 +57,7 @@ export type DeliveryRead = {
   /** How many of those rounds were realigns: the line moved on, and nothing was wrong with the work. */
   realigned?: number | undefined;
   /** The Submission the work is offered under, once there is one. */
-  submission?: { reference: string } | undefined;
+  submission?: { id: string } | undefined;
 };
 
 /**
@@ -290,7 +290,8 @@ export function openDelivery(options: DeliveryOptions): Delivery {
           `Merging the line "${line}" into this ${unit.noun} ` +
           `conflicts: the ${unit.noun} and the line changed the same places. Look at what the line ` +
           `changed since this ${unit.noun} started, and adapt the ${unit.noun}'s changes so they sit on top ` +
-          "of it. Keep what the line changed.",
+          "of it. Keep what the line changed." +
+          (aligned.report === undefined ? "" : ` ${aligned.report}`),
         refusedBy: "align",
         ignoreRealigns: true,
       });
@@ -416,7 +417,7 @@ export function openDelivery(options: DeliveryOptions): Delivery {
     // since — a person pushed to it, or later a ticket folded into it — a fold
     // would produce something nobody judged. Go back to be aligned with the
     // line again, then judged again, instead of folding.
-    const moved = await authority.behind?.({ reference: submission.reference });
+    const moved = await authority.behind?.({ id: submission.id });
     if (moved?.outcome === "unavailable") {
       return { outcome: "paused", key: unit.key };
     }
@@ -432,7 +433,7 @@ export function openDelivery(options: DeliveryOptions): Delivery {
       );
     }
 
-    const folded = await authority.fold({ reference: submission.reference });
+    const folded = await authority.fold({ id: submission.id });
     if (folded.outcome === "unavailable") {
       return { outcome: "paused", key: unit.key };
     }

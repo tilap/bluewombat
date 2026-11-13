@@ -81,7 +81,7 @@ function stubManager(seen: SubmissionRequest[]): TicketTrackerPort {
     },
     async submit(input) {
       seen.push(input);
-      return { outcome: "submitted", reference: "ref-1" };
+      return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
     },
     async fold() {
       return { outcome: "folded" };
@@ -144,7 +144,7 @@ describe("the Authority against a real remote", () => {
 
     const result = await authorityOn(copy, seen).submit(offer());
 
-    assert.deepEqual(result, { outcome: "submitted", reference: "ref-1" });
+    assert.deepEqual(result, { outcome: "submitted", reference: "ref-1", id: "ref-1" });
     assert.match(git(remote, ["branch", "--list", "issue/fake-42"]), /issue\/fake-42/);
     // What travels is the published name, not the key and not a path on this
     // machine: it is the only half of the pair the outside can read.
@@ -169,7 +169,7 @@ describe("the Authority against a real remote", () => {
       branch: "feature/fake-feature",
     });
 
-    assert.deepEqual(result, { outcome: "submitted", reference: "ref-1" });
+    assert.deepEqual(result, { outcome: "submitted", reference: "ref-1", id: "ref-1" });
     assert.equal(seen[0]?.ref, "feature/fake-feature");
   });
 
@@ -344,7 +344,7 @@ describe("the Authority against a real remote", () => {
 
     const result = await authorityOn(copy, seen, ["node", naming]).submit(offer());
 
-    assert.deepEqual(result, { outcome: "submitted", reference: "ref-1" });
+    assert.deepEqual(result, { outcome: "submitted", reference: "ref-1", id: "ref-1" });
     assert.equal(seen[0]?.ref, "shelf/42");
   });
 
@@ -362,7 +362,7 @@ describe("the Authority against a real remote", () => {
     // here every time: a single-branch clone has no remote-tracking ref for
     // this branch, so there is nothing to lease against and git refuses on
     // "stale info". A full clone has that ref and the bug never shows.
-    assert.deepEqual(again, { outcome: "submitted", reference: "ref-1" });
+    assert.deepEqual(again, { outcome: "submitted", reference: "ref-1", id: "ref-1" });
     assert.match(git(remote, ["log", "--oneline", "issue/fake-42"]), /repair\.txt/);
     assert.equal(seen.length, 2);
   });
@@ -500,7 +500,7 @@ describe("the Authority and a line that moved on", () => {
 
   it("passes the manager's answer on, when the manager can give one", async () => {
     const authority = authorityOf(managerAnswering({ outcome: "behind", commits: 3 }));
-    assert.deepEqual(await authority.behind?.({ reference: "ref-1" }), {
+    assert.deepEqual(await authority.behind?.({ id: "ref-1" }), {
       outcome: "behind",
       commits: 3,
     });

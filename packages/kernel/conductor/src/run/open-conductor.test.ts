@@ -331,7 +331,7 @@ describe("openConductor", () => {
     const authority: AuthorityPort = {
       async submit(input) {
         offered.push(input.workspace);
-        return { outcome: "submitted", reference: "r" };
+        return { outcome: "submitted", reference: "r", id: "r" };
       },
       async fold() {
         return { outcome: "folded" };
@@ -408,7 +408,7 @@ describe("openConductor", () => {
     return {
       async submit(input) {
         calls.push(`submit ${input.ref} -> ${input.target}`);
-        return { outcome: "submitted", reference: "ref-1" };
+        return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
       },
       async fold() {
         calls.push("fold");
@@ -531,7 +531,7 @@ describe("openConductor", () => {
       return {
         async submit(input) {
           calls.push(`submit ${input.ref}`);
-          return { outcome: "submitted", reference: "ref-1" };
+          return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
         },
         async behind() {
           const next = answers.shift() ?? "current";
@@ -894,7 +894,7 @@ describe("openConductor", () => {
     const { transformers, calls } = recordingTransformers();
     const authority: AuthorityPort = {
       async submit() {
-        return { outcome: "submitted", reference: "ref-1" };
+        return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
       },
       async fold() {
         return { outcome: "folded" };
@@ -939,7 +939,7 @@ describe("openConductor", () => {
       workspaceRoot: root,
       authority: {
         async submit() {
-          return { outcome: "submitted", reference: "ref-1" };
+          return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
         },
         async fold() {
           return { outcome: "folded" };
@@ -1139,7 +1139,7 @@ describe("openConductor", () => {
         async submit(input) {
           order.push("offer");
           acted.push(`submit ${input.ref}`);
-          return { outcome: "submitted", reference: "ref-1" };
+          return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
         },
         async fold() {
           return { outcome: "folded" };
@@ -1179,7 +1179,7 @@ describe("openConductor", () => {
       });
       const authority: AuthorityPort = {
         async submit() {
-          return { outcome: "submitted", reference: "ref-1" };
+          return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
         },
         async fold() {
           return { outcome: "folded" };
@@ -1237,7 +1237,7 @@ describe("openConductor", () => {
       const authority: AuthorityPort = {
         async submit(input) {
           acted.push(`submit ${input.ref}`);
-          return { outcome: "submitted", reference: "ref-1" };
+          return { outcome: "submitted", reference: "ref-1", id: "ref-1" };
         },
         async fold() {
           return { outcome: "folded" };
@@ -1533,7 +1533,7 @@ describe("openConductor corrective loops", () => {
     return {
       async submit(input: { ref: string }) {
         acted.push(`submit ${input.ref}`);
-        return { outcome: "submitted" as const, reference: "ref-1" };
+        return { outcome: "submitted" as const, reference: "ref-1", id: "ref-1" };
       },
       async fold() {
         const next = queue.shift() ?? "folded";
@@ -1683,7 +1683,9 @@ describe("openConductor corrective loops", () => {
       async integrate(input) {
         if (input.id.endsWith(":align")) {
           aligns += 1;
-          return aligns === 1 ? { outcome: "conflict" } : { outcome: "integrated" };
+          return aligns === 1
+            ? { outcome: "conflict", report: "overlapping changes in: src/a.ts, src/b.ts." }
+            : { outcome: "integrated" };
         }
         return { outcome: "integrated" };
       },
@@ -1703,6 +1705,7 @@ describe("openConductor corrective loops", () => {
     assert.equal(aligns, 2);
     assert.equal(reports.length, 1);
     assert.match(reports[0] ?? "", /conflicts/);
+    assert.match(reports[0] ?? "", /src\/a\.ts, src\/b\.ts/);
   });
 
   it("turns a fold the Authority refuses into a new alignment", async () => {
@@ -1901,7 +1904,11 @@ describe("openConductor with several Tickets at once", () => {
 
   const authority = {
     async submit(input: { ref: string }) {
-      return { outcome: "submitted" as const, reference: `ref-${input.ref}` };
+      return {
+        outcome: "submitted" as const,
+        reference: `ref-${input.ref}`,
+        id: `ref-${input.ref}`,
+      };
     },
     async fold() {
       return { outcome: "folded" as const };

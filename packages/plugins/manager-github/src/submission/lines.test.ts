@@ -98,7 +98,7 @@ describe("dropLine", () => {
 });
 
 describe("settledPullRequest", () => {
-  const reference = "https://github.com/tilap/mason/pull/9";
+  const reference = "9";
   const answer = (body: unknown, status = 200) => contextOf(() => ({ status, body }));
 
   it("tells a merge from a closing from an open pull request", async () => {
@@ -116,8 +116,13 @@ describe("settledPullRequest", () => {
     );
   });
 
-  it("is unavailable when it cannot read, or the reference is not a pull request", async () => {
+  it("is unavailable when it cannot read, or the id is not a pull request number", async () => {
     assert.equal(await settledPullRequest(reference, answer({}, 500)), "unavailable");
     assert.equal(await settledPullRequest("pr-1", answer({})), "unavailable");
+    // An address is a name to show, not an identity: it is never read for a number.
+    assert.equal(
+      await settledPullRequest("https://github.com/other/repo/pull/9", answer({})),
+      "unavailable",
+    );
   });
 });

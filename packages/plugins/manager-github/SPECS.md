@@ -17,7 +17,7 @@ adapt / report live in this package.
   one semantic Event            comment, and maybe label
   a Feature's line              openLine: cut feature/<n>; dropLine
   a published branch            submit: open (or reuse) the pull request
-  a Submission reference        fold: squash-merge it, delete the branch unless keepBranch;
+  a Submission id               fold: squash-merge it, delete the branch unless keepBranch;
                                 settled: open / folded / closed
                             ←   Manager
 ```
@@ -118,12 +118,12 @@ path that may read a 404 as absence.
 
 `openLine({line, from})` reads `git/ref/heads/<from>` and creates `refs/heads/<line>`
 at that commit; a 422 (the ref exists) is a success. `dropLine` deletes the ref
-and ignores a refusal. `settled({reference})` reads the pull request: merged is
+and ignores a refusal. `settled({id})` reads the pull request: merged is
 `folded`, closed unmerged is `closed`, otherwise `open`.
 
 ## 7c. Behind
 
-`behind({reference})` reads the pull request, the tip of the branch it is offered
+`behind({id})` reads the pull request, the tip of the branch it is offered
 to (`git/ref/heads/<base>`), and compares the two by commit, `behind_by` of
 `<tip>...<head>`. `0` is `current`; more is `behind` with that count; any failed
 read, or an answer with no count, is `unavailable`. It writes nothing.
@@ -166,6 +166,6 @@ read, or an answer with no count, is `unavailable`. It writes nothing.
 15. `openLine` of an existing line succeeds; `settled` distinguishes a merge
     from a close.
 16. `behind` is `current` at `behind_by` 0, `behind` with the count above it, and
-    `unavailable` when GitHub does not answer or the reference is not a pull request.
+    `unavailable` when GitHub does not answer or the id is not a pull request number.
 
 How to build and configure: [README.md](./README.md).

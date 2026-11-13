@@ -27,7 +27,11 @@ export type FeatureCommands = {
   /** `waiting` → `open`, with the line its Tickets land on (none without an Authority) and the keys of those Tickets. */
   openFeature(input: { key: string; line?: string; tickets: string[] }): Promise<CommandResult>;
   /** `open` → `submitted`: the line is with the Authority. */
-  markFeatureSubmitted(input: { key: string; reference: string }): Promise<CommandResult>;
+  markFeatureSubmitted(input: {
+    key: string;
+    reference: string;
+    id: string;
+  }): Promise<CommandResult>;
   /** The Authority's judgement sent the line back: `submitted` → `open`, with why, for the next fix. */
   recordFeatureRefusal(input: {
     key: string;
@@ -227,6 +231,7 @@ export function openFeatureCommands(options: {
         // purpose: offered again, it is the same delivery with new content.
         const previous = aggregate.submission;
         aggregate.submission = {
+          id: input.id,
           reference: input.reference,
           submitted_at: previous?.submitted_at ?? now(),
           ...(previous?.refusals === undefined ? {} : { refusals: previous.refusals }),

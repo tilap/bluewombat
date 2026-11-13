@@ -91,7 +91,12 @@ describe("buildDossier", () => {
       subject: feature(),
       tickets: [
         ticket("gh:a/b#2", {
-          submission: { reference: "https://x/pull/2", submitted_at: 1, refusals: 0 },
+          submission: {
+            id: "https://x/pull/2",
+            reference: "https://x/pull/2",
+            submitted_at: 1,
+            refusals: 0,
+          },
         }),
       ],
       journal: stop("gh:a/b#1", "2026-10-25T09:03:33.314Z"),

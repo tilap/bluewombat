@@ -87,7 +87,7 @@ export type WorkLedger = FeatureCommands & {
   startUnit(key: string): Promise<CommandResult>;
   /** The unit passed its Gates: the work is assembled and judged next. */
   markIntegrating(key: string): Promise<CommandResult>;
-  markSubmitted(input: { key: string; reference: string }): Promise<CommandResult>;
+  markSubmitted(input: { key: string; reference: string; id: string }): Promise<CommandResult>;
   recordRefusal(input: { key: string; report: string; refusedBy?: string }): Promise<CommandResult>;
   /** The line moved on while the Submission waited: back to `integrating` to be aligned again. */
   recordRealign(input: { key: string }): Promise<CommandResult>;
@@ -454,6 +454,7 @@ export function openWorkLedger(options: OpenWorkLedgerOptions): WorkLedger {
       // reads the next escalation with a frozen Ticket and no cause.
       const previous = aggregate.submission;
       aggregate.submission = {
+        id: previous?.id ?? input.id,
         reference: previous?.reference ?? input.reference,
         submitted_at: previous?.submitted_at ?? now(),
         refusals: previous?.refusals ?? 0,

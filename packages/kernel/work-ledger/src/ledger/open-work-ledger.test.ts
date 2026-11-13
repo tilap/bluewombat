@@ -160,7 +160,7 @@ describe("openWorkLedger (test-double Port)", () => {
   it("4c. admit of the same fingerprint while submitted leaves the record unchanged", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await toIntegrating(ledger);
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
     const before = await requireAggregate(ledger, "fake:42");
     assert.equal(before.state, "submitted");
 
@@ -523,9 +523,9 @@ describe("a Submission offered again", () => {
   it("keeps why it was sent back", async () => {
     const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
     await toIntegrating(ledger);
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
     await ledger.recordRefusal({ key: "fake:42", report: "still red", refusedBy: "ci-green" });
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
 
     const got = await ledger.get("fake:42");
     assert.ok(got.ok);
@@ -534,13 +534,25 @@ describe("a Submission offered again", () => {
     assert.equal(got.aggregate.submission?.last_report, "still red");
     assert.equal(got.aggregate.submission?.last_refused_by, "ci-green");
   });
+
+  it("keeps the identity it was first given, with its reference", async () => {
+    const ledger = openWorkLedger({ persist: openMemoryPersist(), now: () => 1_000 });
+    await toIntegrating(ledger);
+    await ledger.markSubmitted({ key: "fake:42", reference: "https://h/pull/7", id: "7" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "https://h/pull/8", id: "8" });
+
+    const got = await ledger.get("fake:42");
+    assert.ok(got.ok);
+    assert.equal(got.aggregate.submission?.id, "7");
+    assert.equal(got.aggregate.submission?.reference, "https://h/pull/7");
+  });
 });
 
 describe("recordRealign", () => {
   it("sends a submitted ticket back to integrating, counts it, and keeps the reference", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await toIntegrating(ledger);
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
 
     assert.deepEqual(await ledger.recordRealign({ key: "fake:42" }), { ok: true });
     const aggregate = await requireAggregate(ledger, "fake:42");
@@ -554,9 +566,9 @@ describe("recordRealign", () => {
   it("drops the report of an earlier refusal: it was repaired, and must not be repaired again", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await toIntegrating(ledger);
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
     await ledger.recordRefusal({ key: "fake:42", report: "still red", refusedBy: "ci-green" });
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
     await ledger.recordRealign({ key: "fake:42" });
 
     const aggregate = await requireAggregate(ledger, "fake:42");
@@ -568,9 +580,9 @@ describe("recordRealign", () => {
   it("counts again each time, and the count survives an offer again", async () => {
     const ledger = ledgerAt({ value: 1_000 });
     await toIntegrating(ledger);
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
     await ledger.recordRealign({ key: "fake:42" });
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
     await ledger.recordRealign({ key: "fake:42" });
 
     const aggregate = await requireAggregate(ledger, "fake:42");
@@ -642,7 +654,7 @@ describe("recordParkedRefusal / clearParkedRefusal", () => {
     const ledger = ledgerAt({ value: 1_000 });
     await toIntegrating(ledger);
     await ledger.recordParkedRefusal({ key: "fake:42", report: "stale" });
-    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1" });
+    await ledger.markSubmitted({ key: "fake:42", reference: "ref-1", id: "id-ref-1" });
     await ledger.recordRefusal({ key: "fake:42", report: "fresh", refusedBy: "ci-green" });
     const aggregate = await requireAggregate(ledger, "fake:42");
     assert.equal(aggregate.parked_refusal, undefined);
@@ -787,7 +799,7 @@ describe("Features", () => {
     assert.deepEqual(await ledger.setFeatureSkipFeatureTest({ key: "fake:F1", skip: true }), {
       ok: true,
     });
-    await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "pr-1" });
+    await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "pr-1", id: "id-pr-1" });
     assert.deepEqual(await ledger.setFeatureSkipFeatureTest({ key: "fake:F1", skip: false }), {
       ok: false,
       code: "illegal-transition",
@@ -839,7 +851,7 @@ describe("Features", () => {
     await ledger.admitFeature(intentionOf({ key: "fake:A" }));
     await ledger.admitFeature(intentionOf({ key: "fake:B", blocked_by: ["fake:A"] }));
     await ledger.openFeature({ key: "fake:A", line: "feature/a", tickets: [] });
-    await ledger.markFeatureSubmitted({ key: "fake:A", reference: "pr-1" });
+    await ledger.markFeatureSubmitted({ key: "fake:A", reference: "pr-1", id: "id-pr-1" });
     assert.equal(await ledger.nextFeature("proj"), undefined);
     assert.deepEqual(await ledger.markFeatureDone("fake:A", { reference: "abc" }), { ok: true });
     assert.equal((await ledger.nextFeature("proj"))?.key, "fake:B");
@@ -865,7 +877,7 @@ describe("Features", () => {
     await ledger.admitFeature(intentionOf());
     const illegal = { ok: false, code: "illegal-transition" };
     assert.deepEqual(
-      await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "r" }),
+      await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "r", id: "id-r" }),
       illegal,
     );
     assert.deepEqual(await ledger.markFeatureDone("fake:F1"), illegal);
@@ -882,7 +894,7 @@ describe("Features", () => {
     await ledger.admitFeature(intentionOf());
     await ledger.openFeature({ key: "fake:F1", line: "feature/1", tickets: [] });
     await ledger.admitFeature(intentionOf({ fingerprint: "ffp-2" }));
-    await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "pr-1" });
+    await ledger.markFeatureSubmitted({ key: "fake:F1", reference: "pr-1", id: "id-pr-1" });
     assert.deepEqual(await ledger.escalateFeature({ key: "fake:F1", report: "checks red" }), {
       ok: true,
     });
@@ -956,7 +968,7 @@ describe("Features", () => {
       code: "illegal-transition",
     });
     await ledger.openFeature({ key: "fake:B", line: "feature/b", tickets: [] });
-    await ledger.markFeatureSubmitted({ key: "fake:B", reference: "pr" });
+    await ledger.markFeatureSubmitted({ key: "fake:B", reference: "pr", id: "id-pr" });
     await ledger.markFeatureDone("fake:B");
     assert.deepEqual(await ledger.cancelFeature("fake:B"), {
       ok: false,

@@ -182,7 +182,11 @@ export type SubmissionRequest = {
 };
 
 export type SubmissionResult =
-  | { outcome: "submitted"; reference: string }
+  /**
+   * `id`: the Submission's identity at the Authority, opaque, what every later
+   * question is asked with. `reference`: how a person reaches it, for display only.
+   */
+  | { outcome: "submitted"; reference: string; id: string }
   | { outcome: "refused"; reason: string }
   | { outcome: "unavailable" };
 
@@ -291,11 +295,11 @@ export type TicketTrackerPort = {
    * Whether the line has moved on since the Submission was aligned with it.
    * Asked just before a fold: absent, nothing is checked and the fold goes ahead.
    */
-  behind?(input: { reference: string }): Promise<BehindResult>;
+  behind?(input: { id: string }): Promise<BehindResult>;
   /** Have the Authority fold a Submission the Gates accepted into the line it was offered to. */
-  fold?(input: { reference: string }): Promise<FoldResult>;
+  fold?(input: { id: string }): Promise<FoldResult>;
   /** Take back a Submission whose Ticket was abandoned: close it, and drop the branch it came from. */
-  withdraw?(input: { reference: string }): Promise<void>;
+  withdraw?(input: { id: string }): Promise<void>;
   /** Where a Submission stands, for the ones a human folds. */
-  settled?(input: { reference: string }): Promise<SettledResult>;
+  settled?(input: { id: string }): Promise<SettledResult>;
 };

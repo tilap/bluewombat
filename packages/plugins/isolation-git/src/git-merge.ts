@@ -303,7 +303,14 @@ export async function gitMerge(input: {
     }
 
     const merged = await git(
-      ["merge-tree", "--write-tree", parentCommit.oid, incoming.oid],
+      [
+        "merge-tree",
+        "--write-tree",
+        "--name-only",
+        "--no-messages",
+        parentCommit.oid,
+        incoming.oid,
+      ],
       timed(),
     );
     if (!merged.ok) {
@@ -313,7 +320,7 @@ export async function gitMerge(input: {
       return failRestore({
         ok: false,
         conflict: true,
-        report: "Cannot fold without choosing a side: overlapping independent changes.",
+        report: conflictReport(merged.stdout),
       });
     }
     if (merged.exitCode !== 0) {
@@ -571,4 +578,18 @@ async function ensureIncomingCommit(input: {
     return gitFailed(fetched);
   }
   return { ok: true, oid: input.childCommit };
+}
+
+/**
+ * `merge-tree --name-only` prints the tree's oid, then the paths in conflict
+ * one per line. The report names them: the one who resolves reads it.
+ */
+function conflictReport(stdout: string): string {
+  const paths = stdout
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const head = "Cannot fold without choosing a side: overlapping independent changes";
+  return paths.length === 0 ? `${head}.` : `${head} in: ${paths.join(", ")}.`;
 }

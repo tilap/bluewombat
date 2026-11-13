@@ -97,10 +97,13 @@ export type EscalationRecord = {
 /**
  * What the Authority was given, and what it has sent back so far.
  *
- * `reference` is opaque: the Authority named it, and nothing here reads it.
+ * `reference` is opaque: the Authority named it, and nothing here reads it. It
+ * is how a person reaches the Submission; `id` is what the Authority is asked
+ * about it with.
  * `refusals` counts the times it sent the work back, which is the budget.
  */
 export type SubmissionRecord = {
+  id: string;
   reference: string;
   submitted_at: number;
   refusals: number;
@@ -203,6 +206,7 @@ export type FeatureIntention = {
 };
 
 export type FeatureSubmissionRecord = {
+  id: string;
   reference: string;
   submitted_at: number;
   /** Times the Authority's judgement sent the line back. */

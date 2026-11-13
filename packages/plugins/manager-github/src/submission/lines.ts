@@ -1,6 +1,6 @@
 import type { LineResult, SettledResult } from "@bluewombat/manager-kit";
 import { callSignal, readFailure } from "../github/client.js";
-import { numberFromReference, type SubmissionContext } from "./submission.js";
+import { numberFromId, type SubmissionContext } from "./submission.js";
 
 /**
  * Cut a branch from another: the line a Feature's Tickets land on.
@@ -66,10 +66,10 @@ export async function dropLine(line: string, context: SubmissionContext): Promis
 
 /** Where a pull request stands: merged by whoever merged it, closed without, or still open. */
 export async function settledPullRequest(
-  reference: string,
+  id: string,
   context: SubmissionContext,
 ): Promise<SettledResult> {
-  const number = numberFromReference(reference);
+  const number = numberFromId(id);
   if (number === undefined) {
     return "unavailable";
   }
