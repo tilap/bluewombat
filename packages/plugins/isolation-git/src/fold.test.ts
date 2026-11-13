@@ -118,6 +118,7 @@ describe("isolation-git fold", () => {
       write: () => {},
     });
     assert.equal(result.outcome, "conflict");
+    assert.match(result.report ?? "", /in: a\.txt\./);
     assert.equal(readFileSync(join(parent, "a.txt"), "utf8"), "parent-only");
     assert.equal(hasConflictMarkers(parent), false);
   });

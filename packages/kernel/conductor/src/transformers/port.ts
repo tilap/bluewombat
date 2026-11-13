@@ -129,9 +129,12 @@ export type TransformerPort = {
   implement(input: ImplementInput): Promise<ImplementResult>;
   /**
    * `changed`: whether the fold brought anything in. Absent: not known, and a
-   * caller treats it as changed.
+   * caller treats it as changed. `report`: why it did not fold, when it says (a
+   * conflict names the paths in conflict).
    */
-  integrate(input: IntegrateInput): Promise<{ outcome: IntegrateOutcome; changed?: boolean }>;
+  integrate(
+    input: IntegrateInput,
+  ): Promise<{ outcome: IntegrateOutcome; changed?: boolean; report?: string }>;
 };
 
 /**

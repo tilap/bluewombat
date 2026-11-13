@@ -151,7 +151,8 @@ A **conflict** is when the fold cannot complete without choosing a side.
 
 On git, that is an overlapping independent change on the same path (both sides
 edited it, or the types cannot be combined). Different bytes on a path is not
-by itself a conflict: a change that exists on only one side is applied.
+by itself a conflict: a change that exists on only one side is applied. The
+report of a git conflict names the paths in conflict (`merge-tree --name-only`).
 
 On copy, that is an incompatible type at the same path (file vs directory vs
 symlink). Copy has no third tree, so it cannot see overlapping independent

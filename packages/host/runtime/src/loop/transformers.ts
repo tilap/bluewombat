@@ -424,6 +424,7 @@ export function createTransformers(slots: TransformerSlots): TransformerPort {
       return {
         outcome: result.outcome,
         ...(result.changed === undefined ? {} : { changed: result.changed }),
+        ...(result.report === undefined ? {} : { report: result.report }),
       };
     },
   };
