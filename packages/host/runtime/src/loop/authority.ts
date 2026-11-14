@@ -130,6 +130,8 @@ export async function publish(input: {
   id: string;
   ref: string;
   target: string;
+  /** `line` pushes a Feature's own history as it is; a Ticket's result is the default. */
+  kind?: "ticket" | "line" | undefined;
   timeoutMs: number;
   env?: Record<string, string> | undefined;
 }): Promise<Published> {
@@ -139,7 +141,17 @@ export async function publish(input: {
   }
   const run = await runSlot({
     command,
-    args: [...rest, "--id", input.id, "--ref", input.ref, "--target", input.target],
+    args: [
+      ...rest,
+      "--id",
+      input.id,
+      "--ref",
+      input.ref,
+      "--target",
+      input.target,
+      "--kind",
+      input.kind ?? "ticket",
+    ],
     cwd: input.cwd,
     timeoutMs: input.timeoutMs,
     env: { ...process.env, ...input.env },

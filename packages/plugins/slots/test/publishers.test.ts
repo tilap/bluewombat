@@ -125,4 +125,25 @@ describe("git publisher", () => {
     assert.match(answer.reason ?? "", /Could not publish issue\/1/);
     assert.equal(git(remote, "rev-parse", "issue/1"), theirs);
   });
+
+  it("pushes a Feature's line as it is, a fast-forward of what the remote holds", () => {
+    const { workLine, remote } = setup();
+    git(workLine, "checkout", "-q", "-b", "feature/1");
+    writeFileSync(join(workLine, "one.txt"), "1");
+    commit(workLine, "one");
+    git(workLine, "push", "-q", "origin", "feature/1");
+    const remoteTip = git(remote, "rev-parse", "feature/1");
+    writeFileSync(join(workLine, "two.txt"), "2");
+    commit(workLine, "two");
+
+    const result = spawnSync(
+      process.execPath,
+      [publisher, "--id", "f:1", "--ref", "feature/1", "--target", "main", "--kind", "line"],
+      { cwd: workLine, encoding: "utf8" },
+    );
+
+    assert.equal(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}").ref, "feature/1");
+    assert.equal(git(remote, "rev-parse", "feature/1"), git(workLine, "rev-parse", "feature/1"));
+    assert.equal(git(remote, "merge-base", remoteTip, "feature/1"), remoteTip);
+  });
 });
