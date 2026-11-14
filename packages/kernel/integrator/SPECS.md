@@ -225,15 +225,20 @@ start.
 "What they were" is the Parent's whole tree unless the backend narrows it.
 Before the fold, Integrator copies the Parent's working files aside so it can
 put them back. A backend may offer `snapshotPaths(directory)`: the `/`-separated
-paths, from the root, of the working files a failed fold has to restore. Only
-those are copied, and on a failure only those are put back (what the fold
-created among them is removed). A path the backend leaves out is neither read
-nor restored: listing it is the backend's promise that the fold never writes
-there. A backend without `snapshotPaths`, or one that returns `undefined` for a
-directory it cannot list, gets the whole tree. `@bluewombat/isolation-git` lists
-what git sees (tracked, plus untracked and not ignored), so `node_modules/` and
-build output are not copied; `@bluewombat/isolation-copy` lists nothing and gets
-the whole tree.
+paths, from the root, of the working files it lists for a directory. The set a
+failed fold has to restore is the Parent's list united with the Child's list,
+because the incoming tree is the Child's working tree: those are the only paths
+a fold can write. Only those are copied aside, and on a failure only those are
+put back (what the fold created among them is removed, and so are the
+directories that leaves empty and the Parent did not have). A path in neither
+list is neither read nor restored: leaving it out is the backend's promise that
+the fold never writes there. A listed path that is a directory (a git submodule's
+gitlink) is neither copied nor restored nor removed: a submodule's contents are
+its own repository. A backend without `snapshotPaths`, or one that returns
+`undefined` for either directory, gets the whole Parent. `@bluewombat/isolation-git`
+lists what git sees (tracked, plus untracked and not ignored), so a `node_modules/`
+that only the Parent holds is not copied, while an ignored Parent file the Child
+tracks is; `@bluewombat/isolation-copy` lists nothing and gets the whole tree.
 
 If Integrator began to write and then hit `conflict`, `failed`, or
 `interrupted`, it restores Parent before returning. A leftover merge in
@@ -392,7 +397,7 @@ either what they were at invocation start, or the complete `integrated` result.
 17. `@bluewombat/isolation-copy` → copy inside; a same-type bytes difference is taken from the Child, not `conflict`.
 18. `@bluewombat/isolation-git` and git cannot complete for a reason that is not a merge conflict → `failed`, not a copy, not `conflict`.
 19. The CLI requires `--strategy <specifier>`; `runIntegrator` never chooses a strategy.
-20. A backend with `snapshotPaths` and a fold that fails → Parent's listed working files are as they were, what the fold created among them is gone, and a path the backend left out is not read (an unreadable one does not fail the Integration).
+20. A backend with `snapshotPaths` and a fold that fails → the Parent's working files listed for the Parent or the Child are as they were (an ignored Parent file the Child holds included), what the fold created among them is gone with the directories it created, a path in neither list is not read (an unreadable one does not fail the Integration), and a listed directory path (a gitlink) is not touched.
 21. A backend without `snapshotPaths`, or whose `snapshotPaths` returns `undefined` → the whole Parent is restored.
 22. `@bluewombat/isolation-git` and a `conflict` with an ignored `node_modules/` in Parent → Parent restored; the ignored directory is not read and is still there.
 

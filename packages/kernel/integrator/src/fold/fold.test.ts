@@ -163,6 +163,75 @@ describe("fold: snapshotPaths", () => {
     assert.equal(readFileSync(join(parent, "node_modules/dep.js"), "utf8"), "dep");
   });
 
+  it("restores a file the Parent hides from the list and the Child holds", async () => {
+    const parent = parentWith({ "a.txt": "a", "ignored.txt": "parent bytes" });
+    const child = parentWith({ "a.txt": "a", "ignored.txt": "child bytes" });
+    // The Parent's list leaves out `ignored.txt` (git: ignored there); the Child's holds it.
+    const result = await fold({
+      parent,
+      child,
+      backend: {
+        snapshotPaths: async (directory) =>
+          withoutNodeModules(directory).filter(
+            (path) => directory !== parent || path !== "ignored.txt",
+          ),
+        async fold() {
+          writeFileSync(join(parent, "ignored.txt"), "child bytes");
+          return GAVE_UP;
+        },
+      },
+      deadlineMs: Date.now() + 30_000,
+      now: Date.now,
+      shouldInterrupt: () => false,
+    });
+    assert.deepEqual(result, GAVE_UP);
+    assert.equal(readFileSync(join(parent, "ignored.txt"), "utf8"), "parent bytes");
+  });
+
+  it("removes the directories the fold created, and keeps the ones that were there", async () => {
+    const parent = parentWith({ "a.txt": "a", "kept/inside.txt": "x" });
+    const child = parentWith({ "a.txt": "a", "kept/new.txt": "n", "made/deep/c.txt": "c" });
+    mkdirSync(join(parent, "unrelated/empty"), { recursive: true });
+    const result = await fold({
+      parent,
+      child,
+      backend: {
+        snapshotPaths: async (directory) => withoutNodeModules(directory),
+        async fold() {
+          mkdirSync(join(parent, "made/deep"), { recursive: true });
+          writeFileSync(join(parent, "made/deep/c.txt"), "c");
+          writeFileSync(join(parent, "kept/new.txt"), "n");
+          return GAVE_UP;
+        },
+      },
+      deadlineMs: Date.now() + 30_000,
+      now: Date.now,
+      shouldInterrupt: () => false,
+    });
+    assert.deepEqual(result, GAVE_UP);
+    assert.equal(existsSync(join(parent, "made")), false);
+    assert.equal(existsSync(join(parent, "kept/new.txt")), false);
+    assert.equal(readFileSync(join(parent, "kept/inside.txt"), "utf8"), "x");
+    // Not above a listed path: out of scope, left alone.
+    assert.equal(existsSync(join(parent, "unrelated/empty")), true);
+  });
+
+  it("leaves a listed directory path (a submodule) as the fold left it", async () => {
+    const parent = parentWith({ "a.txt": "a", "sub/inner.txt": "inner" });
+    const result = await run(parent, {
+      // `sub` is listed as a path, as git lists a submodule's gitlink.
+      snapshotPaths: async () => ["a.txt", "sub"],
+      async fold() {
+        writeFileSync(join(parent, "a.txt"), "changed by the fold");
+        writeFileSync(join(parent, "sub/inner.txt"), "its own repository");
+        return GAVE_UP;
+      },
+    });
+    assert.deepEqual(result, GAVE_UP);
+    assert.equal(readFileSync(join(parent, "a.txt"), "utf8"), "a");
+    assert.equal(readFileSync(join(parent, "sub/inner.txt"), "utf8"), "its own repository");
+  });
+
   it("keeps the fold's result when it completes", async () => {
     const parent = parentWith({ "a.txt": "a", "src/b.txt": "b", "node_modules/dep.js": "dep" });
     const result = await run(
