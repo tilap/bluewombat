@@ -970,6 +970,7 @@ async function closeFeature(
     id: key,
     ref: feature.line,
     target,
+    kind: "line",
     timeoutMs: input.options.timeoutMs,
     env: input.workLine.env,
   });

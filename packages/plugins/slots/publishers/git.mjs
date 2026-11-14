@@ -32,7 +32,11 @@ import {
 // this slot was told. An option that publishes to one remote while the refresh
 // reads another is a trap, so it waits for that half to become a slot too.
 //
-// Runs in the work line. mason appends --id, --ref and --target.
+// A Feature's line is not a Ticket's result: it is a history the Authority built
+// by folding Tickets into it, already on the remote, and it is pushed as it is,
+// a fast-forward of what the remote holds. mason says so with `--kind line`.
+//
+// Runs in the work line. mason appends --id, --ref, --target and --kind.
 
 const cwd = process.cwd();
 const tokens = ownArgv(process.argv, PUBLISHER_FLAGS);
@@ -83,6 +87,16 @@ function refuse(what, done) {
   emitPublishRefusal(
     `Could not publish ${ref}: ${what}${done === undefined ? "" : `: ${text(done)}`}`,
   );
+  process.exit(0);
+}
+
+const kind = take(process.argv, "--kind") ?? "ticket";
+if (kind === "line") {
+  const pushedLine = run("push", remote, `refs/heads/${ref}:refs/heads/${ref}`);
+  if (pushedLine.status !== 0) {
+    refuse("the push was refused", pushedLine);
+  }
+  emitPublication(ref);
   process.exit(0);
 }
 

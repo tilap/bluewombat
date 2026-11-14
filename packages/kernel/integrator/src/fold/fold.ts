@@ -30,7 +30,16 @@ export async function fold(input: {
 }): Promise<FoldResult> {
   const { parent, child, backend, id, subject, mergeSubject, deadlineMs, now, shouldInterrupt } =
     input;
-  const saved = await backend.snapshotPaths?.(parent);
+  // The incoming tree is the Child's working tree, so a fold can write a Parent
+  // path only if the Parent or the Child lists it.
+  const listed = async (): Promise<readonly string[] | undefined> => {
+    const own = await backend.snapshotPaths?.(parent);
+    const incoming = own === undefined ? undefined : await backend.snapshotPaths?.(child);
+    return own === undefined || incoming === undefined
+      ? undefined
+      : [...new Set([...own, ...incoming])];
+  };
+  const saved = await listed();
   const backup = await snapshotWorkingFiles(parent, saved);
 
   const shouldStop = (): FoldStop | undefined => {
@@ -45,7 +54,7 @@ export async function fold(input: {
 
   const fail = async (result: FoldResult): Promise<FoldResult> => {
     // What is in scope now includes what the fold created.
-    const current = saved === undefined ? undefined : await backend.snapshotPaths?.(parent);
+    const current = saved === undefined ? undefined : await listed();
     await restoreWorkingFiles(parent, backup, saved, current);
     await removeSnapshot(backup);
     return result;
