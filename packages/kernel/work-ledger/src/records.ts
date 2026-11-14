@@ -208,6 +208,7 @@ export type FeatureIntention = {
 export type FeatureSubmissionRecord = {
   id: string;
   reference: string;
+  /** When the line was last offered to the Authority, in the ledger's clock. */
   submitted_at: number;
   /** Times the Authority's judgement sent the line back. */
   refusals?: number;

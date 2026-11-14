@@ -132,12 +132,28 @@ describe("feature", () => {
         fix,
         maxRefusals: 2,
         maxAttempts: 4,
+        settledTimeoutMs: 60_000,
       },
     });
     assert.equal(loaded.ok, true);
     if (loaded.ok) {
       assert.equal(loaded.invocation.feature?.gates[0]?.id, "check");
       assert.equal(loaded.invocation.feature?.maxRefusals, 2);
+      assert.equal(loaded.invocation.feature?.settledTimeoutMs, 60_000);
+    }
+  });
+
+  it("refuses a settledTimeoutMs that is not a positive integer", () => {
+    for (const settledTimeoutMs of [0, -1, 1.5, "soon"]) {
+      const loaded = load({
+        featureTracker: side,
+        ticketTracker: side,
+        feature: { validate, gates: { gates: [gate] }, fix, settledTimeoutMs },
+      });
+      assert.equal(loaded.ok, false);
+      if (!loaded.ok) {
+        assert.match(loaded.reason, /feature\.settledTimeoutMs/);
+      }
     }
   });
 

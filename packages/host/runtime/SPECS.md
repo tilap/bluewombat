@@ -137,8 +137,12 @@ advanced (`advanceProject`):
    `settled` says `folded` (done) or `closed` (escalated). With
    `merge-when-ready` the assembly judgement runs on the line and the Authority
    folds it. No other Feature opens on the Project meanwhile.
-4. A Feature whose Tickets are all blocked escalates; one that cannot be
-   settled because the Authority lacks `settled` waits.
+   A Submission whose `settled` answers `unavailable` (no answer, or the manager
+   has no `settled`) for longer than `feature.settledTimeoutMs`, counted from the
+   Submission's `submitted_at` (default 4 hours), escalates the Feature as
+   `submitted`; a Submission `settled` says is `open` waits for its reviewer
+   however long.
+4. A Feature whose Tickets are all blocked escalates.
 
 The Feature's own work (`.mason/feature-workspaces/<feature>`) is cut from its
 line once, when it is closed, and a pass that sent it to the fix finds it where

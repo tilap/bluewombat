@@ -1065,11 +1065,15 @@ async function takeInLine(
   }
 }
 
+/** How long a Submission's state may stay unreadable before its Feature escalates. */
+const DEFAULT_SETTLED_TIMEOUT_MS = 4 * 60 * 60 * 1000;
+
 /**
  * The line is with the Authority. If the Feature merges by itself, its gates
  * decide, and a line the target moved on from goes back to be brought up to
  * date, exactly as a Ticket does; otherwise a human folds it and the system
- * waits, starting nothing.
+ * waits, starting nothing. A wait on a Submission whose state cannot be read
+ * ends in an escalation after `feature.settledTimeoutMs`.
  */
 async function settleFeature(input: HostDeliveryInput, feature: FeatureAggregate): Promise<void> {
   const submission = feature.submission;
@@ -1089,6 +1093,16 @@ async function settleFeature(input: HostDeliveryInput, feature: FeatureAggregate
         `The Submission ${submission.reference} was closed without being folded.`,
         { kind: "submitted" },
       );
+    } else if (settled === "unavailable") {
+      const limit = input.options.feature?.settledTimeoutMs ?? DEFAULT_SETTLED_TIMEOUT_MS;
+      if (Date.now() - submission.submitted_at > limit) {
+        await escalateFeature(
+          input,
+          feature,
+          `The state of the Submission ${submission.reference} could not be read for over ${Math.round(limit / 60_000)} minutes. Merge or close it, then resume the Feature.`,
+          { kind: "submitted" },
+        );
+      }
     }
     return;
   }

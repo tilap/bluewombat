@@ -120,6 +120,8 @@ type Stub = {
   foldsLocally: boolean;
   /** Without a TicketTracker. */
   featuresOnly: boolean;
+  /** A manager whose Submissions cannot be asked about. */
+  noSettled: boolean;
   onListen?: () => void;
 };
 
@@ -143,6 +145,7 @@ function stubManager(over: Partial<Stub> = {}): Stub {
     probes: [],
     foldsLocally: false,
     featuresOnly: false,
+    noSettled: false,
     ...over,
     module: {
       createManager() {
@@ -257,7 +260,9 @@ function stubManager(over: Partial<Stub> = {}): Stub {
             stub.folds.push(input.id);
             return stub.foldAnswer;
           };
-          tickets.settled = async () => stub.settledAnswers.shift() ?? "open";
+          if (!stub.noSettled) {
+            tickets.settled = async () => stub.settledAnswers.shift() ?? "open";
+          }
           tickets.behind = async (input) =>
             stub.behind[input.id]?.shift() ?? { outcome: "current" };
         }
@@ -493,6 +498,107 @@ describe("host with an Authority", () => {
     assert.deepEqual(stub.lines, [LINE, "feature/F2"]);
     const opened = await host.ledger.getFeature("stub:F2");
     assert.equal(opened.ok && opened.aggregate.state, "open");
+  });
+
+  describe("a submitted Feature whose Submission's state cannot be read", () => {
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const withTimeout = (paths: Paths, stub: Stub, settledTimeoutMs: number) => {
+      const base = optionsFor(paths, stub);
+      return {
+        ...base,
+        feature: { ...(base.feature as NonNullable<HostOptions["feature"]>), settledTimeoutMs },
+      };
+    };
+    const F2_PAYLOAD = featurePayload("F2", { priority: 10 }, [{ id: "43" }]);
+
+    it("keeps waiting while the delay has not passed", async () => {
+      const paths = sandbox();
+      const stub = stubManager({
+        deliveries: [
+          { cursor: "1", payload: featurePayload("F1", { priority: 70 }, [{ id: "42" }]) },
+          { cursor: "2", payload: F2_PAYLOAD },
+        ],
+        settledAnswers: ["unavailable", "unavailable"],
+      });
+      const host = await openHost(withTimeout(paths, stub, 3_600_000));
+      await host.runOnce();
+      await host.runOnce();
+      assert.deepEqual((await host.runOnce()).reported, []);
+      const held = await host.ledger.getFeature(FEATURE);
+      assert.equal(held.ok && held.aggregate.state, "submitted");
+    });
+
+    it("escalates the Feature as submitted once the delay has passed", async () => {
+      const paths = sandbox();
+      const stub = stubManager({
+        deliveries: [
+          { cursor: "1", payload: featurePayload("F1", { priority: 70 }, [{ id: "42" }]) },
+          { cursor: "2", payload: F2_PAYLOAD },
+        ],
+        settledAnswers: ["unavailable", "unavailable"],
+      });
+      const host = await openHost(withTimeout(paths, stub, 20));
+      await host.runOnce();
+      await host.runOnce();
+      await sleep(60);
+      assert.deepEqual((await host.runOnce()).reported, ["escalated"]);
+      const escalated = await host.ledger.getFeature(FEATURE);
+      assert.equal(escalated.ok && escalated.aggregate.state, "escalated");
+      assert.equal(escalated.ok && escalated.aggregate.escalation?.kind, "submitted");
+      const report = stub.reports.find((r) => r.key === FEATURE && r.event === "escalated");
+      assert.equal(report?.fields.stage, "submitting");
+      assert.match(String(report?.fields.reason), new RegExp(LINE_PR));
+      assert.match(String(report?.fields.reason), /could not be read/);
+    });
+
+    it("treats a manager with no settled as unavailable", async () => {
+      const paths = sandbox();
+      const stub = stubManager({
+        deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }]) }],
+        noSettled: true,
+      });
+      const host = await openHost(withTimeout(paths, stub, 20));
+      await host.runOnce();
+      await host.runOnce();
+      await sleep(60);
+      assert.deepEqual((await host.runOnce()).reported, ["escalated"]);
+    });
+
+    it("waits a full delay again after a person resumes the escalated Feature", async () => {
+      const paths = sandbox();
+      const stub = stubManager({
+        deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }]) }],
+        settledAnswers: Array.from({ length: 20 }, () => "unavailable" as const),
+      });
+      const host = await openHost(withTimeout(paths, stub, 400));
+      await host.runOnce();
+      await host.runOnce();
+      await sleep(500);
+      assert.deepEqual((await host.runOnce()).reported, ["escalated"]);
+
+      stub.deliveries.push({ cursor: "2", payload: featurePayload("F1", { kind: "resume" }) });
+      assert.ok((await host.runOnce()).reported.includes("resumed"));
+      const resubmitted = await host.ledger.getFeature(FEATURE);
+      assert.equal(resubmitted.ok && resubmitted.aggregate.state, "submitted");
+      assert.deepEqual((await host.runOnce()).reported, []);
+      await sleep(500);
+      assert.deepEqual((await host.runOnce()).reported, ["escalated"]);
+    });
+
+    it("does not escalate a Submission the tracker says is open", async () => {
+      const paths = sandbox();
+      const stub = stubManager({
+        deliveries: [{ cursor: "1", payload: featurePayload("F1", {}, [{ id: "42" }]) }],
+        settledAnswers: ["open", "open"],
+      });
+      const host = await openHost(withTimeout(paths, stub, 20));
+      await host.runOnce();
+      await host.runOnce();
+      await sleep(60);
+      assert.deepEqual((await host.runOnce()).reported, []);
+      const held = await host.ledger.getFeature(FEATURE);
+      assert.equal(held.ok && held.aggregate.state, "submitted");
+    });
   });
 
   it("folds the line itself when the Feature says it may, once the checks agree", async () => {

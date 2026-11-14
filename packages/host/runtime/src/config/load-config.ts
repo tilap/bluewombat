@@ -65,6 +65,7 @@ const FEATURE_KEYS = new Set([
   "test",
   "maxAttempts",
   "maxRefusals",
+  "settledTimeoutMs",
   "fix",
   "validate",
   "gates",
@@ -1061,7 +1062,7 @@ function readFeature(
     return gates;
   }
   const spec: FeatureSpec = { fix: fix.value, validate: validate.value, gates: gates.value };
-  for (const key of ["maxAttempts", "maxRefusals"] as const) {
+  for (const key of ["maxAttempts", "maxRefusals", "settledTimeoutMs"] as const) {
     const read = positiveIntField(object, key);
     if (read.ok === false) {
       return { ok: false, reason: `Config "feature.${key}" must be a positive integer.` };
