@@ -1,6 +1,16 @@
-import { copyFile, lstat, mkdir, mkdtemp, readdir, readlink, rm, symlink } from "node:fs/promises";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readlink,
+  rm,
+  rmdir,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 
 export type FoldStop = "clock" | "interrupt";
 
@@ -119,7 +129,10 @@ export async function snapshotWorkingFiles(
  * Put `directory` back as the snapshot found it. Given `saved` (the paths the
  * snapshot was limited to), only working files in scope are touched: those
  * listed now (`current`, which includes what the fold created) are removed,
- * then `saved` is copied back. Whatever the backend left out is not touched.
+ * the directories that leaves empty and the snapshot does not have are
+ * removed, then `saved` is copied back. Whatever the backend left out is not
+ * touched. A path that is a directory (a submodule) is neither removed nor
+ * copied back.
  */
 export async function restoreWorkingFiles(
   directory: string,
@@ -128,9 +141,13 @@ export async function restoreWorkingFiles(
   current?: readonly string[],
 ): Promise<void> {
   if (saved !== undefined) {
-    for (const path of current ?? saved) {
-      await rm(join(directory, path), { recursive: true, force: true });
+    const listed = current ?? saved;
+    for (const path of listed) {
+      if ((await pathKind(join(directory, path))) !== "directory") {
+        await rm(join(directory, path), { force: true });
+      }
     }
+    await removeCreatedDirectories(directory, backup, listed);
     await copyPaths(backup, directory, saved);
     return;
   }
@@ -141,6 +158,37 @@ export async function restoreWorkingFiles(
     skipGitAtRoot: true,
     shouldStop: () => undefined,
   });
+}
+
+/**
+ * Remove the directories above `paths` that are empty and not in `backup`,
+ * deepest first. Only ancestors of listed paths are candidates.
+ */
+async function removeCreatedDirectories(
+  directory: string,
+  backup: string,
+  paths: readonly string[],
+): Promise<void> {
+  const candidates = new Set<string>();
+  for (const path of paths) {
+    const parts = path.split("/").slice(0, -1);
+    for (let depth = parts.length; depth > 0; depth--) {
+      candidates.add(parts.slice(0, depth).join(sep));
+    }
+  }
+  const deepestFirst = [...candidates].sort((a, b) => b.split(sep).length - a.split(sep).length);
+  for (const relative of deepestFirst) {
+    const path = join(directory, relative);
+    if (
+      (await pathKind(path)) !== "directory" ||
+      (await pathKind(join(backup, relative))) === "directory"
+    ) {
+      continue;
+    }
+    if ((await readdir(path)).length === 0) {
+      await rmdir(path);
+    }
+  }
 }
 
 /**

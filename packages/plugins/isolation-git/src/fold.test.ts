@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { runIntegrator } from "@bluewombat/integrator";
+import { type FoldBackend, runIntegrator } from "@bluewombat/integrator";
 import { clearRunEnv, setRunEnv, strategy } from "./index.js";
 
 function sandbox(): string {
@@ -448,7 +448,47 @@ describe("isolation-git fold: snapshotPaths", () => {
       chmodSync(locked, 0o644);
     }
   });
+
+  it("a fold that fails after the merge wrote restores an ignored Parent file the Child tracks", async () => {
+    const { parent, child } = gitPair({ ".gitignore": "generated.txt\n", "a.txt": "base" });
+    writeFileSync(join(parent, "generated.txt"), "parent bytes");
+    writeFileSync(join(child, "generated.txt"), "child bytes");
+    execFileSync("git", ["add", "-f", "generated.txt"], { cwd: child });
+    writeFileSync(join(child, "a.txt"), "child-only");
+    const result = await runIntegrator({
+      backend: failingAfterTheMerge(),
+      invocation: { id: "feat-1", parent, child, durationMs: 30_000 },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "failed");
+    assert.equal(readFileSync(join(parent, "a.txt"), "utf8"), "base");
+    assert.equal(readFileSync(join(parent, "generated.txt"), "utf8"), "parent bytes");
+  });
+
+  it("a fold that fails after the merge wrote removes the directory it created", async () => {
+    const { parent, child } = gitPair({ "a.txt": "base" });
+    writeTree(child, { "made/deep/c.txt": "c" });
+    const result = await runIntegrator({
+      backend: failingAfterTheMerge(),
+      invocation: { id: "feat-1", parent, child, durationMs: 30_000 },
+      write: () => {},
+    });
+    assert.equal(result.outcome, "failed");
+    assert.equal(existsSync(join(parent, "made")), false);
+  });
 });
+
+/** The git fold, then a failure once the merge has written the Parent's working files. */
+function failingAfterTheMerge(): FoldBackend {
+  return {
+    ...strategy.fold,
+    async fold(input) {
+      const merged = await strategy.fold.fold(input);
+      assert.equal(merged.ok, true);
+      return { ok: false, detail: "failed after the merge" };
+    },
+  };
+}
 
 function gitLog(directory: string): string[] {
   return execFileSync("git", ["log", "--format=%s"], { cwd: directory, encoding: "utf8" })

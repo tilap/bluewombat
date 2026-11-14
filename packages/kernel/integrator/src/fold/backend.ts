@@ -16,11 +16,13 @@ export type FoldBackendResult =
  */
 export type FoldBackend = {
   /**
-   * The working files of `directory` a failed fold has to put back, as
-   * `/`-separated paths from its root. Absent, or `undefined` for a directory
-   * the backend cannot list: all of them. A backend that never writes a path
-   * (git never writes one it ignores) leaves it out, and the snapshot never
-   * copies it.
+   * The working files of `directory` a failed fold may have to put back, as
+   * `/`-separated paths from its root. Integrator asks for the Parent and for
+   * the Child and restores the union: the incoming tree is the Child's working
+   * tree, so a fold writes only paths one of them lists. Absent, or `undefined`
+   * for either directory the backend cannot list: all of the Parent. A path in
+   * neither list is never copied. A listed path that is a directory (a
+   * submodule) is neither copied nor restored.
    */
   snapshotPaths?(directory: string): Promise<readonly string[] | undefined>;
   fold(input: {

@@ -73,11 +73,13 @@ not committed (`git rm --cached`) counts, and the directory's index is never
 written to.
 
 The same set is what a failed fold puts back. `gitFold` offers the kernel
-`snapshotPaths`, git's own list (tracked, plus untracked and not ignored), so
-the Integrator copies a few hundred files instead of every file of a workspace
-that holds `node_modules/`, and a merge that never writes an ignored path has
-nothing to restore there. Where git cannot list the directory, the kernel copies
-everything.
+`snapshotPaths`, git's own list (tracked, plus untracked and not ignored), and
+the Integrator restores the Parent's list united with the Child's: the merge
+writes the Child's working tree, so an ignored Parent file the Child tracks is
+restored too. It copies a few hundred files instead of every file of a workspace
+that holds `node_modules/`, and an ignored path neither side lists has nothing to
+restore. A submodule's gitlink is not restored. Where git cannot list the
+directory, the kernel copies everything.
 
 ## The reference, and who the system is
 
