@@ -228,12 +228,14 @@ export function openFeatureCommands(options: {
       return await transition(input.key, ["open"], (aggregate) => {
         aggregate.state = "submitted";
         // Rebuilt field by field so what was spent on the line is carried on
-        // purpose: offered again, it is the same delivery with new content.
+        // purpose: offered again, it is the same delivery with new content. The
+        // wait for the Authority starts over, so `submitted_at` is when it was
+        // last offered.
         const previous = aggregate.submission;
         aggregate.submission = {
           id: input.id,
           reference: input.reference,
-          submitted_at: previous?.submitted_at ?? now(),
+          submitted_at: now(),
           ...(previous?.refusals === undefined ? {} : { refusals: previous.refusals }),
           ...(previous?.realigns === undefined ? {} : { realigns: previous.realigns }),
           ...(previous?.last_report === undefined ? {} : { last_report: previous.last_report }),

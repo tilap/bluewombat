@@ -263,6 +263,13 @@ export type FeatureSpec = {
    */
   maxRefusals?: number;
   /**
+   * How long a submitted Feature waits while the manager cannot say whether its
+   * Submission was folded (no answer, or no `settled`), before it escalates so
+   * a person looks. A Submission the tracker says is still open waits for its
+   * reviewer, however long. Milliseconds; default 14400000 (4 hours).
+   */
+  settledTimeoutMs?: number;
+  /**
    * A local, read-only review of the whole line against the Feature's request,
    * once the target has been merged into it, before the line is published. Its
    * `gates` are where the project's own checks on the whole line run (typecheck,
