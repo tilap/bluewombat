@@ -642,7 +642,8 @@ the folder (`sensitive-path feature-tests/**` in `feature.fix.gates`) would read
 
 The slot that puts an assembled ticket where the Authority can read it. It runs
 **in the work line**, and mason appends `--id`, `--ref` — the name Isolator gave
-the ticket — and `--target`, the work line it is offered to.
+the ticket — `--target`, the work line it is offered to, and `--kind` (`ticket`, or
+`line` for a Feature's own line).
 
 `git.mjs` pushes the Ticket's result to the work line's own remote under that
 name: one commit, made from the branch's tree on top of the work line's tip
@@ -653,6 +654,10 @@ it published (`refs/published/<ref>`) and a resubmission continues it, so the
 push stays a fast-forward; the same tree on the same line publishes nothing new.
 A plain push, no force of any kind: a rejection means the name moved under us,
 which is the one case worth refusing rather than overwriting.
+
+With `--kind line`, which Host passes when a Feature closes, the ref is pushed as
+it is: a Feature's line is the history the Authority built by folding Tickets
+into it, already on the remote, so the push is a fast-forward of it.
 
 It takes no option, and the remote is `origin`. After the Authority folds, Host
 reads the work line back from `origin` on its own, with no way to learn what this

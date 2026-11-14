@@ -26,7 +26,12 @@ export const BUILDER_FLAGS: ReadonlySet<string> = new Set([
   "--context",
 ]);
 
-export const PUBLISHER_FLAGS: ReadonlySet<string> = new Set(["--id", "--ref", "--target"]);
+export const PUBLISHER_FLAGS: ReadonlySet<string> = new Set([
+  "--id",
+  "--ref",
+  "--target",
+  "--kind",
+]);
 
 export const REFRESHER_FLAGS: ReadonlySet<string> = new Set(["--target", "--base"]);
 
